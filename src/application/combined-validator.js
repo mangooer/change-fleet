@@ -1,0 +1,115 @@
+import { mkdir, readFile } from "node:fs/promises";
+import path from "node:path";
+
+import { canonicalize, sha256 } from "../domain/canonical-json.js";
+import { ChangeFleetError } from "../domain/errors.js";
+import { candidateIdentity } from "../domain/model.js";
+import { writeJsonFileAtomic } from "../adapters/filesystem/atomic-json-file.js";
+import { runCommand } from "../adapters/filesystem/command-runner.js";
+
+// 联合验证绑定精确 Candidate 集合；工作区路径只用于调用定位，不进入主体哈希。
+export class CombinedValidator {
+  constructor({
+    controlRoot,
+    repositoryWorker,
+    evidenceStore,
+    clock = () => new Date(),
+  }) {
+    this.validationsRoot = path.join(
+      path.resolve(controlRoot),
+      "validations",
+    );
+    this.repositoryWorker = repositoryWorker;
+    this.evidenceStore = evidenceStore;
+    this.clock = clock;
+  }
+
+  async validate({ subject, candidates, repositories, command }) {
+    const validationDirectory = path.join(
+      this.validationsRoot,
+      subject.validation_subject_hash,
+    );
+    await mkdir(validationDirectory, { recursive: true });
+    for (const candidate of candidates) {
+      await this.repositoryWorker.preflightCandidate({
+        repository: repositories[candidate.repository_id],
+        candidate,
+      });
+    }
+
+    const manifest = {
+      schema_version: 1,
+      change_set_id: subject.change_set_id,
+      plan_revision: subject.plan_revision,
+      validation_subject_hash: subject.validation_subject_hash,
+      candidates: candidates
+        .map((candidate) => ({
+          ...candidateIdentity(candidate),
+          workspace_path: candidate.workspace_path,
+        }))
+        .sort((left, right) =>
+          left.repository_id.localeCompare(right.repository_id),
+        ),
+    };
+    const manifestPath = path.join(validationDirectory, "manifest.json");
+    await writeJsonFileAtomic(manifestPath, manifest);
+    const manifestBytes = await readFile(manifestPath);
+    const commandResult = await runCommand(command, {
+      cwd: validationDirectory,
+      environment: {
+        CHANGEFLEET_VALIDATION_MANIFEST: manifestPath,
+      },
+    });
+
+    // 即使命令返回成功，也必须复检所有工作区，任何修改都会使整体验证失败。
+    let postflightError = null;
+    for (const candidate of candidates) {
+      try {
+        await this.repositoryWorker.preflightCandidate({
+          repository: repositories[candidate.repository_id],
+          candidate,
+        });
+      } catch (error) {
+        postflightError ??= error;
+      }
+    }
+
+    const evidence = await this.evidenceStore.record({
+      kind: "combined_validation",
+      subject: {
+        validation_subject_hash: subject.validation_subject_hash,
+      },
+      payload: {
+        manifest_hash: sha256(manifestBytes),
+        manifest: canonicalize(manifest),
+        command: commandResult,
+        postflight: postflightError
+          ? {
+              status: "failed",
+              code: postflightError.code,
+              message: postflightError.message,
+            }
+          : { status: "passed" },
+      },
+      createdAt: this.clock().toISOString(),
+    });
+
+    if (
+      commandResult.exit_code !== 0 ||
+      commandResult.timed_out ||
+      commandResult.output_overflow ||
+      postflightError
+    ) {
+      throw new ChangeFleetError(
+        "COMBINED_VALIDATION_FAILED",
+        "Combined validation did not pass for the exact Candidate set",
+        {
+          evidence,
+          command_result: commandResult,
+          postflight_error: postflightError?.code,
+        },
+      );
+    }
+    return evidence;
+  }
+}

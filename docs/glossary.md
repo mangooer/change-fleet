@@ -1,0 +1,98 @@
+# Glossary
+
+## AgentProfile
+
+A stable ChangeFleet reference that a Runtime adapter resolves into provider-native model,
+reasoning, capability, and optional Skill settings. It is not a universal model catalog.
+
+## Candidate
+
+An immutable result in one repository, identified by Repository id, target ref, base SHA, and
+candidate SHA.
+
+## CandidateBundle
+
+An immutable manifest of the exact repository Candidates, validation evidence, missing boundaries,
+and plan revision reviewed as one ChangeSet result.
+
+## ChangeIntent
+
+The confirmed task-specific objective, constraints, acceptance criteria, decisions, and open
+questions. It describes what and why, not the complete implementation method.
+
+## ChangePlan
+
+A versioned, code-informed proposal describing affected repositories, WorkUnits, dependencies,
+validation, delivery, and risks.
+
+## ChangeSet
+
+The aggregate root for one coherent business change across planning, execution, review, and
+delivery preparation.
+
+## Control Contract
+
+A compact, versioned machine contract for one managed Run defining authorization, exact identity,
+allowed typed outcomes, evidence reporting, cancellation, and human gates.
+
+## DeliveryTarget
+
+The intended repository destination ref or external PR subject for one Candidate.
+
+## Development WorkItem
+
+A repository Harness artifact authorizing and tracking durable implementation work in the
+ChangeFleet repository itself. It is not a product Runtime `WorkUnit`.
+
+## Harness
+
+Long-lived repository-native instructions, skills, architecture references, and verification
+guidance used by an Agent Runtime. Harness is not per-task discussion history.
+
+## Locator
+
+A host-specific way to find or materialize a Repository. The first locator is a local filesystem
+path. A Git URL may be added later.
+
+## Portfolio
+
+One ChangeFleet control environment containing registered Projects, Repositories, ChangeSets, Runs,
+and decisions.
+
+## Project
+
+A logical product, business system, or bounded code domain containing explicitly registered
+Repository bindings.
+
+## Repository
+
+A stable logical identity for one Git repository. It is not synonymous with Project.
+
+## Repository Design Proposal
+
+A chronological design-governance artifact used to evolve the ChangeFleet repository. It is not a
+ChangeFleet Runtime output and is not written into registered repositories.
+
+## RepositoryWorker
+
+The adapter that materializes one repository workspace, invokes an Agent Runtime for one WorkUnit,
+and publishes one exact Candidate.
+
+## Run
+
+One bounded Agent Runtime or deterministic operation with its own events, deadline, outcome, and
+evidence.
+
+## Run Context Projection
+
+A rebuildable current view generated for one planning, execution, review, or recovery operation. It
+contains the relevant current plan slice and references durable history rather than replaying it.
+
+## Scope Expansion
+
+A typed proposal to add a Repository, target, or material responsibility not authorized by the
+current ChangePlan.
+
+## WorkUnit
+
+One repository-scoped execution unit within a ChangeSet.

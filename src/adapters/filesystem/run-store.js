@@ -1,0 +1,131 @@
+import { createHash, randomUUID } from "node:crypto";
+import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import path from "node:path";
+
+import { canonicalStringify } from "../../domain/canonical-json.js";
+import { invariant } from "../../domain/errors.js";
+import { readJsonFile, writeJsonFileAtomic } from "./atomic-json-file.js";
+
+// RunStore 保存一次 Runtime 尝试及有界事件流，ChangeSet 中只保留 Run 引用。
+const INLINE_STRING_BYTES = 8 * 1024;
+const MAX_EVENT_BYTES = 64 * 1024;
+
+export class RunStore {
+  constructor(controlRoot) {
+    this.runsRoot = path.join(path.resolve(controlRoot), "runs");
+  }
+
+  async initialize() {
+    await mkdir(this.runsRoot, { recursive: true });
+  }
+
+  async create(run) {
+    const runDirectory = this.runDirectory(run.run_id);
+    await mkdir(path.join(runDirectory, "artifacts"), { recursive: true });
+    const existing = await readJsonFile(this.runPath(run.run_id), {
+      allowMissing: true,
+    });
+    invariant(
+      !existing,
+      "RUN_ALREADY_EXISTS",
+      `Run ${run.run_id} already exists`,
+    );
+    await writeJsonFileAtomic(this.runPath(run.run_id), run);
+    await this.appendEvent(run.run_id, {
+      event_id: randomUUID(),
+      type: "run.created",
+      at: run.created_at,
+      payload: {
+        operation: run.operation,
+        attempt: run.attempt,
+      },
+    });
+  }
+
+  async read(runId) {
+    return readJsonFile(this.runPath(runId));
+  }
+
+  async update(runId, mutator) {
+    const run = await this.read(runId);
+    const result = await mutator(run);
+    await writeJsonFileAtomic(this.runPath(runId), run);
+    return result;
+  }
+
+  async appendEvent(runId, event) {
+    // 超大字符串先外置，保证单行 JSONL 不会无限挤占恢复和审计开销。
+    const normalized = await this.externalize(runId, event);
+    const line = `${canonicalStringify(normalized)}\n`;
+    invariant(
+      Buffer.byteLength(line) <= MAX_EVENT_BYTES,
+      "RUN_EVENT_TOO_LARGE",
+      `Run event remains larger than ${MAX_EVENT_BYTES} bytes after externalization`,
+    );
+    await appendFile(
+      path.join(this.runDirectory(runId), "events.jsonl"),
+      line,
+      "utf8",
+    );
+  }
+
+  async externalize(runId, value, pathParts = []) {
+    if (typeof value === "string") {
+      if (Buffer.byteLength(value) <= INLINE_STRING_BYTES) return value;
+      const hash = createHash("sha256").update(value).digest("hex");
+      const artifactPath = path.join(
+        this.runDirectory(runId),
+        "artifacts",
+        `${hash}.txt`,
+      );
+      await writeIfMissing(artifactPath, value);
+      return {
+        artifact_ref: `artifacts/${hash}.txt`,
+        sha256: hash,
+        bytes: Buffer.byteLength(value),
+        preview: value.slice(0, 2_048),
+        field_path: pathParts.join("."),
+      };
+    }
+    if (Array.isArray(value)) {
+      return Promise.all(
+        value.map((item, index) =>
+          this.externalize(runId, item, [...pathParts, String(index)]),
+        ),
+      );
+    }
+    if (value && typeof value === "object") {
+      const result = {};
+      for (const [key, item] of Object.entries(value)) {
+        result[key] = await this.externalize(runId, item, [
+          ...pathParts,
+          key,
+        ]);
+      }
+      return result;
+    }
+    return value;
+  }
+
+  runDirectory(runId) {
+    return path.join(this.runsRoot, runId);
+  }
+
+  runPath(runId) {
+    return path.join(this.runDirectory(runId), "run.json");
+  }
+}
+
+async function writeIfMissing(filePath, content) {
+  try {
+    await writeFile(filePath, content, { encoding: "utf8", flag: "wx" });
+  } catch (error) {
+    if (error.code !== "EEXIST") throw error;
+    const existing = await readFile(filePath, "utf8");
+    invariant(
+      existing === content,
+      "ARTIFACT_HASH_COLLISION",
+      `Artifact path ${filePath} already contains different content`,
+    );
+  }
+}
