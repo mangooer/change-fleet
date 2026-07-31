@@ -6,7 +6,7 @@ import { readJsonFile, writeJsonFileAtomic } from "./atomic-json-file.js";
 import { DirectoryLock } from "./directory-lock.js";
 
 // 当前快照在此管理；长输出和不可变证据由专门 Store 保存，避免聚合状态无限增长。
-export const CONTROL_SCHEMA_VERSION = 1;
+export const CONTROL_SCHEMA_VERSION = 2;
 
 export class ControlStore {
   constructor(controlRoot, { clock = () => new Date() } = {}) {

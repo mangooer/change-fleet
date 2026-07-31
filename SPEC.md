@@ -199,8 +199,8 @@ A Repository is a stable logical identity for one Git repository. Initial config
 - mutation authorization.
 
 The first vertical slice supports a local-path locator. The path is host-local configuration, not
-durable cross-host identity. ChangeFleet resolves and records the Git root, canonical remote when
-available, target ref, and exact base SHA before execution.
+durable cross-host identity. ChangeFleet resolves and records the Git root and canonical remote
+when available. Repository defaults are navigation defaults, not ChangeSet base authority.
 
 ### ChangeIntent
 
@@ -221,6 +221,21 @@ Repository Harness is long-lived project knowledge. ChangeIntent is task-specifi
 must not be appended to repository Harness unless the accepted change establishes a durable project
 fact.
 
+### RepositorySelectionRevision
+
+Creating a ChangeSet establishes the planning-visible Repository set and branch selection before
+Runtime planning. The set is a non-empty subset of the Project catalog and defaults to all
+registered Repositories.
+
+For every visible Repository, the caller may select a branch and target ref. An omitted branch is
+the local checkout's current symbolic branch observed at ChangeSet creation. Detached HEAD without
+an explicit branch is rejected. ChangeFleet resolves the branch once and persists its exact base
+SHA; dirty checkout files are excluded.
+
+RepositorySelectionRevision preserves this authority as versioned ChangeSet history. Runtime output
+may request but cannot apply a later selection. A confirmed revision supersedes current planning
+authority and returns the same ChangeSet to planning while preserving prior evidence.
+
 ### ChangePlan
 
 `ChangePlan` is a versioned, code-informed execution proposal containing:
@@ -228,7 +243,7 @@ fact.
 - the ChangeIntent revision it implements;
 - selected repositories and components;
 - reason each repository is in scope;
-- target refs and frozen base SHAs;
+- the current RepositorySelectionRevision and its control-owned target refs and frozen base SHAs;
 - WorkUnits and dependency ordering;
 - expected file, API, schema, or behavior boundaries;
 - repository and combined validation;
@@ -244,6 +259,7 @@ remain explicit.
 A ChangeSet is the aggregate root for one confirmed intent. It owns:
 
 - ChangeIntent revisions;
+- RepositorySelectionRevisions;
 - ChangePlan revisions;
 - WorkUnits and their dependencies;
 - execution attempts;
@@ -343,6 +359,7 @@ They use one pipeline:
 ```text
 raw request or discussion draft
   -> normalized ChangeIntent
+  -> confirmed Repository selection and exact branch freeze
   -> authorized repository discovery
   -> ChangePlan
   -> risk and scope decision
@@ -377,6 +394,7 @@ During execution:
 
 - implementation-detail changes may continue without human interruption;
 - repository scope expansion produces a typed decision request;
+- branch, target, or planning-visibility changes produce a typed Repository selection request;
 - invalidated design assumptions produce a new plan revision;
 - existing useful changes may be reused when their exact identity remains valid;
 - abandoned attempts remain immutable history;

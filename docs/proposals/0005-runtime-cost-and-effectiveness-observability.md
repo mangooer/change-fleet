@@ -185,9 +185,9 @@ The stages exit as follows:
 
 ## Recommendation
 
-Do not implement this proposal as one monolithic WorkItem. WI-0001 is complete but must be landed
-without mixing in this proposal. Before the first real Provider WorkItem is authorized, accept only
-the raw invocation-usage and timing portion needed by that Provider. Create later, separate
-implementation stages for aggregation and effectiveness comparison when their data prerequisites
-exist. Derived reports remain queries over evidence and never become ChangeSet lifecycle authority
-or default Agent context.
+Do not implement this proposal as one monolithic WorkItem. WI-0001 is landed, and base-selection
+authority must be resolved before the first real Provider. Before that Provider WorkItem is
+authorized, accept only the raw invocation-usage and timing portion needed by the Provider. Create
+later, separate implementation stages for aggregation and effectiveness comparison when their data
+prerequisites exist. Derived reports remain queries over evidence and never become ChangeSet
+lifecycle authority or default Agent context.

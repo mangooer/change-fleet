@@ -40,6 +40,96 @@ export function normalizeIntent(input, { revision, confirmedAt }) {
   };
 }
 
+export function normalizeRepositorySelectionRequest(
+  project,
+  { planningRepositoryIds, repositorySelections },
+) {
+  // 领域层只规范化调用者表达的授权；当前分支和提交解析必须留给 Git 边界。
+  const registeredRepositoryIds = new Set(
+    project.repositories.map((repository) => repository.repository_id),
+  );
+  const requestedRepositoryIds =
+    planningRepositoryIds === undefined
+      ? [...registeredRepositoryIds]
+      : normalizeIdArray(
+          "planning_repository_ids",
+          planningRepositoryIds,
+        );
+  invariant(
+    requestedRepositoryIds.length > 0,
+    "INVALID_REPOSITORY_SELECTION",
+    "Repository selection requires at least one planning-visible Repository",
+  );
+  invariant(
+    new Set(requestedRepositoryIds).size === requestedRepositoryIds.length,
+    "INVALID_REPOSITORY_SELECTION",
+    "Planning-visible Repository ids must be unique",
+  );
+  for (const repositoryId of requestedRepositoryIds) {
+    invariant(
+      registeredRepositoryIds.has(repositoryId),
+      "REPOSITORY_NOT_REGISTERED",
+      `Repository ${repositoryId} is not registered in this Project`,
+      { repository_id: repositoryId },
+    );
+  }
+
+  const rawSelections = repositorySelections ?? [];
+  invariant(
+    Array.isArray(rawSelections),
+    "INVALID_REPOSITORY_SELECTION",
+    "repository_selections must be an array",
+  );
+  const selectionsByRepository = new Map();
+  for (const rawSelection of rawSelections) {
+    invariant(
+      rawSelection && typeof rawSelection === "object",
+      "INVALID_REPOSITORY_SELECTION",
+      "Each Repository selection must be an object",
+    );
+    const repositoryId = normalizeId(
+      "repository_selection.repository_id",
+      rawSelection.repository_id,
+    );
+    invariant(
+      requestedRepositoryIds.includes(repositoryId),
+      "REPOSITORY_NOT_PLANNING_VISIBLE",
+      `Repository ${repositoryId} is not in the planning-visible set`,
+      { repository_id: repositoryId },
+    );
+    invariant(
+      !selectionsByRepository.has(repositoryId),
+      "INVALID_REPOSITORY_SELECTION",
+      `Repository ${repositoryId} has more than one selection`,
+      { repository_id: repositoryId },
+    );
+    selectionsByRepository.set(repositoryId, {
+      repository_id: repositoryId,
+      branch_ref: normalizeOptionalSelectionRef(
+        "repository_selection.branch_ref",
+        rawSelection.branch_ref,
+      ),
+      target_ref: normalizeOptionalSelectionRef(
+        "repository_selection.target_ref",
+        rawSelection.target_ref,
+      ),
+    });
+  }
+
+  const repositoryIds = [...requestedRepositoryIds].sort();
+  return {
+    repository_ids: repositoryIds,
+    repositories: repositoryIds.map(
+      (repositoryId) =>
+        selectionsByRepository.get(repositoryId) ?? {
+          repository_id: repositoryId,
+          branch_ref: null,
+          target_ref: null,
+        },
+    ),
+  };
+}
+
 export function normalizeCommand(input, label = "command") {
   invariant(
     input && typeof input === "object",
@@ -60,7 +150,14 @@ export function normalizeCommand(input, label = "command") {
 
 export function normalizePlan(
   input,
-  { project, bases, intentRevision, revision, createdAt },
+  {
+    project,
+    bases,
+    intentRevision,
+    repositorySelectionRevision,
+    revision,
+    createdAt,
+  },
 ) {
   invariant(
     input && typeof input === "object",
@@ -72,6 +169,12 @@ export function normalizePlan(
     Array.isArray(input.work_units) && input.work_units.length >= 1,
     "INVALID_PLAN",
     "A ChangePlan requires at least one WorkUnit",
+  );
+  invariant(
+    Number.isSafeInteger(repositorySelectionRevision) &&
+      repositorySelectionRevision > 0,
+    "INVALID_REPOSITORY_SELECTION_REVISION",
+    "A ChangePlan requires one positive Repository selection revision",
   );
 
   const authorizedRepositories = new Set(
@@ -118,6 +221,7 @@ export function normalizePlan(
       ),
       target_ref: bases[repositoryId].target_ref,
       base_sha: bases[repositoryId].base_sha,
+      repository_selection_revision: repositorySelectionRevision,
       repository_check: normalizeCommand(
         workUnit.repository_check,
         `${workUnitId}.repository_check`,
@@ -138,6 +242,7 @@ export function normalizePlan(
   return {
     revision,
     intent_revision: intentRevision,
+    repository_selection_revision: repositorySelectionRevision,
     created_at: createdAt,
     status: "proposed",
     rationale: normalizeOptionalString(input.rationale),
@@ -333,6 +438,17 @@ function normalizeIdArray(label, value) {
 function normalizeOptionalString(value) {
   if (value === undefined || value === null || value === "") return null;
   return requireString("value", value);
+}
+
+function normalizeOptionalSelectionRef(label, value) {
+  // 显式给出的空 ref 是无效输入；只有真正省略时才允许应用层读取当前分支或默认目标。
+  if (value === undefined || value === null) return null;
+  invariant(
+    typeof value === "string" && value.trim().length > 0,
+    "INVALID_REPOSITORY_SELECTION",
+    `${label} must be a non-empty string when provided`,
+  );
+  return value.trim();
 }
 
 function requireString(label, value) {

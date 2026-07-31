@@ -28,6 +28,7 @@ Application
 
 Change Control
   ChangeIntent and ChangePlan revisions
+  RepositorySelectionRevision history
   ChangeSet lifecycle
   WorkUnit DAG scheduler
   CandidateBundle and validation matrix
@@ -86,7 +87,7 @@ Catalog data is control-plane state. Repository-native Harness remains in the re
 
 Owns current aggregate state and references to immutable evidence:
 
-- ChangeIntent and ChangePlan revisions;
+- ChangeIntent, RepositorySelection, and ChangePlan revisions;
 - WorkUnit state;
 - scope decisions;
 - active or superseded CandidateBundle revision;
@@ -192,6 +193,8 @@ Conductor extraction or compatibility layer in the first slice.
 Conceptual interface:
 
 ```text
+inspect_current_branch(repository)
+resolve_branch(repository, branch_ref)
 prepare(repository, target_ref, base_sha, work_unit)
 execute(work_unit, workspace, intent, plan)
 publish(workspace, exact_expected_head)
@@ -297,6 +300,7 @@ project_id
 repository_id
 change_set_id
 intent_revision
+repository_selection_revision
 plan_revision
 work_unit_id
 run_id

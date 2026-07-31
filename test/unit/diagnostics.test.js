@@ -25,3 +25,16 @@ test("a caller can present one stable error in another supported locale", () => 
     locale: "en",
   });
 });
+
+test("Repository selection diagnostics keep one stable code across locales", () => {
+  assert.equal(
+    diagnosticMessage("REPOSITORY_BRANCH_SELECTION_REQUIRED"),
+    "检出点不在分支上，必须显式选择仓库分支。",
+  );
+  assert.equal(
+    diagnosticMessage("REPOSITORY_BRANCH_SELECTION_REQUIRED", {
+      locale: "en",
+    }),
+    "The checkout is detached; an explicit Repository branch is required.",
+  );
+});

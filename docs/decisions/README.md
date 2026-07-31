@@ -12,6 +12,8 @@ projection.
 | [0004](0004-concurrency-delivery-and-compensation.md) | Parallel execution, delivery serialization, and compensation | Accepted for initial bootstrap |
 | [0005](0005-runtime-context-harness-and-capabilities.md) | Runtime context projection, Harness ownership, Agent Profiles, and capability dispatch | Accepted |
 | [0006](0006-first-vertical-slice-implementation-boundary.md) | First local two-repository implementation stack, store, ports, validation, and reuse boundary | Accepted |
+| [0007](0007-variable-scope-and-localized-diagnostics.md) | Variable Repository scope and localized diagnostics | Accepted |
+| [0008](0008-change-set-repository-selection.md) | ChangeSet Repository selection, branch freezing, and revision | Accepted |
 
 Changing one of these boundaries requires a proposal. When a decision is superseded, preserve this
 record and point to the later accepted authority.

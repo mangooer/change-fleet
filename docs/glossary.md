@@ -68,6 +68,12 @@ Repository bindings.
 
 A stable logical identity for one Git repository. It is not synonymous with Project.
 
+## RepositorySelectionRevision
+
+The versioned ChangeSet authority defining which registered Repositories planning may inspect,
+which branch and exact base SHA each uses, and which target ref applies. Revision 1 is created with
+the ChangeSet before Runtime planning.
+
 ## Repository Design Proposal
 
 A chronological design-governance artifact used to evolve the ChangeFleet repository. It is not a

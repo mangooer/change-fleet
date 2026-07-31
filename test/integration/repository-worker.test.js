@@ -139,4 +139,60 @@ describe("RepositoryWorker", () => {
       { code: "FOREIGN_WORKSPACE" },
     );
   });
+
+  test("resolves explicit or current local branches and rejects an omitted detached branch", async (t) => {
+    const root = await createFixtureRoot(t, "changefleet-branch-selection-");
+    const fixture = await createGitRepository(root, "api");
+    const worker = new RepositoryWorker({
+      workspaceRoot: path.join(root, "workspaces"),
+    });
+    const repository = await worker.inspectRegistration({
+      repositoryId: "api",
+      locator: fixture.path,
+    });
+
+    await git(fixture.path, ["checkout", "-b", "feature"]);
+    await writeFile(path.join(fixture.path, "feature-base.txt"), "feature\n");
+    await git(fixture.path, ["add", "feature-base.txt"]);
+    await git(fixture.path, ["commit", "-m", "feature base"]);
+    const featureSha = (await git(fixture.path, ["rev-parse", "HEAD"])).trim();
+
+    assert.deepEqual(
+      await worker.resolveRepositorySelection(repository),
+      {
+        repository_id: "api",
+        branch_ref: "refs/heads/feature",
+        resolved_base_sha: featureSha,
+        target_ref: "refs/heads/feature",
+        selection_source: "current_checkout",
+      },
+    );
+    assert.deepEqual(
+      await worker.resolveRepositorySelection(repository, {
+        branchRef: "feature",
+        targetRef: "main",
+      }),
+      {
+        repository_id: "api",
+        branch_ref: "refs/heads/feature",
+        resolved_base_sha: featureSha,
+        target_ref: "refs/heads/main",
+        selection_source: "caller",
+      },
+    );
+
+    await git(fixture.path, ["checkout", "--detach", fixture.base_sha]);
+    await assert.rejects(
+      worker.resolveRepositorySelection(repository),
+      { code: "REPOSITORY_BRANCH_SELECTION_REQUIRED" },
+    );
+    assert.equal(
+      (
+        await worker.resolveRepositorySelection(repository, {
+          branchRef: "main",
+        })
+      ).resolved_base_sha,
+      fixture.base_sha,
+    );
+  });
 });

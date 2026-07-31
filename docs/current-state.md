@@ -1,6 +1,6 @@
 # Current State
 
-Updated: 2026-07-30
+Updated: 2026-07-31
 
 This document is the concise projection of ChangeFleet's accepted direction, current
 implementation, active gaps, and next recommended work.
@@ -11,16 +11,14 @@ own repository implementation evidence.
 
 ## Current Baseline
 
-- The canonical baseline remains the initial project Harness; WI-0001 is accepted complete but
-  remains uncommitted and unlanded.
+- WI-0001 is landed as commit `761a0fe`; WI-0002 is user-accepted and landed in current Git history.
 - The development Harness uses a compact root instruction file, this current projection, one active
   Development WorkItem or Repository Design Proposal, and targeted authority loading. `SPEC.md` is
   not read in full for every task.
 - Repository Design Proposals and Development WorkItems are repository Harness artifacts. They are
   not ChangeFleet Runtime output; the product Runtime uses ChangeSets, plan revisions, WorkUnits,
   Runs, Candidates, and Bundle records.
-- No landed or released product package, public CLI, state compatibility contract, API, or UI
-  exists.
+- No released product package, public CLI, state compatibility contract, API, or UI exists.
 - The accepted first stack is one private Node.js 24 LTS ESM JavaScript package with a versioned
   filesystem store, built-in `node:test`, and a test-only application surface.
 - Conductor commit `66faac3b16df8b287bae100ec5be82b79d32b872` is behavior reference evidence,
@@ -58,6 +56,8 @@ own repository implementation evidence.
   `CHANGEFLEET_VALIDATION_MANIFEST`; Bundle assembly follows finalized exact-subject evidence.
 - ChangeFleet-generated diagnostics retain stable error codes and use `zh-CN` as the default
   localized display language, with `en` fallback. Raw external output remains evidence.
+- ChangeSet creation establishes a versioned planning-visible Repository set, selected branches,
+  exact base SHAs, and target refs before Runtime planning.
 
 ## Accepted Decisions
 
@@ -78,23 +78,24 @@ own repository implementation evidence.
 - [0007](decisions/0007-variable-scope-and-localized-diagnostics.md): distinguish Project catalog
   scope from exact ChangePlan scope, allow one or more WorkUnits, and localize
   ChangeFleet-generated diagnostics.
+- [0008](decisions/0008-change-set-repository-selection.md): select Repository branches when a
+  ChangeSet is created, freeze exact bases before planning, and revise selection in the same
+  aggregate.
 
 ## Repository Design Proposals
 
 - [Proposal 0001](proposals/0001-local-two-repository-vertical-slice.md) defines the first local
   two-repository vertical slice. It is accepted, and implementation is tracked by
   [WI-0001](work-items/WI-0001-local-two-repository-vertical-slice.md), currently `complete`.
-- [Proposal 0003](proposals/0003-harness-ownership-and-runtime-context.md) preserves accepted
-  Runtime context and Harness design history; Decision 0005 owns durable rationale.
-- [Proposal 0002](proposals/0002-bounded-runtime-context-and-optional-workflow-skill.md) preserves
-  the superseded single-Skill discussion and is not current design authority.
 - [Proposal 0004](proposals/0004-variable-scope-and-localized-diagnostics.md) is accepted and
   recorded by Decision 0007. WI-0001's implementation of its variable-scope and
   localized-diagnostic requirements is complete and user-accepted but unlanded.
 - [Proposal 0005](proposals/0005-runtime-cost-and-effectiveness-observability.md) is proposed. It
-  stages audit requirements by prerequisite: current fake-data/context exclusions, immutable raw
-  usage with the first real Provider, later aggregation, and effectiveness comparison only after
-  representative samples. It is not implementation authority.
+  stages audit requirements from Provider raw usage through later aggregation and comparison. It
+  is not implementation authority.
+- [Proposal 0006](proposals/0006-change-set-base-selection-and-revision.md) is accepted and recorded
+  by Decision 0008; [WI-0002](work-items/WI-0002-change-set-repository-selection.md) is
+  user-accepted done and landed.
 
 ## Open Questions
 
@@ -105,8 +106,7 @@ This is deferred, not implicit implementation scope.
 
 ## Known Limitations
 
-- WI-0001's accepted private package and versioned state remain uncommitted implementation
-  evidence, not a landed or released compatibility contract.
+- WI-0002's private schema v2 is landed but remains outside any released compatibility contract.
 - No Git URL materialization, remote worker, PR integration, automatic merge, deployment, browser
   UI, service graph, or stacked ChangeSet support is accepted.
 - No shared Conductor extraction is planned; Decision 0006 requires a clean adapter.
@@ -117,9 +117,8 @@ This is deferred, not implicit implementation scope.
 
 ## Next Recommended Task
 
-Land [WI-0001](work-items/WI-0001-local-two-repository-vertical-slice.md)'s exact accepted local
-changes in Git without extending scope. Do not combine landing with any deferred Provider, Skill,
-tracker, telemetry, CLI, UI, delivery, or database boundary.
+Review proposed [Proposal 0005](proposals/0005-runtime-cost-and-effectiveness-observability.md)
+before authorizing first-Provider observability work. Do not infer implementation authority.
 
 ## Maintenance Contract
 

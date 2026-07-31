@@ -1,6 +1,6 @@
 # Repository Design Proposal Index
 
-Updated: 2026-07-30
+Updated: 2026-07-31
 
 These proposals govern development of the ChangeFleet repository itself. They are repository
 Harness artifacts, not ChangeFleet Runtime outputs and not artifacts written into registered user
@@ -15,7 +15,8 @@ preserve chronological reasoning and are not current truth merely because they e
 | [0002](0002-bounded-runtime-context-and-optional-workflow-skill.md) | Bounded Runtime context and optional workflow Skill | `superseded` | Replaced by Proposal 0003 | None; superseded before acceptance |
 | [0003](0003-harness-ownership-and-runtime-context.md) | Harness ownership and bounded Runtime context | `accepted` | Recorded by Decision 0005; unblocks Proposal 0001 | First-slice proof belongs to 0001; Runtime Kit, real Provider, Linear, and continuous enforcement deferred |
 | [0004](0004-variable-scope-and-localized-diagnostics.md) | Variable repository scope and localized diagnostics | `accepted` | Recorded by Decision 0007; revises the exact-two-Repository constraint in Proposal 0001 and Decision 0006 | [WI-0001](../work-items/WI-0001-local-two-repository-vertical-slice.md), `complete` |
-| [0005](0005-runtime-cost-and-effectiveness-observability.md) | Runtime cost and effectiveness observability | `proposed` | Extends the Runtime evidence boundary without changing ChangeSet authority | None until accepted; deferred until WI-0001 is complete |
+| [0005](0005-runtime-cost-and-effectiveness-observability.md) | Runtime cost and effectiveness observability | `proposed` | Extends the Runtime evidence boundary without changing ChangeSet authority | None until accepted; WI-0002 prerequisite is done |
+| [0006](0006-change-set-base-selection-and-revision.md) | ChangeSet Repository selection and revision | `accepted` | Recorded by Decision 0008; required before the first real Provider | [WI-0002](../work-items/WI-0002-change-set-repository-selection.md), `done` |
 
 ## Status Rules
 

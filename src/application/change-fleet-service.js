@@ -10,6 +10,7 @@ import {
   normalizeId,
   normalizeIntent,
   normalizePlan,
+  normalizeRepositorySelectionRequest,
 } from "../domain/model.js";
 import {
   assessInitialContext,
@@ -165,26 +166,56 @@ export class ChangeFleetService {
     change_set_id,
     project_id,
     intent,
+    planning_repository_ids,
+    repository_selections,
   }) {
-    // 创建时即落下幂等结果，客户端重试不会生成第二个业务变更。
+    // 创建命令先固定调用者请求，再解析分支；已完成重试绝不能重新观察移动后的 ref。
     normalizeId("idempotency_key", idempotency_key);
     normalizeId("change_set_id", change_set_id);
     normalizeId("project_id", project_id);
     const catalog = await this.controlStore.readCatalog();
-    invariant(
-      catalog.projects[project_id],
-      "PROJECT_NOT_FOUND",
-      `Project ${project_id} does not exist`,
-    );
+    const project = requireProject(catalog, project_id);
+    const requestedSelection = normalizeRepositorySelectionRequest(project, {
+      planningRepositoryIds: planning_repository_ids,
+      repositorySelections: repository_selections,
+    });
+    const intentForFingerprint = normalizeIntent(intent, {
+      revision: 1,
+      confirmedAt: "",
+    });
+    const input = {
+      change_set_id,
+      project_id,
+      intent: intentFingerprint(intentForFingerprint),
+      repository_selection: requestedSelection,
+    };
+    try {
+      const existing = await this.controlStore.readChangeSet(change_set_id);
+      return readIdempotentResult(
+        existing,
+        idempotency_key,
+        "createChangeSet",
+        input,
+      );
+    } catch (error) {
+      if (error.code !== "CHANGE_SET_NOT_FOUND") throw error;
+    }
+
     const now = this.now();
     const normalizedIntent = normalizeIntent(intent, {
       revision: 1,
       confirmedAt: now,
     });
-    const input = {
+    const repositorySelection = await this.resolveRepositorySelectionRevision({
+      project,
+      request: requestedSelection,
+      revision: 1,
+      confirmedAt: now,
+    });
+    const result = {
       change_set_id,
-      project_id,
-      intent: intentFingerprint(normalizedIntent),
+      repository_selection_revision: 1,
+      repositories: structuredClone(repositorySelection.repositories),
     };
     const fingerprint = commandFingerprint("createChangeSet", input);
     const state = {
@@ -194,6 +225,9 @@ export class ChangeFleetService {
       state: "analyzing",
       intents: [normalizedIntent],
       current_intent_revision: 1,
+      repository_selection_revisions: [repositorySelection],
+      current_repository_selection_revision: 1,
+      repository_selection_change_requests: [],
       plans: [],
       current_plan_revision: null,
       work_units: [],
@@ -207,7 +241,7 @@ export class ChangeFleetService {
           command: "createChangeSet",
           fingerprint,
           status: "completed",
-          result: { change_set_id },
+          result,
           completed_at: now,
         },
       },
@@ -216,7 +250,7 @@ export class ChangeFleetService {
     };
     try {
       await this.controlStore.createChangeSet(state);
-      return { change_set_id };
+      return structuredClone(result);
     } catch (error) {
       if (error.code !== "CHANGE_SET_ALREADY_EXISTS") throw error;
       const existing = await this.controlStore.readChangeSet(change_set_id);
@@ -229,6 +263,137 @@ export class ChangeFleetService {
     }
   }
 
+  async reviseRepositorySelection({
+    idempotency_key,
+    change_set_id,
+    current_repository_selection_revision,
+    planning_repository_ids,
+    repository_selections,
+    actor = "human",
+  }) {
+    // 修订先校验旧 revision，再解析新分支，避免旧页面覆盖刚刚确认的新选择。
+    normalizeId("idempotency_key", idempotency_key);
+    normalizeId("change_set_id", change_set_id);
+    const catalog = await this.controlStore.readCatalog();
+    const initialState = await this.controlStore.readChangeSet(change_set_id);
+    const project = requireProject(catalog, initialState.project_id);
+    const requestedSelection = normalizeRepositorySelectionRequest(project, {
+      planningRepositoryIds: planning_repository_ids,
+      repositorySelections: repository_selections,
+    });
+    const commandInput = {
+      change_set_id,
+      current_repository_selection_revision,
+      repository_selection: requestedSelection,
+      actor,
+    };
+    const existing = existingCommand(
+      initialState,
+      idempotency_key,
+      "reviseRepositorySelection",
+      commandInput,
+    );
+    if (existing?.status === "completed") return structuredClone(existing.result);
+    assertRepositorySelectionRevisionAllowed(
+      initialState,
+      current_repository_selection_revision,
+    );
+    const nextRevision = initialState.repository_selection_revisions.length + 1;
+    const nextSelection = await this.resolveRepositorySelectionRevision({
+      project,
+      request: requestedSelection,
+      revision: nextRevision,
+      confirmedAt: this.now(),
+    });
+
+    return this.controlStore.transactChangeSet(change_set_id, (state) =>
+      applyIdempotentCommand({
+        record: state,
+        idempotencyKey: idempotency_key,
+        command: "reviseRepositorySelection",
+        input: commandInput,
+        perform: () => {
+          assertRepositorySelectionRevisionAllowed(
+            state,
+            current_repository_selection_revision,
+          );
+          const priorSelection = currentRepositorySelection(state);
+          priorSelection.status = "superseded";
+          priorSelection.superseded_at = this.now();
+
+          const priorPlan = currentPlan(state);
+          if (priorPlan) priorPlan.status = "superseded";
+          for (const workUnit of unitsForCurrentPlan(state)) {
+            if (!["candidate_ready", "failed", "blocked"].includes(workUnit.state)) {
+              workUnit.state = "superseded";
+            }
+          }
+
+          state.repository_selection_revisions.push(nextSelection);
+          state.current_repository_selection_revision = nextRevision;
+          state.current_plan_revision = null;
+          for (const request of state.repository_selection_change_requests) {
+            if (request.status === "pending") {
+              request.status = "resolved_by_revision";
+              request.resolved_by_revision = nextRevision;
+              request.resolved_at = this.now();
+            }
+          }
+          state.decisions.push({
+            decision_id: this.idFactory("decision"),
+            type: "repository_selection_revision",
+            from_revision: priorSelection.revision,
+            to_revision: nextRevision,
+            actor,
+            decided_at: this.now(),
+          });
+          state.state = "analyzing";
+          state.updated_at = this.now();
+          return {
+            change_set_id,
+            repository_selection_revision: nextRevision,
+            repositories: structuredClone(nextSelection.repositories),
+          };
+        },
+      }),
+    );
+  }
+
+  async resolveRepositorySelectionRevision({
+    project,
+    request,
+    revision,
+    confirmedAt,
+  }) {
+    // 严格按规范化后的仓库顺序解析，使持久化和幂等结果具有稳定次序。
+    const repositoriesById = new Map(
+      project.repositories.map((repository) => [
+        repository.repository_id,
+        repository,
+      ]),
+    );
+    const repositories = [];
+    for (const requested of request.repositories) {
+      const resolved = await this.repositoryWorker.resolveRepositorySelection(
+        repositoriesById.get(requested.repository_id),
+        {
+          branchRef: requested.branch_ref,
+          targetRef: requested.target_ref,
+        },
+      );
+      repositories.push({
+        ...resolved,
+        resolved_at: this.now(),
+      });
+    }
+    return {
+      revision,
+      status: "current",
+      confirmed_at: confirmedAt,
+      repositories,
+    };
+  }
+
   async planChangeSet({
     idempotency_key,
     change_set_id,
@@ -238,24 +403,6 @@ export class ChangeFleetService {
     const catalog = await this.controlStore.readCatalog();
     const initialState = await this.controlStore.readChangeSet(change_set_id);
     const project = requireProject(catalog, initialState.project_id);
-    const bases = {};
-    const repositoriesForContext = [];
-    // Project 是授权上限；先冻结可授权基线，再由计划选择本次非空子集。
-    for (const repository of project.repositories) {
-      const base = await this.repositoryWorker.freezeBase(repository);
-      bases[repository.repository_id] = base;
-      repositoriesForContext.push({
-        repository_id: repository.repository_id,
-        description: repository.description,
-        target_ref: base.target_ref,
-        base_sha: base.base_sha,
-        root_path: repository.resolved_git_root,
-        harness_resources: await this.repositoryWorker.discoverHarness(
-          repository,
-          base.base_sha,
-        ),
-      });
-    }
     const commandInput = { change_set_id, agent_profile };
     const existing = existingCommand(
       initialState,
@@ -265,17 +412,62 @@ export class ChangeFleetService {
     );
     if (existing?.status === "completed") return structuredClone(existing.result);
 
+    const repositorySelection = currentRepositorySelection(initialState);
+    const projectRepositories = new Map(
+      project.repositories.map((repository) => [
+        repository.repository_id,
+        repository,
+      ]),
+    );
+    const selectedRepositories = repositorySelection.repositories.map(
+      (selection) => projectRepositories.get(selection.repository_id),
+    );
+    const planningProject = {
+      ...project,
+      repositories: selectedRepositories,
+    };
+    const bases = {};
+    const repositoriesForContext = [];
+    // 规划只消费创建时已冻结的选择，不能再次读取分支 tip 或登记默认值。
+    for (const selection of repositorySelection.repositories) {
+      const repository = projectRepositories.get(selection.repository_id);
+      const base = {
+        repository_id: selection.repository_id,
+        target_ref: selection.target_ref,
+        base_sha: selection.resolved_base_sha,
+      };
+      bases[selection.repository_id] = base;
+      repositoriesForContext.push({
+        repository_id: repository.repository_id,
+        description: repository.description,
+        branch_ref: selection.branch_ref,
+        target_ref: base.target_ref,
+        base_sha: base.base_sha,
+        root_path: repository.resolved_git_root,
+        harness_resources: await this.repositoryWorker.discoverHarness(
+          repository,
+          base.base_sha,
+        ),
+      });
+    }
+
     const nextRevision = initialState.plans.length + 1;
+    const planningAttempt =
+      initialState.run_references.filter(
+        (reference) => reference.operation === "planning",
+      ).length + 1;
     const runId = this.idFactory("run");
     const controlContract = createControlContract({
       operation: "planning",
       changeSetId: change_set_id,
       planRevision: initialState.current_plan_revision,
-      authorizedRepositories: project.repositories.map(
-        (repository) => repository.repository_id,
+      repositorySelectionRevision: repositorySelection.revision,
+      authorizedRepositories: repositorySelection.repositories.map(
+        (selection) => selection.repository_id,
       ),
       allowedOutcomes: [
         "plan_proposed",
+        "repository_selection_change_request",
         "scope_expansion",
         "decision_request",
         "blocked",
@@ -286,10 +478,11 @@ export class ChangeFleetService {
       operation: "planning",
       changeSet: initialState,
       plan: currentPlan(initialState),
+      repositorySelection,
       repositories: repositoriesForContext,
       capability: {
         mode: "read_only",
-        paths: project.repositories.map(
+        paths: selectedRepositories.map(
           (repository) => repository.resolved_git_root,
         ),
       },
@@ -321,7 +514,7 @@ export class ChangeFleetService {
       change_set_id,
       work_unit_id: null,
       operation: "planning",
-      attempt: nextRevision,
+      attempt: planningAttempt,
       status: "running",
       agent_profile,
       context_evidence: contextEvidence,
@@ -331,13 +524,33 @@ export class ChangeFleetService {
     });
 
     let outcome;
+    let repositorySelectionChangeRequest = null;
+    let normalizedPlan = null;
     try {
       outcome = await invokeRuntime(this.runtime, invocation);
       invariant(
-        outcome.type === "plan_proposed",
+        ["plan_proposed", "repository_selection_change_request"].includes(
+          outcome.type,
+        ),
         "UNEXPECTED_RUNTIME_OUTCOME",
-        `Planning returned ${outcome.type}, expected plan_proposed`,
+        `Planning returned unsupported outcome ${outcome.type}`,
       );
+      if (outcome.type === "repository_selection_change_request") {
+        repositorySelectionChangeRequest =
+          normalizeRepositorySelectionChangeRequest(outcome, project);
+      } else {
+        // Runtime 输出在 Run 完成前完成规范化，非法计划不能被误记为成功的规划 Run。
+        normalizedPlan = normalizePlan(outcome.plan, {
+          project: planningProject,
+          bases,
+          intentRevision: initialState.current_intent_revision,
+          repositorySelectionRevision: repositorySelection.revision,
+          revision: nextRevision,
+          createdAt: this.now(),
+        });
+        normalizedPlan.agent_profile = structuredClone(agent_profile);
+        normalizedPlan.planning_run_id = runId;
+      }
       await this.runStore.appendEvent(runId, {
         event_id: this.idFactory("event"),
         type: "runtime.outcome",
@@ -370,6 +583,34 @@ export class ChangeFleetService {
             "INVALID_CHANGE_SET_STATE",
             `Cannot plan ChangeSet in state ${state.state}`,
           );
+          invariant(
+            state.current_repository_selection_revision ===
+              repositorySelection.revision,
+            "STALE_REPOSITORY_SELECTION_REVISION",
+            "Repository selection changed while planning was running",
+          );
+          if (repositorySelectionChangeRequest) {
+            const request = {
+              request_id: this.idFactory("selection-request"),
+              run_id: runId,
+              status: "pending",
+              ...repositorySelectionChangeRequest,
+              requested_at: this.now(),
+            };
+            state.repository_selection_change_requests.push(request);
+            state.run_references.push({
+              run_id: runId,
+              operation: "planning",
+              plan_revision: state.current_plan_revision,
+              status: "completed",
+            });
+            state.updated_at = this.now();
+            return {
+              change_set_id,
+              status: "repository_selection_change_requested",
+              request: structuredClone(request),
+            };
+          }
           const priorPlan = currentPlan(state);
           if (priorPlan) priorPlan.status = "superseded";
           for (const workUnit of state.work_units.filter(
@@ -379,15 +620,7 @@ export class ChangeFleetService {
               workUnit.state = "superseded";
             }
           }
-          const plan = normalizePlan(outcome.plan, {
-            project,
-            bases,
-            intentRevision: state.current_intent_revision,
-            revision: nextRevision,
-            createdAt: this.now(),
-          });
-          plan.agent_profile = structuredClone(agent_profile);
-          plan.planning_run_id = runId;
+          const plan = structuredClone(normalizedPlan);
           state.plans.push(plan);
           state.current_plan_revision = plan.revision;
           state.work_units.push(
@@ -755,6 +988,7 @@ export class ChangeFleetService {
     const catalog = await this.controlStore.readCatalog();
     const project = requireProject(catalog, state.project_id);
     const plan = currentPlan(state);
+    const repositorySelection = currentRepositorySelection(state);
     const workUnit = unitsForCurrentPlan(state).find(
       (candidate) => candidate.work_unit_id === workUnitId,
     );
@@ -764,6 +998,9 @@ export class ChangeFleetService {
       `WorkUnit ${workUnitId} is not pending`,
     );
     const repository = project.repositories.find(
+      (candidate) => candidate.repository_id === workUnit.repository_id,
+    );
+    const selectedRepository = repositorySelection.repositories.find(
       (candidate) => candidate.repository_id === workUnit.repository_id,
     );
     const workspaceId = `${changeSetId}.${plan.revision}.${workUnitId}`;
@@ -825,6 +1062,7 @@ export class ChangeFleetService {
       operation: "execution",
       changeSetId,
       planRevision: plan.revision,
+      repositorySelectionRevision: repositorySelection.revision,
       workUnitId,
       authorizedRepositories: [workUnit.repository_id],
       allowedOutcomes: [
@@ -840,10 +1078,12 @@ export class ChangeFleetService {
       operation: "execution",
       changeSet: currentState,
       plan,
+      repositorySelection,
       workUnit: currentUnit,
       repositories: [
         {
           repository_id: repository.repository_id,
+          branch_ref: selectedRepository.branch_ref,
           target_ref: workUnit.target_ref,
           base_sha: workUnit.base_sha,
           harness_resources: await this.repositoryWorker.discoverHarness(
@@ -1180,11 +1420,75 @@ function requireProject(catalog, projectId) {
   return project;
 }
 
+function normalizeRepositorySelectionChangeRequest(outcome, project) {
+  // Agent 只能提出完整的新选择请求；这里验证结构，但不会解析 ref 或改变任何权限。
+  invariant(
+    outcome.request && typeof outcome.request === "object",
+    "INVALID_REPOSITORY_SELECTION_CHANGE_REQUEST",
+    "Repository selection change outcome requires a request object",
+  );
+  try {
+    const selection = normalizeRepositorySelectionRequest(project, {
+      planningRepositoryIds: outcome.request.planning_repository_ids,
+      repositorySelections: outcome.request.repository_selections,
+    });
+    return {
+      requested_repository_selection: selection,
+      rationale: optionalString(outcome.request.rationale),
+    };
+  } catch (error) {
+    if (error instanceof ChangeFleetError) {
+      throw new ChangeFleetError(
+        "INVALID_REPOSITORY_SELECTION_CHANGE_REQUEST",
+        "Runtime requested an invalid Repository selection change",
+        { cause_code: error.code },
+      );
+    }
+    throw error;
+  }
+}
+
 function currentPlan(state) {
   return (
     state.plans.find(
       (plan) => plan.revision === state.current_plan_revision,
     ) ?? null
+  );
+}
+
+function currentRepositorySelection(state) {
+  // 当前指针是唯一可执行权威；历史 revision 只保留用于审计和恢复判断。
+  const selection =
+    state.repository_selection_revisions.find(
+      (candidate) =>
+        candidate.revision ===
+        state.current_repository_selection_revision,
+    ) ?? null;
+  invariant(
+    selection?.status === "current",
+    "INVALID_REPOSITORY_SELECTION_REVISION",
+    "ChangeSet has no current Repository selection revision",
+  );
+  return selection;
+}
+
+function assertRepositorySelectionRevisionAllowed(state, expectedRevision) {
+  invariant(
+    Number.isSafeInteger(expectedRevision) && expectedRevision > 0,
+    "INVALID_REPOSITORY_SELECTION_REVISION",
+    "Current Repository selection revision must be a positive integer",
+  );
+  invariant(
+    ["analyzing", "awaiting_plan_confirmation", "replanning"].includes(
+      state.state,
+    ),
+    "INVALID_CHANGE_SET_STATE",
+    `Cannot revise Repository selection in state ${state.state}`,
+  );
+  invariant(
+    state.current_repository_selection_revision === expectedRevision,
+    "STALE_REPOSITORY_SELECTION_REVISION",
+    `Repository selection revision ${expectedRevision} is not current`,
   );
 }
 

@@ -7,6 +7,7 @@ import {
   createCandidateBundle,
   createValidationSubject,
   normalizePlan,
+  normalizeRepositorySelectionRequest,
 } from "../../src/domain/model.js";
 
 const command = {
@@ -57,6 +58,7 @@ describe("domain model", () => {
       project,
       bases,
       intentRevision: 1,
+      repositorySelectionRevision: 1,
       revision: 1,
       createdAt: "2026-07-30T00:00:00.000Z",
     });
@@ -75,6 +77,7 @@ describe("domain model", () => {
           project,
           bases,
           intentRevision: 1,
+          repositorySelectionRevision: 1,
           revision: 1,
           createdAt: "2026-07-30T00:00:00.000Z",
         }),
@@ -89,6 +92,7 @@ describe("domain model", () => {
           project,
           bases,
           intentRevision: 1,
+          repositorySelectionRevision: 1,
           revision: 1,
           createdAt: "2026-07-30T00:00:00.000Z",
         }),
@@ -102,6 +106,7 @@ describe("domain model", () => {
       project,
       bases,
       intentRevision: 1,
+      repositorySelectionRevision: 1,
       revision: 1,
       createdAt: "2026-07-30T00:00:00.000Z",
     });
@@ -117,6 +122,7 @@ describe("domain model", () => {
       project,
       bases,
       intentRevision: 1,
+      repositorySelectionRevision: 1,
       revision: 1,
       createdAt: "2026-07-30T00:00:00.000Z",
     });
@@ -222,6 +228,67 @@ describe("domain model", () => {
     assert.notEqual(
       commandFingerprint("confirm", { revision: 1 }),
       commandFingerprint("confirm", { revision: 2 }),
+    );
+  });
+
+  test("normalizes a non-empty planning subset and per-Repository refs", () => {
+    assert.deepEqual(
+      normalizeRepositorySelectionRequest(project, {
+        planningRepositoryIds: ["web"],
+        repositorySelections: [
+          {
+            repository_id: "web",
+            branch_ref: "feature",
+            target_ref: "main",
+          },
+        ],
+      }),
+      {
+        repository_ids: ["web"],
+        repositories: [
+          {
+            repository_id: "web",
+            branch_ref: "feature",
+            target_ref: "main",
+          },
+        ],
+      },
+    );
+
+    assert.deepEqual(
+      normalizeRepositorySelectionRequest(project, {}),
+      {
+        repository_ids: ["api", "web"],
+        repositories: [
+          { repository_id: "api", branch_ref: null, target_ref: null },
+          { repository_id: "web", branch_ref: null, target_ref: null },
+        ],
+      },
+    );
+  });
+
+  test("rejects empty, unknown, and non-visible Repository selections", () => {
+    assert.throws(
+      () =>
+        normalizeRepositorySelectionRequest(project, {
+          planningRepositoryIds: [],
+        }),
+      { code: "INVALID_REPOSITORY_SELECTION" },
+    );
+    assert.throws(
+      () =>
+        normalizeRepositorySelectionRequest(project, {
+          planningRepositoryIds: ["billing"],
+        }),
+      { code: "REPOSITORY_NOT_REGISTERED" },
+    );
+    assert.throws(
+      () =>
+        normalizeRepositorySelectionRequest(project, {
+          planningRepositoryIds: ["api"],
+          repositorySelections: [{ repository_id: "web" }],
+        }),
+      { code: "REPOSITORY_NOT_PLANNING_VISIBLE" },
     );
   });
 });

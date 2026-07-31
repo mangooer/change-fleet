@@ -73,6 +73,35 @@ export class RepositoryWorker {
     };
   }
 
+  async resolveRepositorySelection(
+    repository,
+    { branchRef = null, targetRef = null } = {},
+  ) {
+    // 未显式选分支时只读取此刻 checkout 的符号分支，绝不退回登记时缓存的默认值。
+    const selectionSource = branchRef === null ? "current_checkout" : "caller";
+    const selectedBranch =
+      branchRef === null
+        ? await discoverCurrentSelectionBranch(repository.resolved_git_root)
+        : normalizeBranchRef(branchRef, "INVALID_BRANCH_REF");
+    const normalizedTarget =
+      targetRef === null
+        ? selectedBranch
+        : normalizeBranchRef(targetRef, "INVALID_TARGET_REF");
+    const baseSha = await resolveCommit(
+      repository.resolved_git_root,
+      selectedBranch,
+    );
+    // 目标必须也是当前存在的本地分支；本阶段不接受 tag、任意 ref 或历史 commit。
+    await resolveCommit(repository.resolved_git_root, normalizedTarget);
+    return {
+      repository_id: repository.repository_id,
+      branch_ref: selectedBranch,
+      resolved_base_sha: baseSha,
+      target_ref: normalizedTarget,
+      selection_source: selectionSource,
+    };
+  }
+
   async discoverHarness(repository, baseSha) {
     // Harness 从冻结提交读取，避免把用户未提交的本地说明混入本次规划。
     const resources = [];
@@ -325,6 +354,23 @@ async function discoverCurrentRef(repositoryRoot) {
   }
 }
 
+async function discoverCurrentSelectionBranch(repositoryRoot) {
+  try {
+    return normalizeBranchRef(
+      (
+        await git(repositoryRoot, ["symbolic-ref", "--quiet", "HEAD"])
+      ).trim(),
+      "REPOSITORY_BRANCH_SELECTION_REQUIRED",
+    );
+  } catch (error) {
+    throw gitBoundaryError(
+      error,
+      "REPOSITORY_BRANCH_SELECTION_REQUIRED",
+      "A detached checkout requires an explicit Repository branch selection",
+    );
+  }
+}
+
 function normalizeTargetRef(targetRef) {
   invariant(
     typeof targetRef === "string" && targetRef.trim().length > 0,
@@ -333,6 +379,25 @@ function normalizeTargetRef(targetRef) {
   );
   const normalized = targetRef.trim();
   return normalized.startsWith("refs/")
+    ? normalized
+    : `refs/heads/${normalized}`;
+}
+
+function normalizeBranchRef(branchRef, errorCode) {
+  invariant(
+    typeof branchRef === "string" && branchRef.trim().length > 0,
+    errorCode,
+    "A non-empty local branch ref is required",
+  );
+  const normalized = branchRef.trim();
+  invariant(
+    !normalized.startsWith("refs/") ||
+      normalized.startsWith("refs/heads/"),
+    errorCode,
+    `Only local branch refs are supported: ${normalized}`,
+    { branch_ref: normalized },
+  );
+  return normalized.startsWith("refs/heads/")
     ? normalized
     : `refs/heads/${normalized}`;
 }

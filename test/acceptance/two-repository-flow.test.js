@@ -20,7 +20,12 @@ describe("local two-repository vertical slice", () => {
   test("allows one Repository Project and one Repository ChangeSet", async (t) => {
     const root = await createFixtureRoot(t, "changefleet-single-");
     const api = await createGitRepository(root, "api");
-    const web = await createGitRepository(root, "web");
+    await git(api.path, ["checkout", "-b", "feature"]);
+    await writeFile(path.join(api.path, "feature-base.txt"), "feature base\n");
+    await git(api.path, ["add", "feature-base.txt"]);
+    await git(api.path, ["commit", "-m", "feature base"]);
+    const featureSha = (await git(api.path, ["rev-parse", "HEAD"])).trim();
+    await git(api.path, ["checkout", "main"]);
     const service = await ChangeFleetService.open({
       controlRoot: path.join(root, "control"), workspaceRoot: path.join(root, "workspaces"),
       runtime: new ScriptedRuntime({ plan: createOneRepositoryPlan(await writeCombinedCheckScript(root, 1)) }),
@@ -29,13 +34,65 @@ describe("local two-repository vertical slice", () => {
       { repository_id: "api", locator: { path: api.path } },
     ] } });
     await service.createChangeSet({ idempotency_key: "create", change_set_id: "single", project_id: "project", intent: { objective: "Change only API" } });
-    await service.planChangeSet({ idempotency_key: "plan", change_set_id: "single" });
-    await service.confirmPlanRevision({ idempotency_key: "confirm", change_set_id: "single", plan_revision: 1 });
+    await service.planChangeSet({ idempotency_key: "plan-1", change_set_id: "single" });
+    await service.reviseRepositorySelection({
+      idempotency_key: "selection-2",
+      change_set_id: "single",
+      current_repository_selection_revision: 1,
+      planning_repository_ids: ["api"],
+      repository_selections: [{ repository_id: "api", branch_ref: "feature", target_ref: "main" }],
+    });
+    await git(api.path, ["checkout", "feature"]);
+    await writeFile(path.join(api.path, "feature-base.txt"), "moved feature\n");
+    await git(api.path, ["add", "feature-base.txt"]);
+    await git(api.path, ["commit", "-m", "move selected branch"]);
+    assert.notEqual(
+      (await git(api.path, ["rev-parse", "HEAD"])).trim(),
+      featureSha,
+    );
+    await git(api.path, ["checkout", "main"]);
+    await service.planChangeSet({ idempotency_key: "plan-2", change_set_id: "single" });
+    await service.confirmPlanRevision({ idempotency_key: "confirm", change_set_id: "single", plan_revision: 2 });
     const execution = await service.executeChangeSet({ idempotency_key: "execute", change_set_id: "single" });
     const state = await service.readChangeSet("single");
     assert.equal(state.candidates.length, 1);
     assert.equal(state.candidates[0].repository_id, "api");
+    assert.equal(state.candidates[0].base_sha, featureSha);
+    assert.equal(state.candidates[0].target_ref, "refs/heads/main");
+    assert.equal(state.current_repository_selection_revision, 2);
     assert.equal(execution.bundle_revision, 1);
+    await assert.rejects(
+      service.reviseRepositorySelection({
+        idempotency_key: "selection-too-early",
+        change_set_id: "single",
+        current_repository_selection_revision: 2,
+        planning_repository_ids: ["api"],
+      }),
+      { code: "INVALID_CHANGE_SET_STATE" },
+    );
+    await service.recordBundleDecision({
+      idempotency_key: "request-revision",
+      change_set_id: "single",
+      bundle_revision: execution.bundle_revision,
+      bundle_hash: execution.bundle_hash,
+      decision: "request_revision",
+    });
+    await service.reviseRepositorySelection({
+      idempotency_key: "selection-3",
+      change_set_id: "single",
+      current_repository_selection_revision: 2,
+      planning_repository_ids: ["api"],
+      repository_selections: [{ repository_id: "api", branch_ref: "main" }],
+    });
+    const revised = await service.readChangeSet("single");
+    assert.equal(revised.current_repository_selection_revision, 3);
+    assert.equal(revised.current_plan_revision, null);
+    assert.equal(revised.candidates.length, 1);
+    assert.equal(revised.bundles.length, 1);
+    assert.equal(
+      revised.work_units.find((unit) => unit.plan_revision === 2).state,
+      "candidate_ready",
+    );
   });
 
   test("persists one exact human-decidable Bundle through restart", async (t) => {
