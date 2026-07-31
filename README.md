@@ -92,9 +92,9 @@ See [`docs/glossary.md`](docs/glossary.md) for the complete vocabulary.
 ## Development
 
 [`Decision 0006`](docs/decisions/0006-first-vertical-slice-implementation-boundary.md) accepts one
-private Node.js 24 LTS ESM JavaScript package, a versioned filesystem store, a deterministic fake
-Runtime, and a test-only application surface. WI-0001 implements that package and owns its
-completion evidence.
+private Node.js 24 LTS ESM JavaScript package and a versioned filesystem store. WI-0001 and WI-0002
+implement the deterministic control kernel. The accepted WI-0003 implementation adds the pinned
+Codex SDK production adapter; scripted Runtime behavior remains test support only.
 
 The accepted package exposes:
 
@@ -102,7 +102,11 @@ The accepted package exposes:
 npm test
 npm run test:integration
 npm run test:acceptance
+npm run test:provider:codex
 npm run check
 ```
+
+The real Provider command is opt-in and runs only when `CHANGEFLEET_RUN_REAL_CODEX=1`; it requires
+external Codex credentials and is intentionally excluded from `npm run check`.
 
 Report every command actually executed and never claim an unexecuted check passed.

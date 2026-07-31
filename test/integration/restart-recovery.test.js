@@ -1,19 +1,91 @@
 import assert from "node:assert/strict";
+import { stat } from "node:fs/promises";
 import path from "node:path";
 import { describe, test } from "node:test";
 
 import { ChangeFleetService } from "../../src/application/change-fleet-service.js";
+import { ChangeFleetError } from "../../src/domain/errors.js";
 import {
   createFixtureRoot,
   createGitRepository,
   writeCombinedCheckScript,
 } from "../support/git-fixture.js";
 import {
+  createOneRepositoryPlan,
   createTwoRepositoryPlan,
   ScriptedRuntime,
+  TEST_AGENT_PROFILE,
 } from "../support/scripted-runtime.js";
 
 describe("restart recovery", () => {
+  test("abandons an interrupted planning thread and retries from a fresh worktree", async (t) => {
+    const root = await createFixtureRoot(t, "changefleet-plan-recovery-");
+    const api = await createGitRepository(root, "api");
+    const plan = createOneRepositoryPlan(
+      await writeCombinedCheckScript(root, 1),
+    );
+    const options = {
+      controlRoot: path.join(root, "control"),
+      workspaceRoot: path.join(root, "workspaces"),
+      agentProfile: TEST_AGENT_PROFILE,
+    };
+    const first = await ChangeFleetService.open({
+      ...options,
+      runtime: new PlanningInterruptRuntime({ plan }),
+    });
+    await first.registerProject({
+      idempotency_key: "register",
+      project: {
+        project_id: "project",
+        repositories: [
+          { repository_id: "api", locator: { path: api.path } },
+        ],
+      },
+    });
+    await first.createChangeSet({
+      idempotency_key: "create",
+      change_set_id: "change",
+      project_id: "project",
+      intent: { objective: "Recover planning" },
+    });
+    await assert.rejects(
+      first.planChangeSet({
+        idempotency_key: "plan-interrupted",
+        change_set_id: "change",
+      }),
+      { code: "CONTROLLER_INTERRUPTED" },
+    );
+    const interruptedState = await first.readChangeSet("change");
+    const interruptedRunId = interruptedState.run_references[0].run_id;
+    const interruptedRun = await first.runStore.read(interruptedRunId);
+    const interruptedWorkspace =
+      interruptedRun.planning_workspaces[0].workspace_path;
+    assert.equal(interruptedRun.status, "running");
+    assert.equal((await stat(interruptedWorkspace)).isDirectory(), true);
+
+    const secondRuntime = new ScriptedRuntime({ plan });
+    const reopened = await ChangeFleetService.open({
+      ...options,
+      runtime: secondRuntime,
+    });
+    await reopened.planChangeSet({
+      idempotency_key: "plan-retry",
+      change_set_id: "change",
+    });
+
+    const recoveredState = await reopened.readChangeSet("change");
+    assert.deepEqual(
+      recoveredState.run_references.map((reference) => reference.status),
+      ["abandoned", "completed"],
+    );
+    const recoveredRun = await reopened.runStore.read(interruptedRunId);
+    assert.equal(recoveredRun.status, "abandoned");
+    assert.equal(recoveredRun.outcome.type, "controller_restart");
+    assert.equal(recoveredRun.runtime_evidence.kind, "runtime_invocation");
+    assert.equal(await stat(interruptedWorkspace).catch(() => null), null);
+    assert.equal(secondRuntime.invocations.length, 1);
+  });
+
   test("abandons an interrupted Run and resumes without duplicate dispatch", async (t) => {
     const root = await createFixtureRoot(t, "changefleet-recovery-");
     const api = await createGitRepository(root, "api");
@@ -27,6 +99,7 @@ describe("restart recovery", () => {
     const options = {
       controlRoot: path.join(root, "control"),
       workspaceRoot: path.join(root, "workspaces"),
+      agentProfile: TEST_AGENT_PROFILE,
     };
     const first = await ChangeFleetService.open({
       ...options,
@@ -92,6 +165,16 @@ describe("restart recovery", () => {
     );
   });
 });
+
+class PlanningInterruptRuntime extends ScriptedRuntime {
+  async invoke(invocation) {
+    this.invocations.push(structuredClone(invocation));
+    throw new ChangeFleetError(
+      "CONTROLLER_INTERRUPTED",
+      "Simulated controller loss while planning",
+    );
+  }
+}
 
 async function bootstrap(service, apiPath, webPath) {
   await service.registerProject({

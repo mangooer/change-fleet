@@ -1,19 +1,30 @@
 import { invariant } from "../../domain/errors.js";
 
-// 端口只约束结构化调用与结果；Provider SDK、模型和子 Agent 策略留在适配器内部。
-export async function invokeRuntime(runtime, invocation) {
+// 端口同时返回业务结果和上下文外 Provider 证据，但不向领域层泄漏 SDK 事件类型。
+export async function invokeRuntime(runtime, invocation, { onEvent } = {}) {
   invariant(
     runtime && typeof runtime.invoke === "function",
     "INVALID_RUNTIME_ADAPTER",
     "Runtime adapter must implement invoke(invocation)",
   );
-  const outcome = await runtime.invoke(invocation);
+  const result = await runtime.invoke(invocation, { onEvent });
   invariant(
-    outcome && typeof outcome === "object" && typeof outcome.type === "string",
+    result &&
+      typeof result === "object" &&
+      result.outcome &&
+      typeof result.outcome === "object" &&
+      typeof result.outcome.type === "string",
     "INVALID_RUNTIME_OUTCOME",
-    "Runtime outcome must be a typed object",
+    "Runtime result must contain a typed outcome",
   );
-  return outcome;
+  invariant(
+    result.provider_evidence &&
+      typeof result.provider_evidence === "object" &&
+      !Array.isArray(result.provider_evidence),
+    "INVALID_RUNTIME_EVIDENCE",
+    "Runtime result must contain Provider evidence",
+  );
+  return result;
 }
 
 export async function measureInitialContext(runtime, invocation) {

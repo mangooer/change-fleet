@@ -1,6 +1,7 @@
 # Validation Policy
 
-Status: Active policy; first-slice package commands implemented locally in WI-0001
+Status: Active policy; deterministic commands and WI-0003's opt-in real Provider command are
+implemented
 
 ## Principles
 
@@ -42,10 +43,13 @@ Decision 0006 accepts this implementation command contract:
 | `npm test` | Pure domain and application tests |
 | `npm run test:integration` | Filesystem, locks, recovery, real-Git workspaces, and Candidate identity |
 | `npm run test:acceptance` | Serial real two-repository flow |
+| `npm run test:provider:codex` | Opt-in real Codex single-Repository flow; requires `CHANGEFLEET_RUN_REAL_CODEX=1` and external credentials |
 | `npm run check` | All accepted test scopes on Node.js 24 |
 
-WI-0001 implements these commands in the private package. Required completion evidence must include
-`npm run check` under Node.js 24; a passing run under another major is only compatibility evidence.
+WI-0001 implements the deterministic commands in the private package. WI-0003 adds the real
+Provider command but deliberately keeps it outside the normal fast suite. Required completion
+evidence must include `npm run check` under Node.js 24; a passing run under another major is only
+compatibility evidence.
 
 For Harness documentation, also inspect the byte sizes of `AGENTS.md`, `WORKFLOW.md`, and
 `docs/current-state.md` against the soft limits in `docs/harness.md`. This is a maintenance

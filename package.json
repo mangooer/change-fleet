@@ -10,6 +10,10 @@
     "test": "node --test \"test/unit/**/*.test.js\"",
     "test:integration": "node --test \"test/integration/**/*.test.js\"",
     "test:acceptance": "node --test --test-concurrency=1 \"test/acceptance/**/*.test.js\"",
+    "test:provider:codex": "node --test --test-concurrency=1 \"test/provider/**/*.test.js\"",
     "check": "node scripts/run-checks.mjs"
+  },
+  "dependencies": {
+    "@openai/codex-sdk": "0.146.0"
   }
 }

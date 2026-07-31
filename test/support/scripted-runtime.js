@@ -3,6 +3,19 @@ import path from "node:path";
 
 import { ChangeFleetError } from "../../src/domain/errors.js";
 
+export const TEST_AGENT_PROFILE = Object.freeze({
+  profile_id: "scripted-test-profile",
+  revision: 1,
+  provider: "test",
+  runtime: "scripted",
+  model: "fixture",
+  reasoning: "deterministic",
+  permissions: "operation_scoped",
+  network_access: false,
+  skills: [],
+  credential_profile_id: null,
+});
+
 export class ScriptedRuntime {
   constructor({
     plan,
@@ -30,8 +43,11 @@ export class ScriptedRuntime {
     this.invocations.push(structuredClone(invocation));
     if (invocation.operation === "planning") {
       return {
-        type: "plan_proposed",
-        plan: structuredClone(this.plan),
+        outcome: {
+          type: "plan_proposed",
+          plan: structuredClone(this.plan),
+        },
+        provider_evidence: testProviderEvidence(),
       };
     }
     const repositoryId =
@@ -61,11 +77,31 @@ export class ScriptedRuntime {
     await mkdir(path.dirname(target), { recursive: true });
     await writeFile(target, `${repositoryId} implementation\n`, "utf8");
     return {
-      type: "implementation_completed",
-      summary: `implemented ${repositoryId}`,
-      changed_paths: ["feature.txt"],
+      outcome: {
+        type: "implementation_completed",
+        summary: `implemented ${repositoryId}`,
+        changed_paths: ["feature.txt"],
+      },
+      provider_evidence: testProviderEvidence(),
     };
   }
+}
+
+function testProviderEvidence() {
+  // 测试 Runtime 只声明 fixture 身份，不伪造 Provider token 或成本。
+  return {
+    evidence_classification: "test_fixture",
+    provider: {
+      name: "test",
+      runtime: "scripted",
+      sdk_version: null,
+      cli_version: null,
+      thread_id: null,
+    },
+    observed: { effective_model: null },
+    usage_observations: [],
+    raw_artifact_references: [],
+  };
 }
 
 export function createTwoRepositoryPlan(combinedCheckScript) {

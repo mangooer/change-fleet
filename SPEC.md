@@ -537,6 +537,31 @@ Audit records must answer:
 - what the human reviewed and decided;
 - what was delivered or left unresolved.
 
+### Runtime Invocation Evidence
+
+Every real Agent Runtime call records one immutable `RuntimeInvocation` against its exact Run
+attempt. It preserves operation, Agent Profile and context-projection identity, requested and
+observable effective Runtime settings, Provider locators and versions, start and finish time,
+duration, terminal outcome, and raw evidence references.
+
+Provider usage is stored as zero or more `UsageObservation` records at the finest scope the
+supported interface exposes:
+
+```text
+scope             request | step | model | aggregate
+confidence        provider_reported | estimated | unknown
+coverage          complete | partial | aggregate_only | unknown
+```
+
+Missing token, cache, reasoning, model, request, or subagent detail remains unknown. ChangeFleet
+does not infer exact values or complete coverage from partial Provider output. Provider-reported
+monetary values are labeled estimates; normalized cost requires separately accepted versioned
+pricing authority.
+
+Runtime usage, cost, retry, effectiveness, and Provider traces are audit/debug evidence. Ordinary
+Control Contracts and current Run Context Projections exclude them. Later totals and comparisons
+are derived queries over immutable Run evidence and never become ChangeSet lifecycle authority.
+
 Rollback language is phase-specific:
 
 | Phase | Supported semantic |
@@ -585,3 +610,35 @@ The first slice excludes:
 
 Implementation begins only after the first vertical-slice proposal and implementation stack are
 explicitly accepted.
+
+## 14. First Real Provider Stage
+
+After the deterministic kernel and Repository selection boundary, the accepted first real Agent
+Runtime uses the official Codex TypeScript SDK behind the narrow `AgentRuntimeAdapter`.
+
+Each Run attempt owns a fresh Provider thread and local process. Provider session identity is a
+locator, not durable ChangeFleet authority. Controller loss abandons an unfinished attempt; retry
+uses a fresh thread and rebuilt current projection rather than blindly resuming hidden Provider
+context.
+
+Before planning, ChangeFleet materializes each planning-visible Repository at its persisted
+`resolved_base_sha` in an owned detached planning worktree. Planning receives read-only access only
+to those roots. WorkUnit execution remains write-scoped to one isolated Repository workspace.
+Dirty files and a later branch movement in the registered checkout cannot affect either view.
+
+The adapter:
+
+- supplies the Control Contract, current Run Context Projection, exact-base repository Harness, and
+  only explicitly selected Runtime Skills;
+- maps the Agent Profile to provider-native model, reasoning, environment, and capability settings;
+- requires strict structured planning and execution outcomes;
+- records bounded normalized events and Runtime invocation evidence;
+- keeps Provider output subject to current-revision, authorization, exact-subject, and human-gate
+  validation;
+- disables network by default and never uses full host access as a fallback;
+- keeps secrets outside persisted ChangeSet and Run payloads.
+
+The first stage proves one real single-Repository planning-to-Candidate flow. App Server, a second
+Provider, Provider-session recovery, Runtime Skill Kit packaging, continuous context enforcement,
+pricing, effectiveness comparison, dashboards, Linear, remote workers, and delivery remain
+deferred.

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 
+import { sha256 } from "../domain/canonical-json.js";
 import {
   commandFingerprint,
   createCandidate,
@@ -17,6 +18,8 @@ import {
   createContextProjection,
   createControlContract,
 } from "../domain/runtime-context.js";
+import { normalizeAgentProfile } from "../domain/agent-profile.js";
+import { createRuntimeInvocationEvidence } from "../domain/runtime-evidence.js";
 import { ChangeFleetError, invariant } from "../domain/errors.js";
 import { ControlStore, CONTROL_SCHEMA_VERSION } from "../adapters/filesystem/control-store.js";
 import { EvidenceStore } from "../adapters/filesystem/evidence-store.js";
@@ -29,28 +32,21 @@ import {
 } from "../adapters/runtime/runtime-port.js";
 import { CombinedValidator } from "./combined-validator.js";
 
-const DEFAULT_AGENT_PROFILE = Object.freeze({
-  profile_id: "deterministic-fake",
-  provider: "deterministic",
-  runtime: "scripted",
-  model: "fixture",
-  reasoning: "deterministic",
-  permissions: "operation_scoped",
-  skills: [],
-});
-
 // 应用服务是确定性编排入口：语义工作交给 Runtime，权限、状态和证据在此裁决。
 export class ChangeFleetService {
   constructor({
     controlRoot,
     workspaceRoot,
     runtime,
+    agentProfile,
     clock = () => new Date(),
     idFactory = (prefix) => `${prefix}-${randomUUID()}`,
   }) {
     this.controlRoot = path.resolve(controlRoot);
     this.workspaceRoot = path.resolve(workspaceRoot);
     this.runtime = runtime;
+    // 生产构造必须显式装配 Profile；测试 Runtime 也只能通过测试代码主动注入。
+    this.agentProfile = normalizeAgentProfile(agentProfile);
     this.clock = clock;
     this.idFactory = idFactory;
     this.instanceId = idFactory("controller");
@@ -275,7 +271,7 @@ export class ChangeFleetService {
     normalizeId("idempotency_key", idempotency_key);
     normalizeId("change_set_id", change_set_id);
     const catalog = await this.controlStore.readCatalog();
-    const initialState = await this.controlStore.readChangeSet(change_set_id);
+    let initialState = await this.controlStore.readChangeSet(change_set_id);
     const project = requireProject(catalog, initialState.project_id);
     const requestedSelection = normalizeRepositorySelectionRequest(project, {
       planningRepositoryIds: planning_repository_ids,
@@ -294,6 +290,8 @@ export class ChangeFleetService {
       commandInput,
     );
     if (existing?.status === "completed") return structuredClone(existing.result);
+    await this.recoverInterruptedPlanningRuns(change_set_id, project);
+    initialState = await this.controlStore.readChangeSet(change_set_id);
     assertRepositorySelectionRevisionAllowed(
       initialState,
       current_repository_selection_revision,
@@ -397,13 +395,16 @@ export class ChangeFleetService {
   async planChangeSet({
     idempotency_key,
     change_set_id,
-    agent_profile = DEFAULT_AGENT_PROFILE,
+    agent_profile = null,
   }) {
     normalizeId("idempotency_key", idempotency_key);
+    const agentProfile = normalizeAgentProfile(
+      agent_profile ?? this.agentProfile,
+    );
     const catalog = await this.controlStore.readCatalog();
-    const initialState = await this.controlStore.readChangeSet(change_set_id);
+    let initialState = await this.controlStore.readChangeSet(change_set_id);
     const project = requireProject(catalog, initialState.project_id);
-    const commandInput = { change_set_id, agent_profile };
+    const commandInput = { change_set_id, agent_profile: agentProfile };
     const existing = existingCommand(
       initialState,
       idempotency_key,
@@ -411,6 +412,8 @@ export class ChangeFleetService {
       commandInput,
     );
     if (existing?.status === "completed") return structuredClone(existing.result);
+    await this.recoverInterruptedPlanningRuns(change_set_id, project);
+    initialState = await this.controlStore.readChangeSet(change_set_id);
 
     const repositorySelection = currentRepositorySelection(initialState);
     const projectRepositories = new Map(
@@ -426,37 +429,54 @@ export class ChangeFleetService {
       ...project,
       repositories: selectedRepositories,
     };
-    const bases = {};
-    const repositoriesForContext = [];
-    // 规划只消费创建时已冻结的选择，不能再次读取分支 tip 或登记默认值。
-    for (const selection of repositorySelection.repositories) {
-      const repository = projectRepositories.get(selection.repository_id);
-      const base = {
-        repository_id: selection.repository_id,
-        target_ref: selection.target_ref,
-        base_sha: selection.resolved_base_sha,
-      };
-      bases[selection.repository_id] = base;
-      repositoriesForContext.push({
-        repository_id: repository.repository_id,
-        description: repository.description,
-        branch_ref: selection.branch_ref,
-        target_ref: base.target_ref,
-        base_sha: base.base_sha,
-        root_path: repository.resolved_git_root,
-        harness_resources: await this.repositoryWorker.discoverHarness(
-          repository,
-          base.base_sha,
-        ),
-      });
-    }
-
     const nextRevision = initialState.plans.length + 1;
     const planningAttempt =
       initialState.run_references.filter(
         (reference) => reference.operation === "planning",
       ).length + 1;
     const runId = this.idFactory("run");
+    const bases = {};
+    const repositoriesForContext = [];
+    const planningWorkspaces = [];
+    // 规划只消费创建时已冻结的选择，不能再次读取分支 tip 或登记默认值。
+    try {
+      for (const selection of repositorySelection.repositories) {
+        const repository = projectRepositories.get(selection.repository_id);
+        const base = {
+          repository_id: selection.repository_id,
+          target_ref: selection.target_ref,
+          base_sha: selection.resolved_base_sha,
+        };
+        const workspace =
+          await this.repositoryWorker.preparePlanningWorkspace({
+            repository,
+            baseSha: base.base_sha,
+            workspaceId: `planning-${runId}`,
+          });
+        planningWorkspaces.push(workspace);
+        bases[selection.repository_id] = base;
+        repositoriesForContext.push({
+          repository_id: repository.repository_id,
+          description: repository.description,
+          branch_ref: selection.branch_ref,
+          target_ref: base.target_ref,
+          base_sha: base.base_sha,
+          root_path: workspace.workspace_path,
+          harness_resources: await this.repositoryWorker.discoverHarness(
+            repository,
+            base.base_sha,
+          ),
+        });
+      }
+    } catch (error) {
+      // 部分创建失败时，只清理已经验证归属的规划 worktree。
+      await this.cleanupPlanningWorkspaces({
+        planningWorkspaces,
+        projectRepositories,
+      }).catch(() => {});
+      throw error;
+    }
+
     const controlContract = createControlContract({
       operation: "planning",
       changeSetId: change_set_id,
@@ -482,8 +502,8 @@ export class ChangeFleetService {
       repositories: repositoriesForContext,
       capability: {
         mode: "read_only",
-        paths: selectedRepositories.map(
-          (repository) => repository.resolved_git_root,
+        paths: planningWorkspaces.map(
+          (workspace) => workspace.workspace_path,
         ),
       },
       requiredEvidence: ["change_plan", "risks", "unverified_boundaries"],
@@ -495,7 +515,7 @@ export class ChangeFleetService {
     });
     const invocation = {
       operation: "planning",
-      agent_profile,
+      agent_profile: agentProfile,
       control_contract: controlContract,
       context_projection: contextProjection,
       capabilities: contextProjection.capability,
@@ -505,7 +525,7 @@ export class ChangeFleetService {
     const contextEvidence = assessInitialContext({
       controlContract,
       contextProjection,
-      agentProfile: agent_profile,
+      agentProfile,
       runtimeMeasurement: await measureInitialContext(this.runtime, invocation),
     });
     await this.runStore.create({
@@ -516,18 +536,46 @@ export class ChangeFleetService {
       operation: "planning",
       attempt: planningAttempt,
       status: "running",
-      agent_profile,
+      agent_profile: agentProfile,
       context_evidence: contextEvidence,
+      context_projection_identity: {
+        schema_version: contextProjection.schema_version,
+        digest: sha256(contextProjection),
+      },
+      planning_workspaces: planningWorkspaces,
+      runtime_evidence: null,
       created_at: this.now(),
       completed_at: null,
       outcome: null,
     });
+    await this.controlStore.transactChangeSet(change_set_id, (state) => {
+      invariant(
+        state.current_repository_selection_revision ===
+          repositorySelection.revision,
+        "STALE_REPOSITORY_SELECTION_REVISION",
+        "Repository selection changed before planning dispatch",
+      );
+      state.run_references.push({
+        run_id: runId,
+        operation: "planning",
+        plan_revision: state.current_plan_revision,
+        attempt: planningAttempt,
+        status: "running",
+      });
+      state.updated_at = this.now();
+    });
 
     let outcome;
+    let providerEvidence = null;
     let repositorySelectionChangeRequest = null;
     let normalizedPlan = null;
+    let runtimeError = null;
     try {
-      outcome = await invokeRuntime(this.runtime, invocation);
+      const result = await invokeRuntime(this.runtime, invocation, {
+        onEvent: (event) => this.appendRuntimeEvent(runId, event),
+      });
+      outcome = result.outcome;
+      providerEvidence = result.provider_evidence;
       invariant(
         ["plan_proposed", "repository_selection_change_request"].includes(
           outcome.type,
@@ -548,24 +596,67 @@ export class ChangeFleetService {
           revision: nextRevision,
           createdAt: this.now(),
         });
-        normalizedPlan.agent_profile = structuredClone(agent_profile);
+        normalizedPlan.agent_profile = structuredClone(agentProfile);
         normalizedPlan.planning_run_id = runId;
       }
-      await this.runStore.appendEvent(runId, {
-        event_id: this.idFactory("event"),
-        type: "runtime.outcome",
-        at: this.now(),
-        payload: outcome,
-      });
-      await this.runStore.update(runId, (run) => {
-        run.status = "completed";
-        run.completed_at = this.now();
-        run.outcome = { type: outcome.type };
+    } catch (error) {
+      runtimeError = error;
+      providerEvidence = error.runtime_evidence ?? null;
+    }
+    // 该错误模拟进程已直接消失；保留 running Run 和 worktree 供下一控制器执行确定性恢复。
+    if (runtimeError?.code === "CONTROLLER_INTERRUPTED") {
+      throw runtimeError;
+    }
+    try {
+      await this.cleanupPlanningWorkspaces({
+        planningWorkspaces,
+        projectRepositories,
       });
     } catch (error) {
-      await this.failRun(runId, error);
-      throw error;
+      runtimeError ??= error;
     }
+    if (runtimeError) {
+      await this.recordRuntimeEvidence({
+        runId,
+        invocation,
+        providerEvidence,
+        terminal: {
+          status:
+            runtimeError.code === "RUNTIME_CANCELLED"
+              ? "cancelled"
+              : "failed",
+          outcome_type: "failed",
+          error_code: runtimeError.code ?? "UNEXPECTED_ERROR",
+          completed_at: this.now(),
+        },
+      });
+      await this.failRun(runId, runtimeError);
+      await this.markRunReference(change_set_id, runId, "failed");
+      throw runtimeError;
+    }
+    await this.runStore.appendEvent(runId, {
+      event_id: this.idFactory("event"),
+      type: "runtime.outcome",
+      at: this.now(),
+      payload: outcome,
+    });
+    const runCompletedAt = this.now();
+    await this.recordRuntimeEvidence({
+      runId,
+      invocation,
+      providerEvidence,
+      terminal: {
+        status: "completed",
+        outcome_type: outcome.type,
+        error_code: null,
+        completed_at: runCompletedAt,
+      },
+    });
+    await this.runStore.update(runId, (run) => {
+      run.status = "completed";
+      run.completed_at = runCompletedAt;
+      run.outcome = { type: outcome.type };
+    });
 
     return this.controlStore.transactChangeSet(change_set_id, (state) => {
       const result = applyIdempotentCommand({
@@ -598,12 +689,15 @@ export class ChangeFleetService {
               requested_at: this.now(),
             };
             state.repository_selection_change_requests.push(request);
-            state.run_references.push({
-              run_id: runId,
-              operation: "planning",
-              plan_revision: state.current_plan_revision,
-              status: "completed",
-            });
+            const runReference = state.run_references.find(
+              (reference) => reference.run_id === runId,
+            );
+            invariant(
+              runReference?.status === "running",
+              "RUN_REFERENCE_STATE_MISMATCH",
+              `Planning Run ${runId} has no running reference`,
+            );
+            runReference.status = "completed";
             state.updated_at = this.now();
             return {
               change_set_id,
@@ -634,12 +728,16 @@ export class ChangeFleetService {
               last_error: null,
             })),
           );
-          state.run_references.push({
-            run_id: runId,
-            operation: "planning",
-            plan_revision: plan.revision,
-            status: "completed",
-          });
+          const runReference = state.run_references.find(
+            (reference) => reference.run_id === runId,
+          );
+          invariant(
+            runReference?.status === "running",
+            "RUN_REFERENCE_STATE_MISMATCH",
+            `Planning Run ${runId} has no running reference`,
+          );
+          runReference.plan_revision = plan.revision;
+          runReference.status = "completed";
           state.state = "awaiting_plan_confirmation";
           state.updated_at = this.now();
           return {
@@ -912,6 +1010,100 @@ export class ChangeFleetService {
     return this.controlStore.readChangeSet(changeSetId);
   }
 
+  async recoverInterruptedPlanningRuns(changeSetId, project) {
+    // 新的规划调用先放弃上一控制器遗留的尝试；Provider thread 不会被盲目续接。
+    const state = await this.controlStore.readChangeSet(changeSetId);
+    const runningReferences = state.run_references.filter(
+      (reference) =>
+        reference.operation === "planning" &&
+        reference.status === "running",
+    );
+    if (runningReferences.length === 0) return;
+    const repositories = new Map(
+      project.repositories.map((repository) => [
+        repository.repository_id,
+        repository,
+      ]),
+    );
+    const recovered = [];
+    for (const reference of runningReferences) {
+      const run = await this.runStore.read(reference.run_id);
+      if (run.status !== "running" || run.runtime_evidence) {
+        recovered.push({
+          run_id: run.run_id,
+          status: "blocked",
+          error_code: "AMBIGUOUS_TERMINAL_RUN_RECOVERY",
+        });
+        continue;
+      }
+      let cleanupError = null;
+      try {
+        await this.cleanupPlanningWorkspaces({
+          planningWorkspaces: run.planning_workspaces ?? [],
+          projectRepositories: repositories,
+        });
+      } catch (error) {
+        cleanupError = error;
+      }
+      const completedAt = this.now();
+      await this.recordRuntimeEvidence({
+        runId: run.run_id,
+        invocation: null,
+        providerEvidence: null,
+        terminal: {
+          status: "abandoned",
+          outcome_type: "controller_restart",
+          error_code: cleanupError?.code ?? null,
+          completed_at: completedAt,
+        },
+      });
+      await this.runStore.update(run.run_id, (current) => {
+        current.status = "abandoned";
+        current.completed_at = completedAt;
+        current.outcome = { type: "controller_restart" };
+      });
+      await this.runStore.appendEvent(run.run_id, {
+        event_id: this.idFactory("event"),
+        type: "run.abandoned",
+        at: completedAt,
+        payload: {
+          reason: "controller_restart",
+          cleanup_error: cleanupError?.code ?? null,
+        },
+      });
+      recovered.push({
+        run_id: run.run_id,
+        status: cleanupError ? "blocked" : "abandoned",
+        error_code: cleanupError?.code ?? null,
+      });
+    }
+    await this.controlStore.transactChangeSet(changeSetId, (current) => {
+      for (const item of recovered) {
+        const reference = current.run_references.find(
+          (candidate) => candidate.run_id === item.run_id,
+        );
+        reference.status = item.status;
+        if (item.status === "blocked") {
+          current.blockers.push({
+            code:
+              item.error_code ?? "AMBIGUOUS_TERMINAL_RUN_RECOVERY",
+            run_id: item.run_id,
+          });
+        }
+      }
+      if (recovered.some((item) => item.status === "blocked")) {
+        current.state = "decision_required";
+      }
+      current.updated_at = this.now();
+    });
+    const blocked = recovered.find((item) => item.status === "blocked");
+    invariant(
+      !blocked,
+      blocked?.error_code ?? "AMBIGUOUS_TERMINAL_RUN_RECOVERY",
+      `Planning Run ${blocked?.run_id} could not be recovered safely`,
+    );
+  }
+
   async recoverInterruptedRuns(changeSetId) {
     // 明确中断可重试；终态 Run 与 running WorkUnit 冲突时阻塞，不能猜测结果。
     const state = await this.controlStore.readChangeSet(changeSetId);
@@ -923,16 +1115,28 @@ export class ChangeFleetService {
     for (const workUnit of running) {
       const runReference = workUnit.run_references.at(-1);
       const run = await this.runStore.read(runReference.run_id);
-      if (run.status === "running") {
+      if (run.status === "running" && !run.runtime_evidence) {
+        const completedAt = this.now();
+        await this.recordRuntimeEvidence({
+          runId: run.run_id,
+          invocation: null,
+          providerEvidence: null,
+          terminal: {
+            status: "abandoned",
+            outcome_type: "controller_restart",
+            error_code: null,
+            completed_at: completedAt,
+          },
+        });
         await this.runStore.update(run.run_id, (current) => {
           current.status = "abandoned";
-          current.completed_at = this.now();
+          current.completed_at = completedAt;
           current.outcome = { type: "controller_restart" };
         });
         await this.runStore.appendEvent(run.run_id, {
           event_id: this.idFactory("event"),
           type: "run.abandoned",
-          at: this.now(),
+          at: completedAt,
           payload: { reason: "controller_restart" },
         });
         recovery.push({
@@ -1022,6 +1226,8 @@ export class ChangeFleetService {
       status: "running",
       agent_profile: plan.agent_profile,
       context_evidence: null,
+      context_projection_identity: null,
+      runtime_evidence: null,
       created_at: this.now(),
       completed_at: null,
       outcome: null,
@@ -1120,11 +1326,20 @@ export class ChangeFleetService {
     });
     await this.runStore.update(runId, (current) => {
       current.context_evidence = contextEvidence;
+      current.context_projection_identity = {
+        schema_version: contextProjection.schema_version,
+        digest: sha256(contextProjection),
+      };
     });
 
     let outcome;
+    let providerEvidence = null;
     try {
-      outcome = await invokeRuntime(this.runtime, invocation);
+      const result = await invokeRuntime(this.runtime, invocation, {
+        onEvent: (event) => this.appendRuntimeEvent(runId, event),
+      });
+      outcome = result.outcome;
+      providerEvidence = result.provider_evidence;
       invariant(
         outcome.type === "implementation_completed",
         "UNEXPECTED_RUNTIME_OUTCOME",
@@ -1136,9 +1351,21 @@ export class ChangeFleetService {
         at: this.now(),
         payload: outcome,
       });
+      const runCompletedAt = this.now();
+      await this.recordRuntimeEvidence({
+        runId,
+        invocation,
+        providerEvidence,
+        terminal: {
+          status: "completed",
+          outcome_type: outcome.type,
+          error_code: null,
+          completed_at: runCompletedAt,
+        },
+      });
       await this.runStore.update(runId, (current) => {
         current.status = "completed";
-        current.completed_at = this.now();
+        current.completed_at = runCompletedAt;
         current.outcome = { type: outcome.type };
       });
       await this.controlStore.transactChangeSet(changeSetId, (current) => {
@@ -1154,6 +1381,18 @@ export class ChangeFleetService {
       });
     } catch (error) {
       if (error.code === "CONTROLLER_INTERRUPTED") throw error;
+      await this.recordRuntimeEvidence({
+        runId,
+        invocation,
+        providerEvidence: error.runtime_evidence ?? providerEvidence,
+        terminal: {
+          status:
+            error.code === "RUNTIME_CANCELLED" ? "cancelled" : "failed",
+          outcome_type: "failed",
+          error_code: error.code ?? "UNEXPECTED_ERROR",
+          completed_at: this.now(),
+        },
+      });
       await this.failRun(runId, error);
       await this.failWorkUnit(changeSetId, workUnitId, error);
       throw error;
@@ -1247,6 +1486,85 @@ export class ChangeFleetService {
       );
     }
     return evidence;
+  }
+
+  async cleanupPlanningWorkspaces({
+    planningWorkspaces,
+    projectRepositories,
+  }) {
+    // 逐个清理并保留首个错误，避免一个仓库异常导致其余临时 worktree 永久泄漏。
+    let firstError = null;
+    for (const workspace of [...planningWorkspaces].reverse()) {
+      const repository = projectRepositories.get(workspace.repository_id);
+      try {
+        await this.repositoryWorker.cleanupPlanningWorkspace({
+          repository,
+          workspace,
+        });
+      } catch (error) {
+        firstError ??= error;
+      }
+    }
+    if (firstError) throw firstError;
+  }
+
+  async appendRuntimeEvent(runId, event) {
+    invariant(
+      event &&
+        typeof event.type === "string" &&
+        event.payload &&
+        typeof event.payload === "object",
+      "INVALID_RUNTIME_EVENT",
+      "Runtime event must contain a type and bounded payload",
+    );
+    await this.runStore.appendEvent(runId, {
+      event_id: this.idFactory("event"),
+      type: event.type,
+      at: this.now(),
+      payload: event.payload,
+    });
+  }
+
+  async recordRuntimeEvidence({
+    runId,
+    invocation,
+    providerEvidence,
+    terminal,
+  }) {
+    // 最终调用证据按内容寻址；Run 只保存引用，普通 Agent 上下文不会投影该记录。
+    const run = await this.runStore.read(runId);
+    const payload = createRuntimeInvocationEvidence({
+      run,
+      invocation,
+      providerEvidence,
+      terminal,
+    });
+    const reference = await this.evidenceStore.record({
+      kind: "runtime_invocation",
+      subject: {
+        run_id: run.run_id,
+        attempt: run.attempt,
+        operation: run.operation,
+        change_set_id: run.change_set_id,
+        work_unit_id: run.work_unit_id,
+      },
+      payload,
+      createdAt: terminal.completed_at,
+    });
+    await this.runStore.update(runId, (current) => {
+      current.runtime_evidence = reference;
+    });
+    return reference;
+  }
+
+  async markRunReference(changeSetId, runId, status) {
+    await this.controlStore.transactChangeSet(changeSetId, (state) => {
+      const reference = state.run_references.find(
+        (candidate) => candidate.run_id === runId,
+      );
+      if (reference?.status === "running") reference.status = status;
+      state.updated_at = this.now();
+    });
   }
 
   async failRun(runId, error) {

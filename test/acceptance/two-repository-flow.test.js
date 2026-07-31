@@ -14,6 +14,7 @@ import {
   createTwoRepositoryPlan,
   createOneRepositoryPlan,
   ScriptedRuntime,
+  TEST_AGENT_PROFILE,
 } from "../support/scripted-runtime.js";
 
 describe("local two-repository vertical slice", () => {
@@ -29,6 +30,7 @@ describe("local two-repository vertical slice", () => {
     const service = await ChangeFleetService.open({
       controlRoot: path.join(root, "control"), workspaceRoot: path.join(root, "workspaces"),
       runtime: new ScriptedRuntime({ plan: createOneRepositoryPlan(await writeCombinedCheckScript(root, 1)) }),
+      agentProfile: TEST_AGENT_PROFILE,
     });
     await service.registerProject({ idempotency_key: "register", project: { project_id: "project", repositories: [
       { repository_id: "api", locator: { path: api.path } },
@@ -122,6 +124,7 @@ describe("local two-repository vertical slice", () => {
       controlRoot: path.join(root, "control"),
       workspaceRoot: path.join(root, "workspaces"),
       runtime,
+      agentProfile: TEST_AGENT_PROFILE,
     };
     const service = await ChangeFleetService.open(options);
 

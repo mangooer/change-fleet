@@ -12,6 +12,7 @@ import {
 import {
   createTwoRepositoryPlan,
   ScriptedRuntime,
+  TEST_AGENT_PROFILE,
 } from "../support/scripted-runtime.js";
 
 describe("application failure and revision boundaries", () => {
@@ -80,6 +81,7 @@ describe("application failure and revision boundaries", () => {
       controlRoot: fixture.controlRoot,
       workspaceRoot: fixture.workspaceRoot,
       runtime,
+      agentProfile: TEST_AGENT_PROFILE,
     });
     await registerAndCreate(service, fixture);
     await service.planChangeSet({
@@ -128,6 +130,7 @@ async function openBootstrappedService(fixture, runtime) {
     controlRoot: fixture.controlRoot,
     workspaceRoot: fixture.workspaceRoot,
     runtime,
+    agentProfile: TEST_AGENT_PROFILE,
   });
   await registerAndCreate(service, fixture);
   await service.planChangeSet({

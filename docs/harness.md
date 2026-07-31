@@ -224,9 +224,11 @@ reasoning:
 - ChangeFleet-owned plan revision and confirmation history;
 - tracker integrations such as Linear as intake and projection surfaces, not lifecycle authority.
 
-The deterministic first slice must prove the Control Contract, projections, scoped capabilities,
-and initial budget evidence using a fake Runtime. Runtime Kit packaging, a real Provider adapter,
-Linear integration, and continuous context enforcement are deferred.
+The deterministic first slice proved the Control Contract, projections, scoped capabilities, and
+initial budget evidence using a scripted test Runtime. Decisions 0009 and 0010 now accept raw
+out-of-context Runtime evidence and one first Codex SDK Provider implementation stage. Runtime Kit
+packaging, App Server, a second Provider, Linear integration, pricing and effectiveness analysis,
+and continuous context enforcement remain deferred.
 
 ## Maintenance Check
 

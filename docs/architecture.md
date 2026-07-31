@@ -167,6 +167,8 @@ Skill settings. It:
 - exposes exact-base repository Harness progressively when supported;
 - records requested and observable effective Runtime settings;
 - maps provider events and terminal output into typed Run outcomes;
+- persists immutable Runtime invocation identity, timing, available usage, confidence, coverage,
+  Provider locators, and raw artifact references outside default Agent context;
 - reports initial context evidence as `enforced`, `estimated`, or `unknown`.
 
 The adapter does not authorize repositories, accept plans or Bundles, install repository Harness,
@@ -281,6 +283,10 @@ Registered repository
   source and Harness
   Git history
 
+Planning workspace
+  detached exact-base checkout for one selected Repository
+  read-only Agent access
+
 Task workspace
   isolated checkout for one WorkUnit
   Agent changes
@@ -342,6 +348,9 @@ On restart:
 6. resume only from the current ChangeSet and plan revision.
 
 Provider-native context may optimize continuation but is not lifecycle authority.
+The first real adapter abandons an incomplete Provider session after controller loss and starts a
+fresh Provider thread for a retry. Durable Provider-session recovery requires later accepted proof
+of exact revision, workspace, event, and context identity.
 
 ## First Extraction Boundary
 
@@ -364,6 +373,30 @@ The following should be redesigned:
 - project-local status and UI projections;
 - initialization tied to one Git root.
 
+## First Real Provider Boundary
+
+The first production `AgentRuntimeAdapter` uses the official `@openai/codex-sdk` TypeScript package.
+It is one adapter implementation, not a Provider framework.
+
+Each Run attempt owns a fresh SDK thread and child process. Planning first materializes one owned
+detached worktree at each selected Repository's persisted `resolved_base_sha`; the adapter exposes
+only those roots read-only. Execution exposes only the current WorkUnit workspace with write
+permission. Network remains off unless separately authorized, and no full-host permission fallback
+exists.
+
+The adapter uses strict JSON Schema terminal output and maps streamed items into bounded normalized
+events. Provider types and full transcripts remain adapter evidence. Only validated typed outcomes
+cross into the application service.
+
+Run evidence separates one ChangeFleet Runtime invocation from provider-native request, step, model,
+or aggregate usage observations. Every observation declares confidence and coverage. Codex
+turn-level usage may be `aggregate_only`; internal or experimental per-response events are not a
+production dependency.
+
+The SDK dependency is pinned exactly. Secrets enter through a controlled external environment and
+are not persisted. Provider-global Harness and settings are isolated when supported; any hidden
+input prevents an `enforced` context or reproducibility claim.
+
 ## Deferred Architecture
 
 The following remain proposal-only until the local two-repository slice proves demand:
@@ -374,7 +407,9 @@ The following remain proposal-only until the local two-repository slice proves d
 - authoritative service graph;
 - provider routing;
 - production Runtime Skill packaging;
-- a real Provider adapter;
+- Codex App Server, in-flight steering, and durable Provider-session recovery;
+- a second real Provider such as Claude Agent SDK;
+- pricing, dashboards, budget enforcement, and effectiveness comparison;
 - Linear or another tracker integration;
 - continuous context enforcement;
 - stacked ChangeSets;

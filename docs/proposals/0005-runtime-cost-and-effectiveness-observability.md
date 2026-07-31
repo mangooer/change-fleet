@@ -2,13 +2,19 @@
 
 Artifact type: Repository Design Proposal
 
-Decision status: Proposed
+Decision status: Accepted
 
 Proposed: 2026-07-30
 
 Depends on: Decision 0005 and Decision 0007, accepted
 
-Implementation tracking: None until accepted.
+Accepted: 2026-07-31
+
+Decision: [Decision 0009](../decisions/0009-runtime-observability-evidence-boundary.md)
+
+Implementation tracking: Raw first-Provider capture is tracked by
+[WI-0003](../work-items/WI-0003-first-real-codex-sdk-provider.md), `done`. Later derivation and
+comparison stages have no implementation authority.
 
 ## Context
 
@@ -191,3 +197,50 @@ authorized, accept only the raw invocation-usage and timing portion needed by th
 later, separate implementation stages for aggregation and effectiveness comparison when their data
 prerequisites exist. Derived reports remain queries over evidence and never become ChangeSet
 lifecycle authority or default Agent context.
+
+## Discussion Update: Provider-Neutral Coverage
+
+Discussed: 2026-07-31
+
+Provider interfaces expose different usage boundaries. A flat mandatory per-model-request schema
+would either reject otherwise valid Providers or encourage adapters to invent missing detail.
+The accepted source model therefore distinguishes one ChangeFleet `RuntimeInvocation` from zero or
+more provider-native `UsageObservation` records.
+
+Each observation declares:
+
+```text
+scope             request | step | model | aggregate
+confidence        provider_reported | estimated | unknown
+coverage          complete | partial | aggregate_only | unknown
+raw_usage_reference
+```
+
+Available token fields remain provider observations. Missing request, model, cache, reasoning, or
+subagent detail remains null or unknown. An aggregate-only Provider is valid when the boundary is
+reported honestly.
+
+The Run also records the Agent Profile revision, context-projection version or digest, requested and
+observable effective Runtime settings, timestamps, duration, terminal outcome, and Provider
+locators. These fields preserve the controlled dimensions required by a future comparison without
+performing that comparison now.
+
+Provider-reported monetary values may be retained only as labeled estimates. They are not
+normalized ChangeFleet cost and cannot drive billing or financial decisions.
+
+## Acceptance
+
+Accepted: 2026-07-31
+
+The user accepted only the following current authority:
+
+- audit, retry, cost, and effectiveness telemetry remains outside ordinary Agent context;
+- the first real Provider records immutable Runtime invocation identity, timing, available usage,
+  confidence, coverage, Runtime settings, profile and projection identity, and raw references;
+- fake Provider values never become production evidence, and fake production selection is removed
+  when the real boundary is proven;
+- every implementation stage has an explicit exit condition and deferred boundary.
+
+The earlier pricing, aggregation, retention, dashboards, budgets, chargeback, and representative
+effectiveness sections remain chronological future design. They are not accepted implementation
+scope and require later authority. Decision 0009 owns the durable accepted boundary.

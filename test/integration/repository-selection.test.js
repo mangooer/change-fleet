@@ -14,6 +14,7 @@ import {
   createOneRepositoryPlan,
   createTwoRepositoryPlan,
   ScriptedRuntime,
+  TEST_AGENT_PROFILE,
 } from "../support/scripted-runtime.js";
 
 describe("ChangeSet Repository selection", () => {
@@ -246,13 +247,19 @@ describe("ChangeSet Repository selection", () => {
       async invoke(invocation) {
         this.invocations.push(structuredClone(invocation));
         return {
-          type: "repository_selection_change_request",
-          request: {
-            planning_repository_ids: ["api"],
-            repository_selections: [
-              { repository_id: "api", branch_ref: "main" },
-            ],
-            rationale: "The requested work belongs on main",
+          outcome: {
+            type: "repository_selection_change_request",
+            request: {
+              planning_repository_ids: ["api"],
+              repository_selections: [
+                { repository_id: "api", branch_ref: "main" },
+              ],
+              rationale: "The requested work belongs on main",
+            },
+          },
+          provider_evidence: {
+            evidence_classification: "test_fixture",
+            usage_observations: [],
           },
         };
       },
@@ -304,6 +311,7 @@ function openService(root, runtime) {
     controlRoot: path.join(root, "control"),
     workspaceRoot: path.join(root, "workspaces"),
     runtime,
+    agentProfile: TEST_AGENT_PROFILE,
   });
 }
 
