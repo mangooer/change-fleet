@@ -28,7 +28,8 @@ Status: Active policy; Node.js 24 deterministic commands and the WI-0005 opt-in 
 | Repository Harness overlay | selector and identity unit tests plus real-Git containment, restart, mutation, cleanup, and Candidate-exclusion integration tests |
 | Runtime adapter | deterministic protocol tests |
 | Runtime audit projection | canonical usage and unknown semantics, required-reference integrity, restart reproduction, zero writes, and context exclusion |
-| Local audit command | exact grammar, process JSON, exit statuses, projection equivalence, missing-root behavior, and zero writes |
+| Debug audit CLI route | exact grammar, process JSON, exit statuses, projection equivalence, missing-root behavior, and zero writes |
+| Unified local CLI | allowlist, application delegation, idempotency, process I/O, human gates, lifecycle path, and obsolete-entry removal |
 | API or UI | affected tests plus one targeted user path |
 | Multi-repository orchestration | real two-repository acceptance fixture |
 | Delivery integration | provider fixture plus exact target-movement case |
@@ -87,26 +88,34 @@ Provider command but deliberately keeps it outside the normal fast suite. A Work
 evidence. The check entry point validates its actual process major before dispatching tests and
 fails immediately with `UNSUPPORTED_NODE_VERSION` when PATH selected another major.
 
-WI-0004 extends these commands without a parallel fake production path. Its deterministic gate
-covers explicit policy authorization, exact-base `.worktreeinclude` resolution, contained
-Git-ignored Codex roots, byte limits, immutable restart reconstruction, overlay mutation, no
-writeback, and Candidate exclusion. The opt-in real Codex command must still prove one frozen
-ignored resource is available without claiming an unobservable Provider load event. The
-2026-08-03 authorized gate passed while retaining `unavailable` actual-load coverage.
+The real Provider command is a development-validation gate. `CHANGEFLEET_RUN_REAL_CODEX=1` prevents
+accidental nondeterministic external execution; it is not a product Runtime switch, a Codex SDK
+per-Run approval, or part of `npm run check`. Select the gate only when the WorkItem or final diff
+crosses Provider invocation, Runtime-host provisioning, Provider evidence capture, or another
+explicit end-to-end boundary. Within this repository, the user has granted standing authorization
+to run a selected real Codex gate without another conversational confirmation. Repository scope,
+network, full-host access, destructive delivery, or a new external-cost class still requires its
+own authority. A skipped gate is never reported as passed.
 
 The accepted audit-projection boundary requires deterministic tests to prove canonical observation
 selection, null preservation, distinct duration and outcome semantics, exact source identity,
 bounded pagination, typed failure for malformed required evidence, restart reproduction, and zero
 mutation of control state, evidence, workspaces, Git, or registered repositories. A context
-regression must prove that audit fields do not enter ordinary Runtime input. The implementation
-WorkItem may require one explicitly authorized final paid Codex flow, but that flow remains outside
-`npm run check`, is not repeated automatically, and cannot be reported as passed when skipped.
+regression must prove that audit fields do not enter ordinary Runtime input. A selected real Codex
+source-to-projection check follows the development Provider rule above and is not repeated merely
+because presentation code changed.
 
-Decision 0013 additionally requires child-process tests for the package-private exact-id audit
-command. Success and representative failures must preserve the control-root digest, and an absent
-root must remain absent. The command must be compared with the direct query projection under the
-same locale and pagination parameters. This presentation-only slice does not repeat the paid
-Provider gate.
+Decision 0013's exact-id audit boundary continues beneath the unified CLI debug namespace. Success
+and representative failures preserve the control-root digest, an absent root remains absent, and
+the command is compared with the direct query projection under the same locale and pagination.
+This presentation path does not repeat the paid Provider gate.
+
+Decision 0014 requires the unified CLI to prove explicit operator-command allowlisting, unchanged
+application input and result delegation, caller idempotency, typed process failure, and one complete
+current local lifecycle path. Audit migration must retain Decision 0013's projection and zero-write
+checks. Final review also inspects `bin/`, package scripts, documentation, and tests to prove the
+standalone audit entry point and every unowned temporary executable are absent. Real Provider
+validation follows the shared development rule above rather than a CLI-specific permission gate.
 
 For Harness documentation, also inspect the byte sizes of `AGENTS.md`, `WORKFLOW.md`, and
 `docs/current-state.md` against the soft limits in `docs/harness.md`. This is a maintenance

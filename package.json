@@ -3,11 +3,13 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "bin": {
+    "changefleet": "bin/changefleet.js"
+  },
   "engines": {
     "node": ">=24 <25"
   },
   "scripts": {
-    "audit": "node bin/changefleet-audit.js",
     "test": "node --test \"test/unit/**/*.test.js\"",
     "test:integration": "node --test \"test/integration/**/*.test.js\"",
     "test:acceptance": "node --test --test-concurrency=1 \"test/acceptance/**/*.test.js\"",

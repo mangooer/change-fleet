@@ -7,9 +7,9 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 
 ## Current Baseline
 
-- WI-0001 through WI-0006 are accepted and landed.
+- WI-0001 through WI-0007 are accepted and landed.
 - The Harness loads root rules, this projection, one active artifact, and targeted authority.
-- No released package, public CLI, compatibility contract, API, or UI exists.
+- One private experimental CLI exists; no released package, stable public CLI contract, API, or UI.
 - The accepted private Node.js 24 ESM package uses a versioned filesystem store, `node:test`,
   pinned `@openai/codex-sdk@0.146.0`, one real Codex adapter, and test-only scripted Runtime.
 - Agent Runtimes own semantic work. ChangeFleet owns cross-repository authorization, revisions,
@@ -34,9 +34,8 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
   exact Candidates, immutable Bundle review subjects, and exact-subject validation evidence.
 - WorkUnits may run in parallel; delivery to one `repository_id + target_ref` is serialized, and
   cross-repository compensation never promises universal atomic rollback.
-- WI-0003 records Runtime identity, timing, usage, profile, context, and Harness evidence; WI-0005
-  derives bounded audit projections; WI-0006 exposes exact-id local JSON inspection outside Agent
-  context.
+- WI-0003 records Runtime evidence; WI-0005 derives audit projections; WI-0007 exposes shared
+  application operations through one experimental CLI with read-only debug audit.
 - The accepted first production Provider uses the pinned Codex TypeScript SDK behind the narrow
   Runtime port, one fresh Provider thread per Run attempt, strict structured outcomes, exact-base
   read-only planning worktrees, and WorkUnit-scoped execution access.
@@ -72,10 +71,10 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
   real Provider with fresh Run threads and exact-base planning worktrees.
 - [0011](decisions/0011-exact-repository-harness-snapshots-and-local-overlays.md): default to
   exact-base Harness and permit only explicit immutable local overlays with no non-Git writeback.
-- [0012](decisions/0012-read-only-runtime-audit-projections.md): derive isolated, read-only Run and
-  ChangeSet audit views from immutable evidence.
-- [0013](decisions/0013-local-read-only-audit-entry-point.md): expose exact-id projections through
-  one package-private, explicitly rooted, zero-write local command.
+- [0012](decisions/0012-read-only-runtime-audit-projections.md) derives audit views;
+  [0013](decisions/0013-local-read-only-audit-entry-point.md) exposes exact-id local inspection;
+  [0014](decisions/0014-shared-application-commands-and-unified-local-cli.md) accepts shared
+  application semantics, one experimental CLI, and explicit executable retirement.
 
 ## Repository Design Proposals
 
@@ -87,8 +86,8 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 - [0005](proposals/0005-runtime-cost-and-effectiveness-observability.md) accepts raw audit evidence;
   [0010](proposals/0010-read-only-runtime-audit-projections.md) accepts read-only projections by
   Decision 0012 and is implemented by landed WI-0005; comparison is deferred.
-- [0011](proposals/0011-local-read-only-audit-entry-point.md) accepts package-private exact-id
-  inspection and is implemented by landed WI-0006.
+- [0011](proposals/0011-local-read-only-audit-entry-point.md) is landed through WI-0006;
+  [0012](proposals/0012-shared-application-commands-and-unified-local-cli.md) through WI-0007.
 
 ## Open Questions
 
@@ -103,8 +102,8 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 - WI-0003 proved native-Windows local-ChatGPT single-Repository use. Other auth/hosts, hostile
   access, hard interruption, and paid multi-Repository work remain unverified.
 - Codex SDK usage is aggregate-only; effective model and universal host read-denial remain unknown.
-- Native Windows execution requires a pre-provisioned elevated Codex sandbox and fails closed
-  without it.
+- Native Windows needs a pre-provisioned elevated sandbox; capture recurring setup prompts before
+  changing the no-full-access-fallback policy.
 - Local workspaces use the registered Git object database; Git URL and remote-worker work need new
   authority.
 - Local ignored Codex Harness is proven; hosted retention, encryption, and actual-load evidence are
@@ -114,8 +113,8 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 
 ## Next Recommended Task
 
-Discuss and select the next independently bounded vertical slice. No later analytics or public
-operator surface is authorized.
+Discuss and select the next independently bounded vertical slice. No later API, UI, App Server,
+stable CLI compatibility, or analytics surface is accepted yet.
 
 ## Maintenance Contract
 

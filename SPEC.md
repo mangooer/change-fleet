@@ -100,6 +100,13 @@ The initial product does not:
 An Agent may propose a scope, plan, check, or delivery action. It may not silently turn that proposal
 into expanded repository authority or final human acceptance.
 
+CLI, future API or App Server, future UI, and future tracker adapters share typed application
+operation semantics rather than lifecycle implementations or presentation code. They preserve the
+same normalization, authorization, idempotency, exact subjects, human gates, state transitions,
+durable results, and typed errors while owning surface-specific transport and interaction. The
+first lifecycle operator surface is one experimental local `changefleet` executable; stable CLI
+compatibility requires a later accepted decision.
+
 ### Runtime Dispatch Context
 
 Every managed Agent operation receives four separately owned context layers:
@@ -592,10 +599,11 @@ demand from immutable ChangeSet, Run, evidence, Bundle, and human-decision recor
 query component is read-only: it does not persist a rollup, mutate lifecycle or recovery state,
 invoke an Agent, touch a workspace or Git, or affect routing and authority.
 
-One package-private local command may inspect either projection for one explicit control root and
-exact Run or ChangeSet id. It emits the unchanged projection as JSON on stdout and typed localized
-failure as JSON on stderr. It does not initialize or repair a store, discover subjects, invoke
-lifecycle commands, access registered repositories, or establish a public CLI contract.
+The unified experimental local CLI may inspect either projection beneath its debug namespace for
+one explicit control root and exact Run or ChangeSet id. It emits the unchanged projection as JSON
+on stdout and typed localized failure as JSON on stderr. This route does not initialize or repair a
+store, discover subjects, load lifecycle or Runtime adapters, access registered repositories, or
+establish a stable public CLI contract. The earlier standalone process entry point is not retained.
 
 Usage summaries identify the chosen source observation and selection reason. Exactly one valid
 Provider aggregate is preferred; one otherwise-unambiguous observation may be used; potentially

@@ -104,8 +104,8 @@ private Node.js 24 LTS ESM JavaScript package and a versioned filesystem store. 
 implement the deterministic control kernel. The accepted WI-0003 implementation adds the pinned
 Codex SDK production adapter; scripted Runtime behavior remains test support only.
 WI-0004 adds the accepted Codex local Harness overlay path without adding a general workspace seed
-framework or a second Provider. WI-0006 adds one package-private local command for reading the
-existing audit projections by exact id.
+framework or a second Provider. WI-0007 adds one experimental local CLI over the existing typed
+application operations and retains exact-id audit as a bounded debug command.
 
 The accepted package exposes:
 
@@ -117,24 +117,72 @@ npm run test:provider:codex
 npm run check
 ```
 
-The real Provider command is opt-in and runs only when `CHANGEFLEET_RUN_REAL_CODEX=1`; it requires
-external Codex credentials and is intentionally excluded from `npm run check`.
+The development-only real Provider test runs only when `CHANGEFLEET_RUN_REAL_CODEX=1`; the flag
+prevents accidental nondeterministic external execution and is intentionally excluded from
+`npm run check`. It is not a product Runtime switch: installed lifecycle commands construct the
+configured real Codex Runtime directly when credentials and host prerequisites are available.
 `npm run check` fails before dispatching tests unless its actual process is Node.js 24; place the
 Node.js 24 executable first on PATH when multiple installations exist.
 
-### Package-Private Local Audit
+### Experimental Local CLI
 
-The local audit entry point reads one explicit control root and exact subject without initializing
-or mutating the store:
+The package has one product executable. Lifecycle commands require an explicit versioned JSON
+configuration; relative control and workspace roots resolve from that file:
+
+```json
+{
+  "schema_version": 1,
+  "control_root": "./control",
+  "workspace_root": "./workspaces",
+  "locale": "zh-CN",
+  "runtime": {
+    "adapter": "codex-sdk",
+    "credential_source": "local_codex_home"
+  },
+  "agent_profile": {
+    "profile_id": "local-codex-profile",
+    "revision": 1,
+    "provider": "openai",
+    "runtime": "codex-sdk",
+    "model": "gpt-5.4",
+    "reasoning": "medium",
+    "permissions": "operation_scoped",
+    "network_access": false,
+    "skills": [],
+    "credential_profile_id": "local-codex-credentials"
+  }
+}
+```
+
+`credential_source` accepts `local_codex_home` or `openai_api_key`; the configuration never stores
+the credential value or a credential path. Mutations read one exact application request from a
+JSON file or `--request -` stdin:
 
 ```sh
-node ./bin/changefleet-audit.js run <run_id> --control-root <path> [--locale zh-CN|en]
-node ./bin/changefleet-audit.js changeset <change_set_id> --control-root <path> \
+node ./bin/changefleet.js project register --config changefleet.json --request register.json
+node ./bin/changefleet.js project repository-policy revise --config changefleet.json --request policy.json
+node ./bin/changefleet.js changeset create --config changefleet.json --request create.json
+node ./bin/changefleet.js changeset repository-selection revise --config changefleet.json --request selection.json
+node ./bin/changefleet.js changeset harness-selection revise --config changefleet.json --request harness.json
+node ./bin/changefleet.js changeset plan --config changefleet.json --request plan.json
+node ./bin/changefleet.js changeset plan confirm --config changefleet.json --request confirm.json
+node ./bin/changefleet.js changeset execute --config changefleet.json --request execute.json
+node ./bin/changefleet.js changeset bundle decide --config changefleet.json --request decision.json
+node ./bin/changefleet.js changeset show <change_set_id> --config changefleet.json
+```
+
+Debug audit preserves the exact-id, read-only, zero-initialization boundary without loading the
+lifecycle or Runtime adapter:
+
+```sh
+node ./bin/changefleet.js debug audit run <run_id> --control-root <path> [--locale zh-CN|en]
+node ./bin/changefleet.js debug audit changeset <change_set_id> --control-root <path> \
   [--detail-page <positive_integer>] [--page-size <1..100>] [--locale zh-CN|en]
 ```
 
-Success writes only the existing projection JSON to stdout. Failure writes one typed localized
-JSON diagnostic to stderr. The command cannot list subjects, execute an Agent, or invoke lifecycle
-operations, and its syntax is not a released compatibility contract.
+Success writes one bounded JSON result to stdout. Failure writes one typed localized JSON diagnostic
+to stderr. The CLI cannot discover roots or subjects, select a fake Runtime, or expose internal
+recovery helpers. Its current grammar is experimental rather than a released compatibility
+contract.
 
 Report every command actually executed and never claim an unexecuted check passed.

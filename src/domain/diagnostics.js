@@ -3,6 +3,15 @@ export const DEFAULT_LOCALE = "zh-CN";
 
 const MESSAGES = {
   "zh-CN": {
+    INVALID_CLI_INVOCATION: "本地 ChangeFleet 命令参数无效。",
+    INVALID_CLI_CONFIG: "本地 ChangeFleet 配置无效。",
+    INVALID_CLI_REQUEST: "本地 ChangeFleet 请求无效。",
+    INVALID_OPERATOR_APPLICATION: "ChangeFleet 操作应用装配无效。",
+    INVALID_OPERATOR_REQUEST: "ChangeFleet 操作请求必须是 JSON 对象。",
+    UNSUPPORTED_OPERATOR_OPERATION: "请求的 ChangeFleet 操作未被允许。",
+    UNSUPPORTED_CLI_RUNTIME: "本地命令选择了不支持的 Runtime。",
+    CODEX_CREDENTIALS_UNAVAILABLE: "所选 Codex 凭据不可用。",
+    CLI_COMMAND_FAILED: "无法完成本地 ChangeFleet 命令。",
     INVALID_AUDIT_INVOCATION: "本地审计命令参数无效。",
     AUDIT_COMMAND_FAILED: "无法完成本地审计查询。",
     INVALID_AUDIT_QUERY: "审计查询参数无效。",
@@ -61,6 +70,15 @@ const MESSAGES = {
     CANDIDATE_HEAD_MISMATCH: "候选工作区的 Git 提交与记录不一致。",
   },
   en: {
+    INVALID_CLI_INVOCATION: "Local ChangeFleet command arguments are invalid.",
+    INVALID_CLI_CONFIG: "Local ChangeFleet configuration is invalid.",
+    INVALID_CLI_REQUEST: "Local ChangeFleet request is invalid.",
+    INVALID_OPERATOR_APPLICATION: "The ChangeFleet operator application is invalid.",
+    INVALID_OPERATOR_REQUEST: "The ChangeFleet operator request must be a JSON object.",
+    UNSUPPORTED_OPERATOR_OPERATION: "The requested ChangeFleet operation is not allowed.",
+    UNSUPPORTED_CLI_RUNTIME: "The local command selected an unsupported Runtime.",
+    CODEX_CREDENTIALS_UNAVAILABLE: "The selected Codex credentials are unavailable.",
+    CLI_COMMAND_FAILED: "The local ChangeFleet command could not be completed.",
     INVALID_AUDIT_INVOCATION: "Local audit command arguments are invalid.",
     AUDIT_COMMAND_FAILED: "The local audit query could not be completed.",
     INVALID_AUDIT_QUERY: "Audit query parameters are invalid.",

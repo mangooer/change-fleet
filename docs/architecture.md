@@ -22,9 +22,13 @@ which evidence belongs to it, how partial work continues, and what a human accep
 ## Logical Layers
 
 ```text
-Application
-  CLI / API / future UI
+Application adapters
+  experimental CLI / future API, App Server, UI, and tracker adapters
   task intake and human decisions
+
+Application operations
+  typed commands and queries
+  authorization, idempotency, exact subjects, human gates, durable results
 
 Change Control
   ChangeIntent and ChangePlan revisions
@@ -113,11 +117,12 @@ Owns immutable or append-only operational evidence:
 
 ### Initial Local Implementation Boundary
 
-The first slice is one private Node.js 24 LTS ESM JavaScript package. It uses a ChangeFleet-owned
+The first slice began as one private Node.js 24 LTS ESM JavaScript package. It uses a ChangeFleet-owned
 versioned filesystem store with atomic snapshot replacement, ownership locks, append-only or
-immutable evidence, and restart reconciliation. Its only application surface is an in-process
-service exercised through deterministic tests, and its only Runtime implementation is a scripted
-fake behind the AgentRuntimeAdapter port.
+immutable evidence, and restart reconciliation. Its initial application surface was an in-process
+service exercised through deterministic tests, and its initial Runtime implementation was a
+scripted fake behind the AgentRuntimeAdapter port. Later accepted boundaries below add the real
+Provider and experimental CLI without turning the test Runtime into a product selection.
 
 The combined validation adapter invokes an executable and argument array without a shell. It passes
 one immutable validation manifest by `CHANGEFLEET_VALIDATION_MANIFEST`, binds evidence to the exact
@@ -195,16 +200,33 @@ Contract or Run Context Projection, and cannot drive authorization, scheduling, 
 Bundle decisions, or delivery. Cross-ChangeSet comparison and materialized analytics remain later
 architecture boundaries.
 
-### LocalAuditCommand
+### ApplicationOperationAdapters
 
-Provides one package-private process boundary over `RuntimeAuditQueryService`. It accepts one
-explicit control-root locator and one exact Run or ChangeSet id, passes only bound filesystem read
-capabilities to the query service, and emits the unchanged versioned projection as JSON.
+WI-0007 implements the first lifecycle operator adapter as one experimental local `changefleet`
+executable.
+It maps an explicit command allowlist and structured requests to existing application operations;
+it does not own normalization, authorization, state transitions, evidence semantics, or human-gate
+decisions. Future API, App Server, UI, and tracker adapters reuse those application semantics but
+may have different transport, streaming, progress, and presentation.
+
+Product commands have explicit `experimental` or later `stable` maturity. Bounded debug commands
+carry no public compatibility promise. Temporary development scripts remain outside the installed
+command tree, contain no unique lifecycle logic, and are removed at their WorkItem boundary unless
+a confirmed follow-up owns them. A generic command bus and public service graph remain deferred.
+
+### ReadOnlyAuditCliRoute
+
+The unified CLI's debug audit route provides one process boundary over `RuntimeAuditQueryService`.
+It accepts one explicit control-root locator and one exact Run or ChangeSet id, passes only bound
+filesystem read capabilities to the query service, and emits the unchanged versioned projection as
+JSON.
 
 The command does not initialize stores, open the lifecycle application service, discover subjects,
 invoke an Agent, or receive Git, workspace, registered Repository, scheduler, or mutation
-capabilities. Stable typed errors are isolated on stderr. This boundary is not a public CLI,
-server, API, dashboard, or analytics interface.
+capabilities. Stable typed errors are isolated on stderr. The root parser dynamically selects this
+route without loading the lifecycle handler. The earlier standalone executable, npm alias, and
+parser-only module are removed; the route is not a stable public CLI, server, API, dashboard, or
+analytics interface.
 
 ### WorkUnitScheduler
 
@@ -422,6 +444,13 @@ detached worktree at each selected Repository's persisted `resolved_base_sha`; t
 only those roots read-only. Execution exposes only the current WorkUnit workspace with write
 permission. Network remains off unless separately authorized, and no full-host permission fallback
 exists.
+
+Native Windows elevated-sandbox provisioning is a Runtime-host bootstrap prerequisite that may
+require operating-system administrator approval. It is not a ChangeSet gate, a per-Run business
+approval, or the same mechanism as Codex tool escalation. A managed Run consumes pre-provisioned
+host state and fails closed when that state is unavailable; it never silently falls back to
+full-host access. A recurring setup prompt is an operational readiness defect to diagnose from the
+next exact prompt and sandbox log, not a reason to broaden Agent authority.
 
 The adapter uses strict JSON Schema terminal output and maps streamed items into bounded normalized
 events. Provider types and full transcripts remain adapter evidence. Only validated typed outcomes

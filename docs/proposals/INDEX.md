@@ -22,6 +22,7 @@ preserve chronological reasoning and are not current truth merely because they e
 | [0009](0009-exact-repository-harness-snapshots-and-local-overlays.md) | Exact Repository Harness snapshots and local overlays | `accepted` | Recorded by Decision 0011; depends on exact base selection and repository-native Harness ownership | [WI-0004](../work-items/WI-0004-exact-repository-harness-snapshots-and-local-overlays.md), `done` |
 | [0010](0010-read-only-runtime-audit-projections.md) | Read-only Runtime audit projections | `accepted` | Recorded by Decision 0012; derives bounded Run and ChangeSet facts while comparison remains deferred | [WI-0005](../work-items/WI-0005-read-only-runtime-audit-projections.md), `done` |
 | [0011](0011-local-read-only-audit-entry-point.md) | Local read-only audit entry point | `accepted` | Recorded by Decision 0013; exposes only the landed exact-id WI-0005 projections | [WI-0006](../work-items/WI-0006-local-read-only-audit-entry-point.md), `done` |
+| [0012](0012-shared-application-commands-and-unified-local-cli.md) | Shared application commands and a unified local CLI | `accepted` | Recorded by Decision 0014; accepts an experimental product CLI, debug namespace, and temporary-script retirement policy | [WI-0007](../work-items/WI-0007-shared-application-commands-and-unified-local-cli.md), `done` |
 
 ## Status Rules
 

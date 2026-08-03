@@ -225,6 +225,28 @@ Historical WorkItems retain the gates they explicitly required. This policy chan
 selection and review discipline; it does not rewrite recorded evidence or retroactively weaken an
 accepted WorkItem.
 
+## Executable Surface Discipline
+
+Keep product operations, maintained diagnostics, development Harness commands, and temporary
+scripts distinct:
+
+- product commands live under the one `changefleet` root and carry explicit `experimental` or
+  `stable` maturity;
+- debug commands are bounded maintained diagnostics without public compatibility;
+- `npm test`, `npm run check`, and related validation commands belong to this repository's
+  development Harness rather than the product CLI;
+- temporary scripts live only under `scripts/` or test support, use `dev:` or `test:` aliases when
+  needed, and contain no unique lifecycle or authorization logic.
+
+Every temporary executable records an owner and removal condition in the active WorkItem. Delete it
+before WorkItem acceptance unless a confirmed follow-up WorkItem owns the explicit remaining need.
+When one entry point replaces another, remove the old executable, parser, alias, documentation, and
+redundant tests in the same WorkItem after equivalent coverage passes.
+
+CLI, future API or App Server, future UI, and tracker adapters share typed application-operation
+semantics, not presentation implementations. Do not put state transitions, authorization,
+idempotency, exact-subject selection, human gates, or evidence rules in a CLI-only or UI-only layer.
+
 ## Stage Boundaries, Fakes, And Audit Data
 
 Every implementation stage records a clear boundary, acceptance evidence, deferred work, and exit
