@@ -35,9 +35,16 @@ copying large documents.
 
 ## Validation
 
-| Command or gate | Scope | Required |
-| --- | --- | --- |
-| To be selected | Changed behavior | Yes |
+Select the smallest gates that cover the accepted scope and final diff. Record broader gates as
+conditional or excluded instead of silently omitting them.
+
+| Command or gate | Scope | Requirement | Selection reason |
+| --- | --- | --- | --- |
+| To be selected | Changed behavior | Required / conditional / excluded | Why this scope is sufficient |
+
+Every changed test file must execute. State which broader suites remain unverified and why. Full
+`npm run check` is required only when `docs/validation.md` triggers it or accepted authority names
+it explicitly.
 
 ## Current Projection
 

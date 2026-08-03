@@ -592,6 +592,11 @@ demand from immutable ChangeSet, Run, evidence, Bundle, and human-decision recor
 query component is read-only: it does not persist a rollup, mutate lifecycle or recovery state,
 invoke an Agent, touch a workspace or Git, or affect routing and authority.
 
+One package-private local command may inspect either projection for one explicit control root and
+exact Run or ChangeSet id. It emits the unchanged projection as JSON on stdout and typed localized
+failure as JSON on stderr. It does not initialize or repair a store, discover subjects, invoke
+lifecycle commands, access registered repositories, or establish a public CLI contract.
+
 Usage summaries identify the chosen source observation and selection reason. Exactly one valid
 Provider aggregate is preferred; one otherwise-unambiguous observation may be used; potentially
 overlapping observations produce an unknown total. Cached input and reasoning output are not added

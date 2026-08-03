@@ -195,6 +195,17 @@ Contract or Run Context Projection, and cannot drive authorization, scheduling, 
 Bundle decisions, or delivery. Cross-ChangeSet comparison and materialized analytics remain later
 architecture boundaries.
 
+### LocalAuditCommand
+
+Provides one package-private process boundary over `RuntimeAuditQueryService`. It accepts one
+explicit control-root locator and one exact Run or ChangeSet id, passes only bound filesystem read
+capabilities to the query service, and emits the unchanged versioned projection as JSON.
+
+The command does not initialize stores, open the lifecycle application service, discover subjects,
+invoke an Agent, or receive Git, workspace, registered Repository, scheduler, or mutation
+capabilities. Stable typed errors are isolated on stderr. This boundary is not a public CLI,
+server, API, dashboard, or analytics interface.
+
 ### WorkUnitScheduler
 
 The scheduler:

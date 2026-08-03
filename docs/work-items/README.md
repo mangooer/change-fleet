@@ -56,6 +56,18 @@ The transition from `draft` to `todo` grants implementation authority and must i
 confirming user request or standing policy. Later states retain that recorded authority; they do
 not require a new confirmation unless scope changes.
 
+## Validation Selection
+
+When a WorkItem is confirmed, its validation table selects required, conditional, and explicitly
+excluded gates from [`docs/validation.md`](../validation.md). Reassess the table against the final
+diff before review. `npm run check` is not an automatic completion gate; use it only for the named
+full-suite triggers or explicit accepted authority.
+
+Every changed test file must run, and every changed production boundary needs a direct behavioral
+check. If dependency impact is uncertain, select the nearest owning suite and record the remaining
+unverified boundary. Documentation-only WorkItems run formatting, link, and Harness-size checks but
+no Node tests.
+
 ## Evidence
 
 Replace the current projection in place as work advances. Preserve decisions and exact evidence,

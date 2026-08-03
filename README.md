@@ -15,8 +15,9 @@ reviewable `CandidateBundle` representing one exact cross-repository outcome.
 ## Current Status
 
 This repository contains the spec-first project Harness and the private implementation through
-landed WI-0004, including explicit immutable Repository Harness overlays. The package is not
-released and exposes no public CLI contract.
+landed WI-0006, including immutable Repository Harness overlays, read-only Runtime audit
+projections, and one exact-id local audit command. The package is not released and exposes no
+public CLI contract.
 
 The first accepted vertical slice, tracked by
 [`WI-0001`](docs/work-items/WI-0001-local-two-repository-vertical-slice.md), is:
@@ -103,7 +104,8 @@ private Node.js 24 LTS ESM JavaScript package and a versioned filesystem store. 
 implement the deterministic control kernel. The accepted WI-0003 implementation adds the pinned
 Codex SDK production adapter; scripted Runtime behavior remains test support only.
 WI-0004 adds the accepted Codex local Harness overlay path without adding a general workspace seed
-framework or a second Provider.
+framework or a second Provider. WI-0006 adds one package-private local command for reading the
+existing audit projections by exact id.
 
 The accepted package exposes:
 
@@ -117,5 +119,22 @@ npm run check
 
 The real Provider command is opt-in and runs only when `CHANGEFLEET_RUN_REAL_CODEX=1`; it requires
 external Codex credentials and is intentionally excluded from `npm run check`.
+`npm run check` fails before dispatching tests unless its actual process is Node.js 24; place the
+Node.js 24 executable first on PATH when multiple installations exist.
+
+### Package-Private Local Audit
+
+The local audit entry point reads one explicit control root and exact subject without initializing
+or mutating the store:
+
+```sh
+node ./bin/changefleet-audit.js run <run_id> --control-root <path> [--locale zh-CN|en]
+node ./bin/changefleet-audit.js changeset <change_set_id> --control-root <path> \
+  [--detail-page <positive_integer>] [--page-size <1..100>] [--locale zh-CN|en]
+```
+
+Success writes only the existing projection JSON to stdout. Failure writes one typed localized
+JSON diagnostic to stderr. The command cannot list subjects, execute an Agent, or invoke lifecycle
+operations, and its syntax is not a released compatibility contract.
 
 Report every command actually executed and never claim an unexecuted check passed.

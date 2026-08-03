@@ -3,6 +3,8 @@ export const DEFAULT_LOCALE = "zh-CN";
 
 const MESSAGES = {
   "zh-CN": {
+    INVALID_AUDIT_INVOCATION: "本地审计命令参数无效。",
+    AUDIT_COMMAND_FAILED: "无法完成本地审计查询。",
     INVALID_AUDIT_QUERY: "审计查询参数无效。",
     AUDIT_SOURCE_NOT_FOUND: "未找到请求的审计源。",
     AUDIT_REQUIRED_REFERENCE_INVALID: "审计所需的不可变引用无效或缺失。",
@@ -59,6 +61,8 @@ const MESSAGES = {
     CANDIDATE_HEAD_MISMATCH: "候选工作区的 Git 提交与记录不一致。",
   },
   en: {
+    INVALID_AUDIT_INVOCATION: "Local audit command arguments are invalid.",
+    AUDIT_COMMAND_FAILED: "The local audit query could not be completed.",
     INVALID_AUDIT_QUERY: "Audit query parameters are invalid.",
     AUDIT_SOURCE_NOT_FOUND: "The requested audit source was not found.",
     AUDIT_REQUIRED_REFERENCE_INVALID: "A required immutable audit reference is missing or invalid.",

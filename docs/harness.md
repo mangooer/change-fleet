@@ -171,6 +171,23 @@ acceptance criteria, repository authority, product behavior, risk, or proposal d
 materially ambiguous. An Agent cannot confirm its own inferred scope expansion or architecture
 decision.
 
+## Proposal Discussion And Acceptance
+
+The normal Proposal path has one human decision before the artifact and one after it:
+
+1. discuss options, tradeoffs, and the recommended boundary in conversation;
+2. after the user chooses a direction, write or revise the Proposal directly to `proposed` and
+   explain its scope, important consequences, and deferrals in the same handoff;
+3. the user either accepts that version or requests concrete revisions.
+
+Do not insert another generic discussion or confirmation round merely because the Proposal file
+has now been written. If the user requests revisions, update and explain the new version; only the
+changed or unresolved points need further discussion.
+
+Use `draft` only when exploration must be preserved before the design is concrete enough for an
+accept-or-revise decision, such as an intentionally paused discussion or a material unresolved
+choice. A draft is not a mandatory stage. The Agent may never accept its own Proposal.
+
 ## Development WorkItem Discipline
 
 One Development WorkItem is the current workpad for one accepted slice. Keep its objective, scope,
@@ -188,6 +205,25 @@ Detailed output belongs in linked artifacts. The Development WorkItem records on
 
 Do not manufacture a new Development WorkItem merely because an Agent retries or a plan changes. A
 new WorkItem represents new confirmed implementation demand, not a new conversation turn.
+
+## Validation Selection Discipline
+
+Each WorkItem selects validation from `docs/validation.md` rather than inheriting a mandatory full
+suite. Its validation table identifies required, conditional, and explicitly excluded gates with a
+short reason. Reassess that selection against the final diff before review.
+
+During implementation, run the smallest affected test. Every changed test file must execute, and
+every changed production boundary needs a direct behavioral check. Escalate to the nearest owning
+suite when dependency impact is uncertain; do not claim an unexecuted broader suite passed.
+
+Reserve `npm run check` for accepted full-gate triggers such as shared contracts, schemas,
+dependencies, the test runner, several crossed tiers, an unknown dependency boundary, or explicit
+WorkItem or release policy. Run it once after the code stabilizes. Documentation-only work does not
+run Node tests, and evidence-only edits after a valid code-bound gate do not require it again.
+
+Historical WorkItems retain the gates they explicitly required. This policy changes future
+selection and review discipline; it does not rewrite recorded evidence or retroactively weaken an
+accepted WorkItem.
 
 ## Stage Boundaries, Fakes, And Audit Data
 

@@ -1,16 +1,29 @@
 import { spawn } from "node:child_process";
 
+import { unsupportedNodeVersionDiagnostic } from "./node-version-guard.mjs";
+
 const checks = [
   ["--test", "test/unit/**/*.test.js"],
   ["--test", "test/integration/**/*.test.js"],
   ["--test", "--test-concurrency=1", "test/acceptance/**/*.test.js"],
 ];
 
-for (const arguments_ of checks) {
-  const exitCode = await run(process.execPath, arguments_);
-  if (exitCode !== 0) {
-    process.exitCode = exitCode;
-    break;
+const nodeVersionDiagnostic = unsupportedNodeVersionDiagnostic(
+  process.versions.node,
+);
+if (nodeVersionDiagnostic !== null) {
+  // 在派发任何测试前失败，避免错误运行时消耗完整套件时间并产生误导性结果。
+  process.stderr.write(
+    `[${nodeVersionDiagnostic.code}] ${nodeVersionDiagnostic.message}\n`,
+  );
+  process.exitCode = 1;
+} else {
+  for (const arguments_ of checks) {
+    const exitCode = await run(process.execPath, arguments_);
+    if (exitCode !== 0) {
+      process.exitCode = exitCode;
+      break;
+    }
   }
 }
 

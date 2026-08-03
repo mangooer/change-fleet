@@ -7,7 +7,7 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 
 ## Current Baseline
 
-- WI-0001 through WI-0005 are accepted and landed; Git owns their implementation.
+- WI-0001 through WI-0006 are accepted and landed.
 - The Harness loads root rules, this projection, one active artifact, and targeted authority.
 - No released package, public CLI, compatibility contract, API, or UI exists.
 - The accepted private Node.js 24 ESM package uses a versioned filesystem store, `node:test`,
@@ -35,7 +35,8 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 - WorkUnits may run in parallel; delivery to one `repository_id + target_ref` is serialized, and
   cross-repository compensation never promises universal atomic rollback.
 - WI-0003 records Runtime identity, timing, usage, profile, context, and Harness evidence; WI-0005
-  derives bounded read-only Run and ChangeSet audit projections without entering Agent context.
+  derives bounded audit projections; WI-0006 exposes exact-id local JSON inspection outside Agent
+  context.
 - The accepted first production Provider uses the pinned Codex TypeScript SDK behind the narrow
   Runtime port, one fresh Provider thread per Run attempt, strict structured outcomes, exact-base
   read-only planning worktrees, and WorkUnit-scoped execution access.
@@ -73,6 +74,8 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
   exact-base Harness and permit only explicit immutable local overlays with no non-Git writeback.
 - [0012](decisions/0012-read-only-runtime-audit-projections.md): derive isolated, read-only Run and
   ChangeSet audit views from immutable evidence.
+- [0013](decisions/0013-local-read-only-audit-entry-point.md): expose exact-id projections through
+  one package-private, explicitly rooted, zero-write local command.
 
 ## Repository Design Proposals
 
@@ -84,6 +87,8 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 - [0005](proposals/0005-runtime-cost-and-effectiveness-observability.md) accepts raw audit evidence;
   [0010](proposals/0010-read-only-runtime-audit-projections.md) accepts read-only projections by
   Decision 0012 and is implemented by landed WI-0005; comparison is deferred.
+- [0011](proposals/0011-local-read-only-audit-entry-point.md) accepts package-private exact-id
+  inspection and is implemented by landed WI-0006.
 
 ## Open Questions
 
@@ -93,26 +98,24 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 ## Known Limitations
 
 - WI-0004's private schema v3 is landed but remains outside any released compatibility contract.
-- No Git URL materialization, remote worker, PR integration, automatic merge, deployment, browser
-  UI, service graph, or stacked ChangeSet support is accepted.
+- Git URLs, remote workers, PRs, merge, deployment, UI, service graph, and stacked ChangeSets are
+  not accepted.
 - WI-0003 proved native-Windows local-ChatGPT single-Repository use. Other auth/hosts, hostile
   access, hard interruption, and paid multi-Repository work remain unverified.
-- Codex SDK usage is aggregate-only and the observable effective model remains unknown. The stable
-  SDK read-only sandbox proves no writes to the exact planning worktrees, but does not establish a
-  universal deny-read boundary against every other host-readable path.
-- Native Windows execution requires a pre-provisioned elevated Codex sandbox; isolated attempts
-  copy only its startup state and fail closed without it.
+- Codex SDK usage is aggregate-only; effective model and universal host read-denial remain unknown.
+- Native Windows execution requires a pre-provisioned elevated Codex sandbox and fails closed
+  without it.
 - Local workspaces use the registered Git object database; Git URL and remote-worker work need new
   authority.
-- WI-0004 proves local immutable ignored Codex Harness; hosted retention, encryption, and
-  Provider actual-load observability remain deferred.
+- Local ignored Codex Harness is proven; hosted retention, encryption, and actual-load evidence are
+  deferred.
 - Runtime Kit, App Server, another Provider, Linear, pricing, dashboards, and continuous context
   enforcement are deferred.
 
 ## Next Recommended Task
 
-Discuss and select the next independently bounded vertical slice. No later implementation stage is
-currently authorized.
+Discuss and select the next independently bounded vertical slice. No later analytics or public
+operator surface is authorized.
 
 ## Maintenance Contract
 
