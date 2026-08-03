@@ -155,6 +155,7 @@ export function normalizePlan(
     bases,
     intentRevision,
     repositorySelectionRevision,
+    repositoryHarnessSelectionRevision,
     revision,
     createdAt,
   },
@@ -175,6 +176,12 @@ export function normalizePlan(
       repositorySelectionRevision > 0,
     "INVALID_REPOSITORY_SELECTION_REVISION",
     "A ChangePlan requires one positive Repository selection revision",
+  );
+  invariant(
+    Number.isSafeInteger(repositoryHarnessSelectionRevision) &&
+      repositoryHarnessSelectionRevision > 0,
+    "INVALID_REPOSITORY_HARNESS_SELECTION_REVISION",
+    "A ChangePlan requires one positive Repository Harness selection revision",
   );
 
   const authorizedRepositories = new Set(
@@ -222,6 +229,8 @@ export function normalizePlan(
       target_ref: bases[repositoryId].target_ref,
       base_sha: bases[repositoryId].base_sha,
       repository_selection_revision: repositorySelectionRevision,
+      repository_harness_selection_revision:
+        repositoryHarnessSelectionRevision,
       repository_check: normalizeCommand(
         workUnit.repository_check,
         `${workUnitId}.repository_check`,
@@ -243,6 +252,8 @@ export function normalizePlan(
     revision,
     intent_revision: intentRevision,
     repository_selection_revision: repositorySelectionRevision,
+    repository_harness_selection_revision:
+      repositoryHarnessSelectionRevision,
     created_at: createdAt,
     status: "proposed",
     rationale: normalizeOptionalString(input.rationale),

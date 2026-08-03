@@ -38,3 +38,21 @@ test("Repository selection diagnostics keep one stable code across locales", () 
     "The checkout is detached; an explicit Repository branch is required.",
   );
 });
+
+test("Repository Harness failures are localized without changing stable codes", () => {
+  for (const [code, chinese, english] of [
+    [
+      "HARNESS_OVERLAY_MODIFIED",
+      "运行过程修改了冻结的 Harness overlay。",
+      "The Run modified the frozen Harness overlay.",
+    ],
+    [
+      "NON_GIT_HARNESS_CHANGE_UNSUPPORTED",
+      "ChangeFleet 不支持交付未由 Git 管理的 Harness 修改。",
+      "ChangeFleet cannot deliver a Harness change that is not maintained in Git.",
+    ],
+  ]) {
+    assert.equal(diagnosticMessage(code), chinese);
+    assert.equal(diagnosticMessage(code, { locale: "en" }), english);
+  }
+});

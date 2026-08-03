@@ -18,9 +18,9 @@ Do not conflate:
 2. **A registered repository's native Harness.** Instructions, skills, architecture references,
    build configuration, and verification guidance owned by a user's repository.
 
-ChangeFleet may read the second kind from an exact Git base during a Run. It does not automatically
-create, copy, repair, or become semantic authority for it. Product changes to that boundary require
-an accepted Repository Design Proposal.
+ChangeFleet normally reads the second kind from an exact Git base. It may also reconstruct an
+explicitly confirmed immutable local overlay under Decision 0011. It never treats ambient checkout
+state as authority, writes non-Git Harness back, repairs it, or becomes its semantic owner.
 
 ## Three Separate Lifecycles
 
@@ -210,25 +210,31 @@ explicit subset when necessary.
 ## Accepted Product Harness Direction
 
 The accepted boundary is recorded by
-[`Decision 0005`](decisions/0005-runtime-context-harness-and-capabilities.md), with
-[`Proposal 0003`](proposals/0003-harness-ownership-and-runtime-context.md) preserving chronological
-reasoning:
+[`Decision 0005`](decisions/0005-runtime-context-harness-and-capabilities.md) and
+[`Decision 0011`](decisions/0011-exact-repository-harness-snapshots-and-local-overlays.md), with
+Proposals [0003](proposals/0003-harness-ownership-and-runtime-context.md) and
+[0009](proposals/0009-exact-repository-harness-snapshots-and-local-overlays.md) preserving
+chronological reasoning:
 
 - a compact ChangeFleet Control Contract;
 - a generated current Run Context Projection instead of full history replay;
-- repository-native Harness as optional semantic input;
-- an optional, Runtime-installed kit of operation-scoped Skills rather than one mandatory universal
-  Skill;
+- repository-native Harness as optional semantic input, exact-base by default;
+- an optional confirmed local Harness policy frozen as immutable ChangeSet evidence;
+- no ChangeFleet-owned mandatory Skill, non-Git Harness writeback, or parallel Harness delivery
+  lifecycle;
+- an optional operation-scoped Runtime Skill layer in the model, with no accepted kit packaging;
 - Agent Profiles for provider, model, permission, and Skill selection;
 - read-only planning access and repository-workspace-scoped execution access;
 - ChangeFleet-owned plan revision and confirmation history;
 - tracker integrations such as Linear as intake and projection surfaces, not lifecycle authority.
 
 The deterministic first slice proved the Control Contract, projections, scoped capabilities, and
-initial budget evidence using a scripted test Runtime. Decisions 0009 and 0010 now accept raw
-out-of-context Runtime evidence and one first Codex SDK Provider implementation stage. Runtime Kit
-packaging, App Server, a second Provider, Linear integration, pricing and effectiveness analysis,
-and continuous context enforcement remain deferred.
+initial budget evidence using a scripted test Runtime. Decisions 0009 and 0010 accept raw
+out-of-context Runtime evidence and one first Codex SDK Provider. Decision 0011 accepts frozen
+ignored Codex Harness as the next implementation stage. Snapshot bodies and detailed inventories
+remain linked evidence rather than eager Harness context. Runtime Kit packaging, general workspace
+seeds, App Server, a second Provider, Linear, pricing/effectiveness analysis, and continuous context
+enforcement remain deferred.
 
 ## Maintenance Check
 

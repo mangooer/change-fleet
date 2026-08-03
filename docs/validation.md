@@ -1,7 +1,6 @@
 # Validation Policy
 
-Status: Active policy; deterministic commands and WI-0003's opt-in real Provider command are
-implemented
+Status: Active policy; WI-0004 deterministic commands and its opt-in real Provider gate pass
 
 ## Principles
 
@@ -23,6 +22,7 @@ implemented
 | Pure model or state decision | affected unit tests |
 | Store, lock, restart, or recovery | affected deterministic integration tests |
 | Git workspace or Candidate | affected real-Git integration tests |
+| Repository Harness overlay | selector and identity unit tests plus real-Git containment, restart, mutation, cleanup, and Candidate-exclusion integration tests |
 | Runtime adapter | deterministic protocol tests |
 | API or UI | affected tests plus one targeted user path |
 | Multi-repository orchestration | real two-repository acceptance fixture |
@@ -50,6 +50,13 @@ WI-0001 implements the deterministic commands in the private package. WI-0003 ad
 Provider command but deliberately keeps it outside the normal fast suite. Required completion
 evidence must include `npm run check` under Node.js 24; a passing run under another major is only
 compatibility evidence.
+
+WI-0004 extends these commands without a parallel fake production path. Its deterministic gate
+covers explicit policy authorization, exact-base `.worktreeinclude` resolution, contained
+Git-ignored Codex roots, byte limits, immutable restart reconstruction, overlay mutation, no
+writeback, and Candidate exclusion. The opt-in real Codex command must still prove one frozen
+ignored resource is available without claiming an unobservable Provider load event. The
+2026-08-03 authorized gate passed while retaining `unavailable` actual-load coverage.
 
 For Harness documentation, also inspect the byte sizes of `AGENTS.md`, `WORKFLOW.md`, and
 `docs/current-state.md` against the soft limits in `docs/harness.md`. This is a maintenance

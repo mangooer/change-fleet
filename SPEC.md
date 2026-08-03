@@ -106,7 +106,7 @@ Every managed Agent operation receives four separately owned context layers:
 
 1. a compact, versioned ChangeFleet Control Contract;
 2. a generated current Run Context Projection;
-3. repository-native Harness reachable from the exact frozen repository base;
+3. repository-native Harness from the exact frozen base plus any confirmed frozen overlay;
 4. optional Runtime-native, operation-scoped Skills.
 
 The Control Contract owns authorization, exact identity, allowed typed outcomes, evidence reporting,
@@ -119,9 +119,11 @@ reasoning are not default context. They remain durable structured records or lin
 fresh Agent session reconstructs current context from those records rather than treating provider
 conversation memory as lifecycle authority.
 
-Repository Harness is optional semantic input. ChangeFleet records what exact-base resources were
-available or loaded when observable. Registration and execution do not write `AGENTS.md`,
-`WORKFLOW.md`, `.changefleet`, Skills, architecture, or test policy into a registered repository.
+Repository Harness is optional semantic input. ChangeFleet records exact-base and explicitly frozen
+overlay resources plus what the Provider reports as discovered or loaded. Registration and
+execution do not create or write `AGENTS.md`, `WORKFLOW.md`, `.changefleet`, Skills, architecture,
+or test policy in a registered repository. Non-Git Harness overlays are immutable Run inputs and
+never become a writeback or delivery surface.
 
 ### Agent Profiles And Capabilities
 
@@ -196,6 +198,7 @@ A Repository is a stable logical identity for one Git repository. Initial config
 - exactly one locator;
 - an optional description;
 - an optional default target ref;
+- an optional confirmed `RepositoryWorkspacePolicyRevision`;
 - mutation authorization.
 
 The first vertical slice supports a local-path locator. The path is host-local configuration, not
@@ -236,6 +239,19 @@ RepositorySelectionRevision preserves this authority as versioned ChangeSet hist
 may request but cannot apply a later selection. A confirmed revision supersedes current planning
 authority and returns the same ChangeSet to planning while preserving prior evidence.
 
+### RepositoryHarnessSelectionRevision
+
+Every planning-visible Repository has a frozen Harness selection no later than ChangeSet creation.
+The default is `exact_base_only`. An optional confirmed Repository workspace policy may select
+contained Git-ignored Provider-native semantic resources through explicit patterns or an explicitly
+authorized tracked exact-base `.worktreeinclude`.
+
+An `exact_base_plus_overlay` selection binds the Repository id, resolved base SHA, Provider family,
+workspace-policy revision, selector digest, canonical relative paths, content digest, immutable
+artifact reference, and confirmation. Retry and recovery reconstruct this exact snapshot instead
+of rereading the registered checkout. A confirmed selection revision invalidates the current plan,
+rebuilds current Run context, and preserves prior attempts.
+
 ### ChangePlan
 
 `ChangePlan` is a versioned, code-informed execution proposal containing:
@@ -260,6 +276,7 @@ A ChangeSet is the aggregate root for one confirmed intent. It owns:
 
 - ChangeIntent revisions;
 - RepositorySelectionRevisions;
+- RepositoryHarnessSelectionRevisions;
 - ChangePlan revisions;
 - WorkUnits and their dependencies;
 - execution attempts;
@@ -476,7 +493,16 @@ configured path
 ```
 
 Task execution freezes a commit SHA and creates an isolated workspace. Dirty files in the
-registered checkout are never silently copied into that workspace.
+registered checkout are never silently copied. The only initial exception is a confirmed
+Repository Harness policy resolved and snapshotted no later than ChangeSet creation. It may admit
+contained Git-ignored semantic resources, never ordinary untracked files or Provider settings,
+credentials, environment files, caches, or general workspace seeds.
+
+Frozen Harness overlays are restored only inside ChangeFleet-owned planning and WorkUnit
+workspaces. They are immutable, verified and removed before Candidate publication, and excluded
+from Git identity. ChangeFleet never writes them back to the registered checkout. Overlay mutation
+fails with `HARNESS_OVERLAY_MODIFIED`; a requested durable private Harness change fails with
+`NON_GIT_HARNESS_CHANGE_UNSUPPORTED`.
 
 A future Git URL locator may materialize through a local mirror or clone, but must produce the same
 resolved Repository and WorkUnit contracts.
@@ -562,6 +588,10 @@ Runtime usage, cost, retry, effectiveness, and Provider traces are audit/debug e
 Control Contracts and current Run Context Projections exclude them. Later totals and comparisons
 are derived queries over immutable Run evidence and never become ChangeSet lifecycle authority.
 
+Harness evidence separately identifies exact-base resources, frozen overlays, and
+Provider-observable discovery. Snapshot bodies and detailed inventories remain linked artifacts
+outside ordinary Runtime context. Missing actual-load observations remain unknown.
+
 Rollback language is phase-specific:
 
 | Phase | Supported semantic |
@@ -642,3 +672,23 @@ The first stage proves one real single-Repository planning-to-Candidate flow. Ap
 Provider, Provider-session recovery, Runtime Skill Kit packaging, continuous context enforcement,
 pricing, effectiveness comparison, dashboards, Linear, remote workers, and delivery remain
 deferred.
+
+## 15. Exact Repository Harness Overlay Stage
+
+The accepted next stage preserves exact-base Harness as the default and adds one optional Codex
+local-overlay path. A confirmed, revisioned Repository policy selects explicit Git-ignore-style
+patterns or an explicitly authorized tracked `.worktreeinclude`. ChangeSet creation freezes the
+resolved paths and bytes against the selected base before any planning Run.
+
+The first eligible Codex overlay roots are `AGENTS.override.md` and `.agents/skills/**`. Every
+selected path must be contained, regular, Git-ignored, non-colliding, and within 128 files,
+256 KiB per file, and 2 MiB total per Repository. Provider configuration and general workspace
+initialization content are not Harness.
+
+Planning, execution, retry, and recovery receive the same immutable snapshot. Candidate publication
+fails if an overlay was changed and proves no overlay content entered Git. ChangeFleet records
+bounded identity and discovery evidence without eagerly adding snapshot bodies to Agent context.
+
+Generic `workspace_seed`, setup/run/archive behavior, Claude support, external Harness roots,
+remote workspace materialization, non-Git Harness writeback, and a parallel Harness change review
+lifecycle are outside this stage.

@@ -48,6 +48,13 @@ export function createRuntimeInvocationEvidence({
     change_set_id: run.change_set_id,
     work_unit_id: run.work_unit_id,
     agent_profile: structuredClone(run.agent_profile),
+    repository_harness_selection: structuredClone(
+      run.repository_harness_selection ?? null,
+    ),
+    // Harness 可用性和 Provider 实际发现是两类证据；缺少原生事件时必须保留 unavailable。
+    repository_harness_observation: structuredClone(
+      run.repository_harness_observation ?? null,
+    ),
     context_projection:
       run.context_projection_identity ??
       {

@@ -1,6 +1,6 @@
 # Repository Design Proposal Index
 
-Updated: 2026-07-31
+Updated: 2026-08-03
 
 These proposals govern development of the ChangeFleet repository itself. They are repository
 Harness artifacts, not ChangeFleet Runtime outputs and not artifacts written into registered user
@@ -13,11 +13,13 @@ preserve chronological reasoning and are not current truth merely because they e
 | --- | --- | --- | --- | --- |
 | [0001](0001-local-two-repository-vertical-slice.md) | Local two-repository vertical slice | `accepted` | Recorded by Decision 0006; depends on accepted Decision 0005 | [WI-0001](../work-items/WI-0001-local-two-repository-vertical-slice.md), `complete` |
 | [0002](0002-bounded-runtime-context-and-optional-workflow-skill.md) | Bounded Runtime context and optional workflow Skill | `superseded` | Replaced by Proposal 0003 | None; superseded before acceptance |
-| [0003](0003-harness-ownership-and-runtime-context.md) | Harness ownership and bounded Runtime context | `accepted` | Recorded by Decision 0005; unblocks Proposal 0001 | First-slice proof belongs to 0001; first real Provider proceeds under Proposal 0007 and WI-0003; Runtime Kit, Linear, and continuous enforcement remain deferred |
+| [0003](0003-harness-ownership-and-runtime-context.md) | Harness ownership and bounded Runtime context | `accepted` | Recorded by Decision 0005; unblocks Proposal 0001 | First-slice and real-Provider prerequisites are complete; Runtime Kit remains deferred after rejected 0008; exact local overlays are accepted by 0009 |
 | [0004](0004-variable-scope-and-localized-diagnostics.md) | Variable repository scope and localized diagnostics | `accepted` | Recorded by Decision 0007; revises the exact-two-Repository constraint in Proposal 0001 and Decision 0006 | [WI-0001](../work-items/WI-0001-local-two-repository-vertical-slice.md), `complete` |
 | [0005](0005-runtime-cost-and-effectiveness-observability.md) | Runtime cost and effectiveness observability | `accepted` | Raw invocation, usage, coverage, and audit isolation recorded by Decision 0009; pricing and comparison remain deferred | Raw first-Provider capture in [WI-0003](../work-items/WI-0003-first-real-codex-sdk-provider.md), `done` |
 | [0006](0006-change-set-base-selection-and-revision.md) | ChangeSet Repository selection and revision | `accepted` | Recorded by Decision 0008; required before the first real Provider | [WI-0002](../work-items/WI-0002-change-set-repository-selection.md), `done` |
 | [0007](0007-first-real-codex-sdk-provider.md) | First real Codex SDK Provider | `accepted` | Recorded by Decision 0010; depends on accepted raw observability and landed Repository selection | [WI-0003](../work-items/WI-0003-first-real-codex-sdk-provider.md), `done` |
+| [0008](0008-optional-operation-scoped-runtime-skill-kit.md) | Optional operation-scoped Runtime Skill Kit | `rejected` | The user chose repository-native Harness before any ChangeFleet-owned Runtime Kit | None; rejected before implementation |
+| [0009](0009-exact-repository-harness-snapshots-and-local-overlays.md) | Exact Repository Harness snapshots and local overlays | `accepted` | Recorded by Decision 0011; depends on exact base selection and repository-native Harness ownership | [WI-0004](../work-items/WI-0004-exact-repository-harness-snapshots-and-local-overlays.md), `done` |
 
 ## Status Rules
 

@@ -2,14 +2,15 @@ import { canonicalStringify } from "./canonical-json.js";
 import { invariant } from "./errors.js";
 
 // Runtime 只接收当前操作所需投影；完整历史留在控制存储中按引用读取。
-export const CONTROL_CONTRACT_VERSION = 2;
-export const CONTEXT_PROJECTION_VERSION = 2;
+export const CONTROL_CONTRACT_VERSION = 3;
+export const CONTEXT_PROJECTION_VERSION = 3;
 
 export function createControlContract({
   operation,
   changeSetId,
   planRevision,
   repositorySelectionRevision,
+  repositoryHarnessSelectionRevision,
   workUnitId = null,
   authorizedRepositories,
   allowedOutcomes,
@@ -21,6 +22,8 @@ export function createControlContract({
     change_set_id: changeSetId,
     plan_revision: planRevision,
     repository_selection_revision: repositorySelectionRevision,
+    repository_harness_selection_revision:
+      repositoryHarnessSelectionRevision,
     work_unit_id: workUnitId,
     authorized_repositories: authorizedRepositories,
     allowed_outcomes: allowedOutcomes,
@@ -37,6 +40,7 @@ export function createContextProjection({
   changeSet,
   plan = null,
   repositorySelection,
+  repositoryHarnessSelection,
   workUnit = null,
   repositories,
   capability,
@@ -51,6 +55,7 @@ export function createContextProjection({
     current_plan: plan,
     // 只投影当前选择，不把已废弃 revision 历史灌入 Agent 上下文。
     repository_selection: repositorySelection,
+    repository_harness_selection: repositoryHarnessSelection,
     work_unit: workUnit,
     repositories,
     capability,

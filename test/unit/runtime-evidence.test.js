@@ -94,6 +94,7 @@ describe("Runtime identity and evidence", () => {
     assert.deepEqual(payload.usage_observations, []);
     assert.equal(payload.monetary_cost, null);
     assert.equal(payload.evidence_classification, "unavailable");
+    assert.equal(payload.repository_harness_observation, null);
     assert.equal(payload.timing.duration_ms, 1_000);
   });
 

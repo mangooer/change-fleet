@@ -20,9 +20,17 @@ import {
 } from "../domain/runtime-context.js";
 import { normalizeAgentProfile } from "../domain/agent-profile.js";
 import { createRuntimeInvocationEvidence } from "../domain/runtime-evidence.js";
+import {
+  HARNESS_SELECTION_MODES,
+  createExactBaseHarnessSelection,
+  createOverlayHarnessSelection,
+  normalizeRepositoryHarnessSelectionRequest,
+  normalizeRepositoryWorkspacePolicy,
+} from "../domain/repository-harness.js";
 import { ChangeFleetError, invariant } from "../domain/errors.js";
 import { ControlStore, CONTROL_SCHEMA_VERSION } from "../adapters/filesystem/control-store.js";
 import { EvidenceStore } from "../adapters/filesystem/evidence-store.js";
+import { HarnessSnapshotStore } from "../adapters/filesystem/harness-snapshot-store.js";
 import { runCommand } from "../adapters/filesystem/command-runner.js";
 import { RunStore } from "../adapters/filesystem/run-store.js";
 import { RepositoryWorker } from "../adapters/git/repository-worker.js";
@@ -31,6 +39,8 @@ import {
   measureInitialContext,
 } from "../adapters/runtime/runtime-port.js";
 import { CombinedValidator } from "./combined-validator.js";
+
+const MAX_CONTEXT_HARNESS_RESOURCES = 32;
 
 // 应用服务是确定性编排入口：语义工作交给 Runtime，权限、状态和证据在此裁决。
 export class ChangeFleetService {
@@ -53,6 +63,7 @@ export class ChangeFleetService {
     this.controlStore = new ControlStore(this.controlRoot, { clock });
     this.runStore = new RunStore(this.controlRoot);
     this.evidenceStore = new EvidenceStore(this.controlRoot);
+    this.harnessSnapshotStore = new HarnessSnapshotStore(this.controlRoot);
     this.repositoryWorker = new RepositoryWorker({
       workspaceRoot: this.workspaceRoot,
     });
@@ -71,6 +82,7 @@ export class ChangeFleetService {
       service.controlStore.initialize(),
       service.runStore.initialize(),
       service.evidenceStore.initialize(),
+      service.harnessSnapshotStore.initialize(),
     ]);
     return service;
   }
@@ -102,6 +114,8 @@ export class ChangeFleetService {
       repositories.push({
         ...inspected,
         description: optionalString(input.description),
+        workspace_policy_revisions: [],
+        current_workspace_policy_revision: null,
       });
     }
     repositories.sort((left, right) =>
@@ -157,6 +171,60 @@ export class ChangeFleetService {
     );
   }
 
+  async reviseRepositoryWorkspacePolicy({
+    idempotency_key,
+    project_id,
+    repository_id,
+    policy,
+    actor = "human",
+  }) {
+    // 策略修订只改变后续 ChangeSet 的默认授权；既有 ChangeSet 快照不会被反向改写。
+    normalizeId("idempotency_key", idempotency_key);
+    normalizeId("project_id", project_id);
+    normalizeId("repository_id", repository_id);
+    const commandInput = {
+      project_id,
+      repository_id,
+      policy: structuredClone(policy),
+      actor,
+    };
+    return this.controlStore.transactCatalog((catalog) =>
+      applyIdempotentCommand({
+        record: catalog,
+        idempotencyKey: idempotency_key,
+        command: "reviseRepositoryWorkspacePolicy",
+        input: commandInput,
+        perform: () => {
+          const project = requireProject(catalog, project_id);
+          const repository = requireRepository(project, repository_id);
+          const revision = repository.workspace_policy_revisions.length + 1;
+          const normalized = normalizeRepositoryWorkspacePolicy(policy, {
+            revision,
+            confirmedAt: this.now(),
+            actor,
+          });
+          const current = repository.workspace_policy_revisions.find(
+            (candidate) =>
+              candidate.revision ===
+              repository.current_workspace_policy_revision,
+          );
+          if (current) {
+            current.status = "superseded";
+            current.superseded_at = this.now();
+          }
+          repository.workspace_policy_revisions.push(normalized);
+          repository.current_workspace_policy_revision = revision;
+          return {
+            project_id,
+            repository_id,
+            workspace_policy_revision: revision,
+            policy: structuredClone(normalized),
+          };
+        },
+      }),
+    );
+  }
+
   async createChangeSet({
     idempotency_key,
     change_set_id,
@@ -164,11 +232,14 @@ export class ChangeFleetService {
     intent,
     planning_repository_ids,
     repository_selections,
+    repository_harness_selections,
+    actor = "human",
   }) {
     // 创建命令先固定调用者请求，再解析分支；已完成重试绝不能重新观察移动后的 ref。
     normalizeId("idempotency_key", idempotency_key);
     normalizeId("change_set_id", change_set_id);
     normalizeId("project_id", project_id);
+    normalizeId("actor", actor);
     const catalog = await this.controlStore.readCatalog();
     const project = requireProject(catalog, project_id);
     const requestedSelection = normalizeRepositorySelectionRequest(project, {
@@ -184,6 +255,11 @@ export class ChangeFleetService {
       project_id,
       intent: intentFingerprint(intentForFingerprint),
       repository_selection: requestedSelection,
+      repository_harness_selection_request:
+        harnessSelectionRequestFingerprint(
+          repository_harness_selections,
+        ),
+      actor,
     };
     try {
       const existing = await this.controlStore.readChangeSet(change_set_id);
@@ -196,6 +272,11 @@ export class ChangeFleetService {
     } catch (error) {
       if (error.code !== "CHANGE_SET_NOT_FOUND") throw error;
     }
+    const requestedHarnessSelection =
+      normalizeRepositoryHarnessSelectionRequest(project, {
+        repositoryIds: requestedSelection.repository_ids,
+        repositoryHarnessSelections: repository_harness_selections,
+      });
 
     const now = this.now();
     const normalizedIntent = normalizeIntent(intent, {
@@ -208,10 +289,23 @@ export class ChangeFleetService {
       revision: 1,
       confirmedAt: now,
     });
+    const repositoryHarnessSelection =
+      await this.resolveRepositoryHarnessSelectionRevision({
+        project,
+        repositorySelection,
+        request: requestedHarnessSelection,
+        revision: 1,
+        confirmedAt: now,
+        confirmedBy: actor,
+      });
     const result = {
       change_set_id,
       repository_selection_revision: 1,
+      repository_harness_selection_revision: 1,
       repositories: structuredClone(repositorySelection.repositories),
+      repository_harness: structuredClone(
+        repositoryHarnessSelection.repositories,
+      ),
     };
     const fingerprint = commandFingerprint("createChangeSet", input);
     const state = {
@@ -224,6 +318,10 @@ export class ChangeFleetService {
       repository_selection_revisions: [repositorySelection],
       current_repository_selection_revision: 1,
       repository_selection_change_requests: [],
+      repository_harness_selection_revisions: [
+        repositoryHarnessSelection,
+      ],
+      current_repository_harness_selection_revision: 1,
       plans: [],
       current_plan_revision: null,
       work_units: [],
@@ -265,11 +363,13 @@ export class ChangeFleetService {
     current_repository_selection_revision,
     planning_repository_ids,
     repository_selections,
+    repository_harness_selections,
     actor = "human",
   }) {
     // 修订先校验旧 revision，再解析新分支，避免旧页面覆盖刚刚确认的新选择。
     normalizeId("idempotency_key", idempotency_key);
     normalizeId("change_set_id", change_set_id);
+    normalizeId("actor", actor);
     const catalog = await this.controlStore.readCatalog();
     let initialState = await this.controlStore.readChangeSet(change_set_id);
     const project = requireProject(catalog, initialState.project_id);
@@ -281,6 +381,10 @@ export class ChangeFleetService {
       change_set_id,
       current_repository_selection_revision,
       repository_selection: requestedSelection,
+      repository_harness_selection_request:
+        harnessSelectionRequestFingerprint(
+          repository_harness_selections,
+        ),
       actor,
     };
     const existing = existingCommand(
@@ -290,6 +394,11 @@ export class ChangeFleetService {
       commandInput,
     );
     if (existing?.status === "completed") return structuredClone(existing.result);
+    const requestedHarnessSelection =
+      normalizeRepositoryHarnessSelectionRequest(project, {
+        repositoryIds: requestedSelection.repository_ids,
+        repositoryHarnessSelections: repository_harness_selections,
+      });
     await this.recoverInterruptedPlanningRuns(change_set_id, project);
     initialState = await this.controlStore.readChangeSet(change_set_id);
     assertRepositorySelectionRevisionAllowed(
@@ -303,6 +412,17 @@ export class ChangeFleetService {
       revision: nextRevision,
       confirmedAt: this.now(),
     });
+    const nextHarnessRevision =
+      initialState.repository_harness_selection_revisions.length + 1;
+    const nextHarnessSelection =
+      await this.resolveRepositoryHarnessSelectionRevision({
+        project,
+        repositorySelection: nextSelection,
+        request: requestedHarnessSelection,
+        revision: nextHarnessRevision,
+        confirmedAt: this.now(),
+        confirmedBy: actor,
+      });
 
     return this.controlStore.transactChangeSet(change_set_id, (state) =>
       applyIdempotentCommand({
@@ -318,6 +438,10 @@ export class ChangeFleetService {
           const priorSelection = currentRepositorySelection(state);
           priorSelection.status = "superseded";
           priorSelection.superseded_at = this.now();
+          const priorHarnessSelection =
+            currentRepositoryHarnessSelection(state);
+          priorHarnessSelection.status = "superseded";
+          priorHarnessSelection.superseded_at = this.now();
 
           const priorPlan = currentPlan(state);
           if (priorPlan) priorPlan.status = "superseded";
@@ -329,6 +453,11 @@ export class ChangeFleetService {
 
           state.repository_selection_revisions.push(nextSelection);
           state.current_repository_selection_revision = nextRevision;
+          state.repository_harness_selection_revisions.push(
+            nextHarnessSelection,
+          );
+          state.current_repository_harness_selection_revision =
+            nextHarnessRevision;
           state.current_plan_revision = null;
           for (const request of state.repository_selection_change_requests) {
             if (request.status === "pending") {
@@ -342,6 +471,7 @@ export class ChangeFleetService {
             type: "repository_selection_revision",
             from_revision: priorSelection.revision,
             to_revision: nextRevision,
+            repository_harness_selection_revision: nextHarnessRevision,
             actor,
             decided_at: this.now(),
           });
@@ -350,6 +480,113 @@ export class ChangeFleetService {
           return {
             change_set_id,
             repository_selection_revision: nextRevision,
+            repository_harness_selection_revision: nextHarnessRevision,
+            repositories: structuredClone(nextSelection.repositories),
+            repository_harness: structuredClone(
+              nextHarnessSelection.repositories,
+            ),
+          };
+        },
+      }),
+    );
+  }
+
+  async reviseRepositoryHarnessSelection({
+    idempotency_key,
+    change_set_id,
+    current_repository_harness_selection_revision,
+    repository_harness_selections,
+    actor = "human",
+  }) {
+    // Harness 修订沿用同一 ChangeSet，但必须废弃当前计划并生成新的上下文身份。
+    normalizeId("idempotency_key", idempotency_key);
+    normalizeId("change_set_id", change_set_id);
+    normalizeId("actor", actor);
+    const catalog = await this.controlStore.readCatalog();
+    let initialState = await this.controlStore.readChangeSet(change_set_id);
+    const project = requireProject(catalog, initialState.project_id);
+    const repositorySelection = currentRepositorySelection(initialState);
+    const commandInput = {
+      change_set_id,
+      current_repository_harness_selection_revision,
+      repository_harness_selection_request:
+        harnessSelectionRequestFingerprint(
+          repository_harness_selections,
+        ),
+      actor,
+    };
+    const existing = existingCommand(
+      initialState,
+      idempotency_key,
+      "reviseRepositoryHarnessSelection",
+      commandInput,
+    );
+    if (existing?.status === "completed") return structuredClone(existing.result);
+    const request = normalizeRepositoryHarnessSelectionRequest(project, {
+      repositoryIds: repositorySelection.repositories.map(
+        (repository) => repository.repository_id,
+      ),
+      repositoryHarnessSelections: repository_harness_selections,
+    });
+    await this.recoverInterruptedPlanningRuns(change_set_id, project);
+    initialState = await this.controlStore.readChangeSet(change_set_id);
+    assertRepositoryHarnessSelectionRevisionAllowed(
+      initialState,
+      current_repository_harness_selection_revision,
+    );
+    const revision =
+      initialState.repository_harness_selection_revisions.length + 1;
+    const nextSelection =
+      await this.resolveRepositoryHarnessSelectionRevision({
+        project,
+        repositorySelection: currentRepositorySelection(initialState),
+        request,
+        revision,
+        confirmedAt: this.now(),
+        confirmedBy: actor,
+      });
+
+    return this.controlStore.transactChangeSet(change_set_id, (state) =>
+      applyIdempotentCommand({
+        record: state,
+        idempotencyKey: idempotency_key,
+        command: "reviseRepositoryHarnessSelection",
+        input: commandInput,
+        perform: () => {
+          assertRepositoryHarnessSelectionRevisionAllowed(
+            state,
+            current_repository_harness_selection_revision,
+          );
+          const prior = currentRepositoryHarnessSelection(state);
+          prior.status = "superseded";
+          prior.superseded_at = this.now();
+          const priorPlan = currentPlan(state);
+          if (priorPlan) priorPlan.status = "superseded";
+          for (const workUnit of unitsForCurrentPlan(state)) {
+            if (
+              !["candidate_ready", "failed", "blocked"].includes(
+                workUnit.state,
+              )
+            ) {
+              workUnit.state = "superseded";
+            }
+          }
+          state.repository_harness_selection_revisions.push(nextSelection);
+          state.current_repository_harness_selection_revision = revision;
+          state.current_plan_revision = null;
+          state.decisions.push({
+            decision_id: this.idFactory("decision"),
+            type: "repository_harness_selection_revision",
+            from_revision: prior.revision,
+            to_revision: revision,
+            actor,
+            decided_at: this.now(),
+          });
+          state.state = "analyzing";
+          state.updated_at = this.now();
+          return {
+            change_set_id,
+            repository_harness_selection_revision: revision,
             repositories: structuredClone(nextSelection.repositories),
           };
         },
@@ -392,6 +629,89 @@ export class ChangeFleetService {
     };
   }
 
+  async resolveRepositoryHarnessSelectionRevision({
+    project,
+    repositorySelection,
+    request,
+    revision,
+    confirmedAt,
+    confirmedBy,
+  }) {
+    // 先持久化内容寻址快照，再把其不可变引用与 Git base 一起写入 ChangeSet。
+    const repositoriesById = new Map(
+      project.repositories.map((repository) => [
+        repository.repository_id,
+        repository,
+      ]),
+    );
+    const basesById = new Map(
+      repositorySelection.repositories.map((selection) => [
+        selection.repository_id,
+        selection,
+      ]),
+    );
+    const repositories = [];
+    for (const requested of request.repositories) {
+      const repository = repositoriesById.get(requested.repository_id);
+      const base = basesById.get(requested.repository_id);
+      invariant(
+        repository && base,
+        "REPOSITORY_HARNESS_SELECTION_MISMATCH",
+        `Harness selection has no matching Repository base: ${requested.repository_id}`,
+      );
+      if (requested.mode === HARNESS_SELECTION_MODES.EXACT_BASE_ONLY) {
+        repositories.push(
+          createExactBaseHarnessSelection({
+            repositoryId: requested.repository_id,
+            baseSha: base.resolved_base_sha,
+          }),
+        );
+        continue;
+      }
+      const policy = repository.workspace_policy_revisions.find(
+        (candidate) =>
+          candidate.revision === requested.workspace_policy_revision,
+      );
+      invariant(
+        policy,
+        "REPOSITORY_HARNESS_POLICY_NOT_FOUND",
+        `Repository ${requested.repository_id} has no Harness policy revision ${requested.workspace_policy_revision}`,
+      );
+      const overlay = await this.repositoryWorker.resolveHarnessOverlay({
+        repository,
+        baseSha: base.resolved_base_sha,
+        policy,
+      });
+      const snapshotReference = await this.harnessSnapshotStore.record({
+        repositoryId: repository.repository_id,
+        baseSha: base.resolved_base_sha,
+        providerFamily: requested.provider_family,
+        policyRevision: policy.revision,
+        selectorDigest: overlay.selector_digest,
+        files: overlay.files,
+        createdAt: this.now(),
+      });
+      repositories.push(
+        createOverlayHarnessSelection({
+          repositoryId: repository.repository_id,
+          baseSha: base.resolved_base_sha,
+          policy,
+          snapshotReference,
+          selectorDigest: overlay.selector_digest,
+          files: overlay.files,
+          skippedResources: overlay.skipped_resources,
+        }),
+      );
+    }
+    return {
+      revision,
+      status: "current",
+      confirmed_by: confirmedBy,
+      confirmed_at: confirmedAt,
+      repositories,
+    };
+  }
+
   async planChangeSet({
     idempotency_key,
     change_set_id,
@@ -416,6 +736,8 @@ export class ChangeFleetService {
     initialState = await this.controlStore.readChangeSet(change_set_id);
 
     const repositorySelection = currentRepositorySelection(initialState);
+    const repositoryHarnessSelection =
+      currentRepositoryHarnessSelection(initialState);
     const projectRepositories = new Map(
       project.repositories.map((repository) => [
         repository.repository_id,
@@ -437,24 +759,78 @@ export class ChangeFleetService {
     const runId = this.idFactory("run");
     const bases = {};
     const repositoriesForContext = [];
+    const harnessObservations = [];
     const planningWorkspaces = [];
     // 规划只消费创建时已冻结的选择，不能再次读取分支 tip 或登记默认值。
     try {
       for (const selection of repositorySelection.repositories) {
         const repository = projectRepositories.get(selection.repository_id);
+        const harnessSelection =
+          repositoryHarnessSelection.repositories.find(
+            (candidate) =>
+              candidate.repository_id === selection.repository_id,
+          );
+        invariant(
+          harnessSelection?.resolved_base_sha ===
+            selection.resolved_base_sha,
+          "REPOSITORY_HARNESS_SELECTION_MISMATCH",
+          `Harness selection does not match Repository ${selection.repository_id}`,
+        );
         const base = {
           repository_id: selection.repository_id,
           target_ref: selection.target_ref,
           base_sha: selection.resolved_base_sha,
         };
-        const workspace =
+        let workspace =
           await this.repositoryWorker.preparePlanningWorkspace({
             repository,
             baseSha: base.base_sha,
             workspaceId: `planning-${runId}`,
           });
         planningWorkspaces.push(workspace);
+        let overlaySnapshot = null;
+        if (
+          harnessSelection.mode ===
+          HARNESS_SELECTION_MODES.EXACT_BASE_PLUS_OVERLAY
+        ) {
+          overlaySnapshot = await this.harnessSnapshotStore.read(
+            harnessSelection.artifact_reference,
+          );
+          workspace = {
+            ...workspace,
+            harness_overlay: {
+              ...harnessSelection.artifact_reference,
+              paths: [...harnessSelection.resolved_relative_paths],
+            },
+          };
+          planningWorkspaces[planningWorkspaces.length - 1] = workspace;
+          workspace =
+            await this.repositoryWorker.materializeHarnessOverlay({
+              repository,
+              workspace,
+              snapshot: overlaySnapshot,
+            });
+          planningWorkspaces[planningWorkspaces.length - 1] = workspace;
+        }
         bases[selection.repository_id] = base;
+        const exactBaseHarness =
+          await this.repositoryWorker.discoverHarness(
+            repository,
+            base.base_sha,
+          );
+        const frozenOverlayHarness =
+          overlayHarnessResources(overlaySnapshot);
+        const availableHarness = [
+          ...exactBaseHarness,
+          ...frozenOverlayHarness,
+        ];
+        harnessObservations.push(
+          repositoryHarnessObservation({
+            repositoryId: repository.repository_id,
+            exactBaseResources: exactBaseHarness,
+            overlayResources: frozenOverlayHarness,
+          }),
+        );
         repositoriesForContext.push({
           repository_id: repository.repository_id,
           description: repository.description,
@@ -462,10 +838,8 @@ export class ChangeFleetService {
           target_ref: base.target_ref,
           base_sha: base.base_sha,
           root_path: workspace.workspace_path,
-          harness_resources: await this.repositoryWorker.discoverHarness(
-            repository,
-            base.base_sha,
-          ),
+          harness_selection: harnessSelectionForContext(harnessSelection),
+          ...harnessResourcesForContext(availableHarness),
         });
       }
     } catch (error) {
@@ -482,6 +856,8 @@ export class ChangeFleetService {
       changeSetId: change_set_id,
       planRevision: initialState.current_plan_revision,
       repositorySelectionRevision: repositorySelection.revision,
+      repositoryHarnessSelectionRevision:
+        repositoryHarnessSelection.revision,
       authorizedRepositories: repositorySelection.repositories.map(
         (selection) => selection.repository_id,
       ),
@@ -499,6 +875,7 @@ export class ChangeFleetService {
       changeSet: initialState,
       plan: currentPlan(initialState),
       repositorySelection,
+      repositoryHarnessSelection,
       repositories: repositoriesForContext,
       capability: {
         mode: "read_only",
@@ -537,6 +914,15 @@ export class ChangeFleetService {
       attempt: planningAttempt,
       status: "running",
       agent_profile: agentProfile,
+      repository_harness_selection: {
+        revision: repositoryHarnessSelection.revision,
+        repositories: repositoryHarnessSelection.repositories.map(
+          harnessSelectionForContext,
+        ),
+      },
+      repository_harness_observation: {
+        repositories: harnessObservations,
+      },
       context_evidence: contextEvidence,
       context_projection_identity: {
         schema_version: contextProjection.schema_version,
@@ -555,10 +941,18 @@ export class ChangeFleetService {
         "STALE_REPOSITORY_SELECTION_REVISION",
         "Repository selection changed before planning dispatch",
       );
+      invariant(
+        state.current_repository_harness_selection_revision ===
+          repositoryHarnessSelection.revision,
+        "STALE_REPOSITORY_HARNESS_SELECTION_REVISION",
+        "Repository Harness selection changed before planning dispatch",
+      );
       state.run_references.push({
         run_id: runId,
         operation: "planning",
         plan_revision: state.current_plan_revision,
+        repository_harness_selection_revision:
+          repositoryHarnessSelection.revision,
         attempt: planningAttempt,
         status: "running",
       });
@@ -593,6 +987,8 @@ export class ChangeFleetService {
           bases,
           intentRevision: initialState.current_intent_revision,
           repositorySelectionRevision: repositorySelection.revision,
+          repositoryHarnessSelectionRevision:
+            repositoryHarnessSelection.revision,
           revision: nextRevision,
           createdAt: this.now(),
         });
@@ -679,6 +1075,12 @@ export class ChangeFleetService {
               repositorySelection.revision,
             "STALE_REPOSITORY_SELECTION_REVISION",
             "Repository selection changed while planning was running",
+          );
+          invariant(
+            state.current_repository_harness_selection_revision ===
+              repositoryHarnessSelection.revision,
+            "STALE_REPOSITORY_HARNESS_SELECTION_REVISION",
+            "Repository Harness selection changed while planning was running",
           );
           if (repositorySelectionChangeRequest) {
             const request = {
@@ -1193,6 +1595,8 @@ export class ChangeFleetService {
     const project = requireProject(catalog, state.project_id);
     const plan = currentPlan(state);
     const repositorySelection = currentRepositorySelection(state);
+    const repositoryHarnessSelection =
+      currentRepositoryHarnessSelection(state);
     const workUnit = unitsForCurrentPlan(state).find(
       (candidate) => candidate.work_unit_id === workUnitId,
     );
@@ -1207,12 +1611,52 @@ export class ChangeFleetService {
     const selectedRepository = repositorySelection.repositories.find(
       (candidate) => candidate.repository_id === workUnit.repository_id,
     );
+    const selectedHarness =
+      repositoryHarnessSelection.repositories.find(
+        (candidate) =>
+          candidate.repository_id === workUnit.repository_id,
+      );
+    invariant(
+      selectedHarness?.resolved_base_sha === workUnit.base_sha &&
+        workUnit.repository_harness_selection_revision ===
+          repositoryHarnessSelection.revision,
+      "REPOSITORY_HARNESS_SELECTION_MISMATCH",
+      `WorkUnit ${workUnitId} does not match the current Harness selection`,
+    );
     const workspaceId = `${changeSetId}.${plan.revision}.${workUnitId}`;
-    const workspace = await this.repositoryWorker.prepareWorkspace({
+    let workspace = await this.repositoryWorker.prepareWorkspace({
       repository,
       targetRef: workUnit.target_ref,
       baseSha: workUnit.base_sha,
       workspaceId,
+    });
+    let overlaySnapshot = null;
+    if (
+      selectedHarness.mode ===
+      HARNESS_SELECTION_MODES.EXACT_BASE_PLUS_OVERLAY
+    ) {
+      overlaySnapshot = await this.harnessSnapshotStore.read(
+        selectedHarness.artifact_reference,
+      );
+      workspace = await this.repositoryWorker.materializeHarnessOverlay({
+        repository,
+        workspace,
+        snapshot: overlaySnapshot,
+      });
+    }
+    const exactBaseHarness = await this.repositoryWorker.discoverHarness(
+      repository,
+      workUnit.base_sha,
+    );
+    const frozenOverlayHarness = overlayHarnessResources(overlaySnapshot);
+    const availableHarness = [
+      ...exactBaseHarness,
+      ...frozenOverlayHarness,
+    ];
+    const harnessObservation = repositoryHarnessObservation({
+      repositoryId: repository.repository_id,
+      exactBaseResources: exactBaseHarness,
+      overlayResources: frozenOverlayHarness,
     });
     const runId = this.idFactory("run");
     const attempt = workUnit.run_references.length + 1;
@@ -1225,6 +1669,15 @@ export class ChangeFleetService {
       attempt,
       status: "running",
       agent_profile: plan.agent_profile,
+      repository_harness_selection: {
+        revision: repositoryHarnessSelection.revision,
+        repositories: [
+          harnessSelectionForContext(selectedHarness),
+        ],
+      },
+      repository_harness_observation: {
+        repositories: [harnessObservation],
+      },
       context_evidence: null,
       context_projection_identity: null,
       runtime_evidence: null,
@@ -1269,6 +1722,8 @@ export class ChangeFleetService {
       changeSetId,
       planRevision: plan.revision,
       repositorySelectionRevision: repositorySelection.revision,
+      repositoryHarnessSelectionRevision:
+        repositoryHarnessSelection.revision,
       workUnitId,
       authorizedRepositories: [workUnit.repository_id],
       allowedOutcomes: [
@@ -1285,6 +1740,7 @@ export class ChangeFleetService {
       changeSet: currentState,
       plan,
       repositorySelection,
+      repositoryHarnessSelection,
       workUnit: currentUnit,
       repositories: [
         {
@@ -1292,10 +1748,8 @@ export class ChangeFleetService {
           branch_ref: selectedRepository.branch_ref,
           target_ref: workUnit.target_ref,
           base_sha: workUnit.base_sha,
-          harness_resources: await this.repositoryWorker.discoverHarness(
-            repository,
-            workUnit.base_sha,
-          ),
+          harness_selection: harnessSelectionForContext(selectedHarness),
+          ...harnessResourcesForContext(availableHarness),
         },
       ],
       capability: {
@@ -1399,6 +1853,30 @@ export class ChangeFleetService {
     }
 
     try {
+      const requestedPrivateHarnessChanges =
+        overlaySnapshot === null
+          ? []
+          : outcome.changed_paths
+              .map((item) => item.replaceAll("\\", "/"))
+              .filter((item) =>
+                overlaySnapshot.files.some(
+                  (file) =>
+                    item === file.relative_path,
+                ),
+              );
+      invariant(
+        requestedPrivateHarnessChanges.length === 0,
+        "NON_GIT_HARNESS_CHANGE_UNSUPPORTED",
+        "A durable change to private non-Git Harness is unsupported",
+        { paths: requestedPrivateHarnessChanges.sort() },
+      );
+      if (overlaySnapshot) {
+        await this.repositoryWorker.verifyAndRemoveHarnessOverlay({
+          repository,
+          workspace,
+          snapshot: overlaySnapshot,
+        });
+      }
       const published = await this.repositoryWorker.publishCandidate({
         repository,
         workspace,
@@ -1496,10 +1974,21 @@ export class ChangeFleetService {
     let firstError = null;
     for (const workspace of [...planningWorkspaces].reverse()) {
       const repository = projectRepositories.get(workspace.repository_id);
+      let harnessSnapshot = null;
+      if (workspace.harness_overlay) {
+        try {
+          harnessSnapshot = await this.harnessSnapshotStore.read(
+            workspace.harness_overlay,
+          );
+        } catch (error) {
+          firstError ??= error;
+        }
+      }
       try {
         await this.repositoryWorker.cleanupPlanningWorkspace({
           repository,
           workspace,
+          harnessSnapshot,
         });
       } catch (error) {
         firstError ??= error;
@@ -1738,6 +2227,19 @@ function requireProject(catalog, projectId) {
   return project;
 }
 
+function requireRepository(project, repositoryId) {
+  const repository = project.repositories.find(
+    (candidate) => candidate.repository_id === repositoryId,
+  );
+  invariant(
+    repository,
+    "REPOSITORY_NOT_REGISTERED",
+    `Repository ${repositoryId} is not registered in Project ${project.project_id}`,
+    { repository_id: repositoryId, project_id: project.project_id },
+  );
+  return repository;
+}
+
 function normalizeRepositorySelectionChangeRequest(outcome, project) {
   // Agent 只能提出完整的新选择请求；这里验证结构，但不会解析 ref 或改变任何权限。
   invariant(
@@ -1790,6 +2292,20 @@ function currentRepositorySelection(state) {
   return selection;
 }
 
+function currentRepositoryHarnessSelection(state) {
+  const selection = state.repository_harness_selection_revisions.find(
+    (candidate) =>
+      candidate.revision ===
+      state.current_repository_harness_selection_revision,
+  );
+  invariant(
+    selection?.status === "current",
+    "INVALID_REPOSITORY_HARNESS_SELECTION_REVISION",
+    "ChangeSet has no current Repository Harness selection revision",
+  );
+  return selection;
+}
+
 function assertRepositorySelectionRevisionAllowed(state, expectedRevision) {
   invariant(
     Number.isSafeInteger(expectedRevision) && expectedRevision > 0,
@@ -1807,6 +2323,29 @@ function assertRepositorySelectionRevisionAllowed(state, expectedRevision) {
     state.current_repository_selection_revision === expectedRevision,
     "STALE_REPOSITORY_SELECTION_REVISION",
     `Repository selection revision ${expectedRevision} is not current`,
+  );
+}
+
+function assertRepositoryHarnessSelectionRevisionAllowed(
+  state,
+  expectedRevision,
+) {
+  invariant(
+    Number.isSafeInteger(expectedRevision) && expectedRevision > 0,
+    "INVALID_REPOSITORY_HARNESS_SELECTION_REVISION",
+    "Current Repository Harness selection revision must be positive",
+  );
+  invariant(
+    ["analyzing", "awaiting_plan_confirmation", "replanning"].includes(
+      state.state,
+    ),
+    "INVALID_CHANGE_SET_STATE",
+    `Cannot revise Repository Harness selection in state ${state.state}`,
+  );
+  invariant(
+    state.current_repository_harness_selection_revision === expectedRevision,
+    "STALE_REPOSITORY_HARNESS_SELECTION_REVISION",
+    `Repository Harness selection revision ${expectedRevision} is not current`,
   );
 }
 
@@ -1828,6 +2367,93 @@ function optionalString(value) {
 
 function comparablePath(value) {
   return path.resolve(value).toLowerCase();
+}
+
+function harnessSelectionForContext(selection) {
+  return {
+    repository_id: selection.repository_id,
+    resolved_base_sha: selection.resolved_base_sha,
+    mode: selection.mode,
+    provider_family: selection.provider_family,
+    workspace_policy_revision: selection.workspace_policy_revision,
+    selector_digest: selection.selector_digest,
+    resolved_relative_paths: [...selection.resolved_relative_paths],
+    skipped_resources: structuredClone(selection.skipped_resources ?? []),
+    content_digest: selection.content_digest,
+    artifact_reference: selection.artifact_reference
+      ? {
+          snapshot_id: selection.artifact_reference.snapshot_id,
+          snapshot_hash: selection.artifact_reference.snapshot_hash,
+        }
+      : null,
+  };
+}
+
+function overlayHarnessResources(snapshot) {
+  if (!snapshot) return [];
+  return snapshot.files.map((file) => ({
+    path: file.relative_path,
+    source: "frozen_overlay",
+    content_sha256: file.sha256,
+    bytes: file.bytes,
+    executable: file.executable,
+    snapshot_id: snapshot.snapshot_id,
+  }));
+}
+
+function repositoryHarnessObservation({
+  repositoryId,
+  exactBaseResources,
+  overlayResources,
+}) {
+  // Run 证据保留完整的资源身份，并诚实声明当前 Codex 接口无法报告实际加载事件。
+  return {
+    repository_id: repositoryId,
+    exact_base_resources: structuredClone(exactBaseResources),
+    frozen_overlay_resources: structuredClone(overlayResources),
+    provider_discovery: {
+      coverage: "unavailable",
+      discovered_resources: [],
+      loaded_resources: [],
+    },
+  };
+}
+
+function harnessResourcesForContext(resources) {
+  // Agent 投影只广告有界样本；完整无正文清单留在 Run 证据中按引用审计。
+  const advertised = resources.slice(0, MAX_CONTEXT_HARNESS_RESOURCES);
+  return {
+    harness_resources: structuredClone(advertised),
+    harness_resource_summary: {
+      total_count: resources.length,
+      advertised_count: advertised.length,
+      omitted_count: resources.length - advertised.length,
+      identity_digest: sha256(resources),
+    },
+  };
+}
+
+function harnessSelectionRequestFingerprint(value) {
+  if (value === undefined) return null;
+  invariant(
+    Array.isArray(value),
+    "INVALID_REPOSITORY_HARNESS_SELECTION",
+    "repository_harness_selections must be an array",
+  );
+  return value
+    .map((selection) => ({
+      repository_id: normalizeId(
+        "repository_harness_selection.repository_id",
+        selection.repository_id,
+      ),
+      mode: selection.mode ?? null,
+      provider_family: selection.provider_family ?? null,
+      workspace_policy_revision:
+        selection.workspace_policy_revision ?? null,
+    }))
+    .sort((left, right) =>
+      left.repository_id.localeCompare(right.repository_id),
+    );
 }
 
 function intentFingerprint(intent) {

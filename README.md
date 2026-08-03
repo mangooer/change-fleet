@@ -14,8 +14,9 @@ reviewable `CandidateBundle` representing one exact cross-repository outcome.
 
 ## Current Status
 
-This repository contains the initial spec-first project Harness and the user-accepted WI-0001
-private package. The implementation is not released and exposes no public CLI contract.
+This repository contains the spec-first project Harness and the private implementation through
+landed WI-0004, including explicit immutable Repository Harness overlays. The package is not
+released and exposes no public CLI contract.
 
 The first accepted vertical slice, tracked by
 [`WI-0001`](docs/work-items/WI-0001-local-two-repository-vertical-slice.md), is:
@@ -32,6 +33,11 @@ confirmed intent
 
 Automatic merge, deployment, remote workers, and Git-URL materialization are outside that first
 slice.
+
+The current overlay stage keeps exact-base Harness as the default. An optional confirmed Repository
+policy can freeze bounded Git-ignored Codex instructions or Skills at ChangeSet creation, restore
+them only in ChangeFleet-owned workspaces, and remove them before Candidate publication. Non-Git
+Harness is never written back or delivered.
 
 ## Start Here
 
@@ -70,7 +76,8 @@ available without being loaded into every task. The accepted boundary for user r
 ownership, current Run projections, Agent Profiles, operation-scoped Skills, and honest
 context-budget evidence is [`Decision 0005`](docs/decisions/0005-runtime-context-harness-and-capabilities.md);
 [`Proposal 0003`](docs/proposals/0003-harness-ownership-and-runtime-context.md) preserves its design
-history.
+history. [`Decision 0011`](docs/decisions/0011-exact-repository-harness-snapshots-and-local-overlays.md)
+owns the exact-base and immutable local-overlay boundary.
 
 Repository Design Proposals and Development WorkItems govern this repository. They are not
 ChangeFleet Runtime outputs. Runtime coordination uses ChangeSet, ChangePlanRevision, WorkUnit,
@@ -95,6 +102,8 @@ See [`docs/glossary.md`](docs/glossary.md) for the complete vocabulary.
 private Node.js 24 LTS ESM JavaScript package and a versioned filesystem store. WI-0001 and WI-0002
 implement the deterministic control kernel. The accepted WI-0003 implementation adds the pinned
 Codex SDK production adapter; scripted Runtime behavior remains test support only.
+WI-0004 adds the accepted Codex local Harness overlay path without adding a general workspace seed
+framework or a second Provider.
 
 The accepted package exposes:
 

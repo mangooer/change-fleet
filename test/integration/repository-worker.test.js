@@ -16,6 +16,20 @@ describe("RepositoryWorker", () => {
     const repositoryFixture = await createGitRepository(root, "api", {
       harness: true,
     });
+    const trackedSkillDirectory = path.join(
+      repositoryFixture.path,
+      ".agents",
+      "skills",
+      "review",
+    );
+    await mkdir(trackedSkillDirectory, { recursive: true });
+    await writeFile(
+      path.join(trackedSkillDirectory, "SKILL.md"),
+      "# Review skill\n\nInspect the exact candidate.\n",
+      "utf8",
+    );
+    await git(repositoryFixture.path, ["add", ".agents/skills/review/SKILL.md"]);
+    await git(repositoryFixture.path, ["commit", "-m", "add tracked skill"]);
     await writeFile(
       path.join(repositoryFixture.path, "baseline.txt"),
       "dirty host content\n",
@@ -47,6 +61,15 @@ describe("RepositoryWorker", () => {
       statusBefore,
     );
     const base = await worker.freezeBase(repository);
+    assert.deepEqual(
+      (await worker.discoverHarness(repository, base.base_sha)).map(
+        (resource) => [resource.path, resource.source],
+      ),
+      [
+        [".agents/skills/review/SKILL.md", "exact_base"],
+        ["AGENTS.md", "exact_base"],
+      ],
+    );
     const workspace = await worker.prepareWorkspace({
       repository,
       targetRef: base.target_ref,

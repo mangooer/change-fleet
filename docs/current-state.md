@@ -1,48 +1,41 @@
 # Current State
 
-Updated: 2026-07-31
+Updated: 2026-08-03
 
-This document is the concise projection of ChangeFleet's accepted direction, current
-implementation, active gaps, and next recommended work.
-
-`SPEC.md` owns the product contract, Decisions own rationale, proposals preserve design history, and
-Development WorkItems plus Git own implementation evidence.
+This projects accepted direction, implementation, active gaps, and the next task. `SPEC.md` owns
+the contract; Decisions own rationale; WorkItems and Git own implementation evidence.
 
 ## Current Baseline
 
-- WI-0001 through WI-0003 are accepted and landed; Git history owns their exact implementation
-  commits.
-- The development Harness uses a compact root instruction file, this current projection, one active
-  Development WorkItem or Repository Design Proposal, and targeted authority loading. `SPEC.md` is
-  not read in full for every task.
-- No released product package, public CLI, state compatibility contract, API, or UI exists.
-- The accepted stack is one private Node.js 24 LTS ESM package with a versioned filesystem store,
-  built-in `node:test`, pinned `@openai/codex-sdk@0.146.0`, a real Codex Runtime adapter, and
-  scripted Runtime support reachable only from tests.
+- WI-0001 through WI-0004 are accepted and landed; Git owns their implementation.
+- The Harness loads root rules, this projection, one active artifact, and targeted authority.
+- No released package, public CLI, compatibility contract, API, or UI exists.
+- The accepted private Node.js 24 ESM package uses a versioned filesystem store, `node:test`,
+  pinned `@openai/codex-sdk@0.146.0`, one real Codex adapter, and test-only scripted Runtime.
 - Agent Runtimes own semantic work. ChangeFleet owns cross-repository authorization, revisions,
   scheduling, exact Git and Bundle subjects, evidence, recovery, and human gates.
 
 ## Accepted Product Direction
 
-- Managed Runs will receive a compact Control Contract and generated current Run Context Projection;
-  complete history remains referenced durable state rather than default Agent context.
-- ChangeFleet does not create or maintain Harness in registered repositories.
+- Managed Runs receive a compact Control Contract and current projection; complete history remains
+  durable by reference rather than default Agent context.
+- ChangeFleet does not create or maintain registered-repository Harness.
 - Agent Profiles select provider-native Runtime, model, capability, and optional Skill settings.
 - Planning is read-only; execution writes only to its isolated WorkUnit workspace.
 - Initial context targets at most 70 percent usage and records `enforced | estimated | unknown`.
 - Tracker integrations remain edge projections, not ChangeSet authority.
-- A Project binds one or more explicitly registered Repositories. A ChangePlan selects a non-empty
-  subset; single-Repository work is valid and scope expansion remains typed.
-- ChangeSet creation freezes the planning-visible set, branches, exact base SHAs, and targets.
-  Dirty checkout files are excluded and an Agent cannot replace this authority.
+- A Project binds registered Repositories. A ChangePlan selects a non-empty subset;
+  single-Repository work is valid and scope expansion remains typed.
+- ChangeSet creation freezes visible Repositories, branches, base SHAs, and targets. Agents cannot
+  replace them and dirty checkout files are excluded.
+- Optional confirmed Repository Harness policies may freeze contained Git-ignored Codex resources
+  as immutable ChangeSet input; they are never reread live, written back, or delivered.
 - Replanning continues the same ChangeSet with superseded attempts preserved. Execution produces
   exact Candidates, immutable Bundle review subjects, and exact-subject validation evidence.
 - WorkUnits may run in parallel; delivery to one `repository_id + target_ref` is serialized, and
   cross-repository compensation never promises universal atomic rollback.
-- The WI-0003 implementation records every real Runtime call's immutable invocation identity,
-  timing, available Provider
-  usage, honest confidence and coverage, profile and projection identity, and bounded raw
-  references outside ordinary Agent context.
+- WI-0003 records each real Runtime call's identity, timing, available Provider usage, honest
+  coverage, profile and projection identity, and bounded raw references outside ordinary context.
 - The accepted first production Provider uses the pinned Codex TypeScript SDK behind the narrow
   Runtime port, one fresh Provider thread per Run attempt, strict structured outcomes, exact-base
   read-only planning worktrees, and WorkUnit-scoped execution access.
@@ -76,6 +69,8 @@ Development WorkItems plus Git own implementation evidence.
   default Agent context and record immutable usage observations with honest coverage.
 - [0010](decisions/0010-first-real-codex-sdk-provider.md): use Codex TypeScript SDK for the first
   real Provider with fresh Run threads and exact-base planning worktrees.
+- [0011](decisions/0011-exact-repository-harness-snapshots-and-local-overlays.md): default to
+  exact-base Harness and permit only explicit immutable local overlays with no non-Git writeback.
 
 ## Repository Design Proposals
 
@@ -83,11 +78,14 @@ Development WorkItems plus Git own implementation evidence.
   [0004](proposals/0004-variable-scope-and-localized-diagnostics.md), and
   [0006](proposals/0006-change-set-base-selection-and-revision.md) are accepted and implemented by
   landed WI-0001 and WI-0002.
-- [Proposal 0005](proposals/0005-runtime-cost-and-effectiveness-observability.md) is accepted only
-  for raw first-Provider evidence and audit isolation. Pricing, aggregation, retention, dashboards,
-  budgets, and effectiveness comparison have no implementation authority.
-- [Proposal 0007](proposals/0007-first-real-codex-sdk-provider.md) is accepted and tracked by
+- [Proposal 0005](proposals/0005-runtime-cost-and-effectiveness-observability.md) accepts raw
+  Provider evidence and audit isolation; pricing, dashboards, budgets, and comparison are deferred.
+- [Proposal 0007](proposals/0007-first-real-codex-sdk-provider.md) is implemented by
   [WI-0003](work-items/WI-0003-first-real-codex-sdk-provider.md), `done`.
+- [Proposal 0009](proposals/0009-exact-repository-harness-snapshots-and-local-overlays.md) is
+  implemented by
+  [WI-0004](work-items/WI-0004-exact-repository-harness-snapshots-and-local-overlays.md),
+  `done`.
 
 ## Open Questions
 
@@ -96,22 +94,22 @@ Development WorkItems plus Git own implementation evidence.
 
 ## Known Limitations
 
-- WI-0002's private schema v2 is landed but remains outside any released compatibility contract.
+- WI-0004's private schema v3 is landed but remains outside any released compatibility contract.
 - No Git URL materialization, remote worker, PR integration, automatic merge, deployment, browser
   UI, service graph, or stacked ChangeSet support is accepted.
-- WI-0003 has one real native-Windows, local-ChatGPT, single-Repository Provider proof. API-key
-  authentication, non-Windows sandboxing, malicious out-of-scope access, real cancellation, hard
-  process death, and paid multi-Repository execution remain unverified.
+- WI-0003 proved native-Windows local-ChatGPT single-Repository use. Other auth/hosts, hostile
+  access, hard interruption, and paid multi-Repository work remain unverified.
 - Codex SDK usage is aggregate-only and the observable effective model remains unknown. The stable
   SDK read-only sandbox proves no writes to the exact planning worktrees, but does not establish a
   universal deny-read boundary against every other host-readable path.
 - Native Windows execution requires a pre-provisioned elevated Codex sandbox; isolated attempts
   copy only its startup state and fail closed without it.
-- The accepted local workspaces use the registered Repository's Git object database. A
-  ChangeFleet-owned object store and clone-versus-worktree materialization policy remain deferred;
-  they require a proposal before Git URL or remote-worker implementation.
-- Runtime Skill Kit packaging, App Server, a second Provider, Linear, pricing/effectiveness
-  analysis, derived cost totals, and continuous context enforcement remain deferred.
+- Local workspaces use the registered Git object database; Git URL and remote-worker work need new
+  authority.
+- WI-0004 proves local immutable ignored Codex Harness; hosted retention, encryption, and
+  Provider actual-load observability remain deferred.
+- Runtime Kit, App Server, another Provider, Linear, cost/effectiveness analysis, and continuous
+  context enforcement remain deferred.
 
 ## Next Recommended Task
 

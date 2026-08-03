@@ -68,11 +68,22 @@ Repository bindings.
 
 A stable logical identity for one Git repository. It is not synonymous with Project.
 
+## RepositoryHarnessSelectionRevision
+
+The immutable ChangeSet input identifying exact-base Harness and any explicitly confirmed frozen
+local overlay for one Repository and Provider family.
+
 ## RepositorySelectionRevision
 
 The versioned ChangeSet authority defining which registered Repositories planning may inspect,
 which branch and exact base SHA each uses, and which target ref applies. Revision 1 is created with
 the ChangeSet before Runtime planning.
+
+## RepositoryWorkspacePolicyRevision
+
+Reusable confirmed Repository configuration selecting eligible local workspace input. The first
+accepted purpose is immutable Repository Harness; the policy is not exact Run evidence or
+writeback authority.
 
 ## Repository Design Proposal
 

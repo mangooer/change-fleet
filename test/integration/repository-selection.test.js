@@ -205,9 +205,14 @@ describe("ChangeSet Repository selection", () => {
       ],
     });
     assert.equal(revision.repository_selection_revision, 2);
+    assert.equal(revision.repository_harness_selection_revision, 2);
     const revisedState = await service.readChangeSet("change");
     assert.equal(revisedState.state, "analyzing");
     assert.equal(revisedState.current_plan_revision, null);
+    assert.equal(
+      revisedState.current_repository_harness_selection_revision,
+      2,
+    );
     assert.deepEqual(
       revisedState.repository_selection_revisions.map(
         (selection) => selection.status,
@@ -226,6 +231,11 @@ describe("ChangeSet Repository selection", () => {
     assert.equal(replanned.plan.work_units[0].repository_id, "web");
     assert.equal(
       replanned.plan.work_units[0].repository_selection_revision,
+      2,
+    );
+    assert.equal(
+      replanned.plan.work_units[0]
+        .repository_harness_selection_revision,
       2,
     );
     await assert.rejects(

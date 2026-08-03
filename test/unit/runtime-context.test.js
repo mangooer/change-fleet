@@ -19,6 +19,7 @@ const controlContract = createControlContract({
   changeSetId: "change-1",
   planRevision: null,
   repositorySelectionRevision: 1,
+  repositoryHarnessSelectionRevision: 1,
   authorizedRepositories: ["api", "web"],
   allowedOutcomes: ["plan", "scope_expansion", "decision_request"],
   humanGates: ["multi_repository_plan_confirmation"],
@@ -35,6 +36,14 @@ const projection = createContextProjection({
       { repository_id: "web", resolved_base_sha: "b".repeat(40) },
     ],
   },
+  repositoryHarnessSelection: {
+    revision: 1,
+    status: "current",
+    repositories: [
+      { repository_id: "api", mode: "exact_base_only" },
+      { repository_id: "web", mode: "exact_base_only" },
+    ],
+  },
   repositories: [
     { repository_id: "api", base_sha: "a".repeat(40) },
     { repository_id: "web", base_sha: "b".repeat(40) },
@@ -49,9 +58,14 @@ describe("Runtime context admission", () => {
       enabled: false,
       skills: [],
     });
-    assert.equal(projection.schema_version, 2);
+    assert.equal(projection.schema_version, 3);
     assert.equal(controlContract.repository_selection_revision, 1);
+    assert.equal(
+      controlContract.repository_harness_selection_revision,
+      1,
+    );
     assert.equal(projection.repository_selection.revision, 1);
+    assert.equal(projection.repository_harness_selection.revision, 1);
   });
 
   test("records unknown evidence without inventing a denominator", () => {

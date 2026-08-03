@@ -79,15 +79,18 @@ Owns explicitly confirmed:
 - local-path locators;
 - descriptions;
 - optional default refs;
+- optional confirmed Repository Harness workspace-policy revisions;
 - mutation authorization.
 
-Catalog data is control-plane state. Repository-native Harness remains in the repository.
+Catalog policy is control-plane state. Repository-native Harness remains project-owned and is
+normally read from Git; an explicitly selected local overlay is frozen as ChangeSet evidence, not
+copied into catalog state.
 
 ### ChangeSetStore
 
 Owns current aggregate state and references to immutable evidence:
 
-- ChangeIntent, RepositorySelection, and ChangePlan revisions;
+- ChangeIntent, RepositorySelection, RepositoryHarnessSelection, and ChangePlan revisions;
 - WorkUnit state;
 - scope decisions;
 - active or superseded CandidateBundle revision;
@@ -129,7 +132,7 @@ It receives:
 - confirmed or draft intent;
 - authorized Repository catalog;
 - read-only repository access;
-- repository-native Harness;
+- exact-base repository-native Harness plus any confirmed frozen overlay;
 - current plan or decision feedback.
 
 It returns typed proposals:
@@ -149,6 +152,7 @@ Builds a disposable current projection for one planning, execution, review, or r
 from durable ChangeSet and Run state. It includes:
 
 - exact operation, ChangeSet, plan, WorkUnit, repository, base, and workspace identity;
+- current Repository Harness selection identity and bounded discovery references;
 - confirmed intent summary and the relevant current plan slice;
 - capability boundary, blockers, decisions, gates, and typed outcomes;
 - required evidence and progressive resource references;
@@ -164,7 +168,7 @@ Skill settings. It:
 
 - binds the versioned Control Contract and current Run Context Projection;
 - creates the operation capability boundary;
-- exposes exact-base repository Harness progressively when supported;
+- exposes exact-base and explicitly frozen overlay Harness progressively when supported;
 - records requested and observable effective Runtime settings;
 - maps provider events and terminal output into typed Run outcomes;
 - persists immutable Runtime invocation identity, timing, available usage, confidence, coverage,
@@ -197,8 +201,11 @@ Conceptual interface:
 ```text
 inspect_current_branch(repository)
 resolve_branch(repository, branch_ref)
+resolve_harness(repository, base_sha, workspace_policy_revision)
 prepare(repository, target_ref, base_sha, work_unit)
+materialize_harness(workspace, harness_selection_revision)
 execute(work_unit, workspace, intent, plan)
+verify_and_remove_harness(workspace, harness_selection_revision)
 publish(workspace, exact_expected_head)
 inspect(candidate)
 cleanup(workspace, policy)
@@ -253,7 +260,7 @@ Run Context Projection
   current operation and plan slice
 
 Repository-native Harness
-  exact-base semantic guidance, optional
+  exact-base semantic guidance plus confirmed frozen overlay, optional
 
 Operation-scoped Runtime Skill
   optional execution method
@@ -285,10 +292,12 @@ Registered repository
 
 Planning workspace
   detached exact-base checkout for one selected Repository
+  immutable selected Harness overlay
   read-only Agent access
 
 Task workspace
   isolated checkout for one WorkUnit
+  immutable selected Harness overlay, removed before publication
   Agent changes
   repository Candidate
 ```
@@ -307,6 +316,8 @@ repository_id
 change_set_id
 intent_revision
 repository_selection_revision
+repository_workspace_policy_revision
+repository_harness_selection_revision
 plan_revision
 work_unit_id
 run_id
@@ -397,12 +408,34 @@ The SDK dependency is pinned exactly. Secrets enter through a controlled externa
 are not persisted. Provider-global Harness and settings are isolated when supported; any hidden
 input prevents an `enforced` context or reproducibility claim.
 
+## Exact Repository Harness Overlay Boundary
+
+`RepositoryWorkspacePolicyRevision` is reusable Repository configuration. Its only accepted first
+purpose is immutable Repository Harness, selected by explicit patterns or an explicitly authorized
+tracked exact-base `.worktreeinclude`. `RepositoryHarnessSelectionRevision` is the exact
+ChangeSet-bound input: base SHA, Provider family, policy and selector identity, resolved paths,
+content digest, immutable artifact reference, and confirmation.
+
+The first Codex snapshotter admits only contained regular Git-ignored files under
+`AGENTS.override.md` and `.agents/skills/**`, within bounded file and byte limits. It excludes
+ordinary untracked files, links that may escape, tracked collisions, Provider configuration,
+credentials, environment files, caches, and general workspace seeds.
+
+`RepositoryWorker` reconstructs the snapshot in owned planning and WorkUnit workspaces without
+rereading the registered checkout. It verifies immutability, removes every overlay path before
+Candidate publication, and fails closed on mutation or requested non-Git Harness delivery. It never
+writes overlay content back to the registered checkout.
+
+Run evidence records exact-base availability, overlay identity, and Provider-observable discovery
+separately. Detailed inventories and bytes remain linked artifacts outside default Agent context.
+
 ## Deferred Architecture
 
-The following remain proposal-only until the local two-repository slice proves demand:
+The following remain outside the currently authorized implementation slice:
 
 - Git URL mirrors and clone workers;
 - remote workers;
+- generic workspace seeds and setup, run, or archive lifecycle;
 - shared organization catalog;
 - authoritative service graph;
 - provider routing;
