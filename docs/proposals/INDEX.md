@@ -20,6 +20,7 @@ preserve chronological reasoning and are not current truth merely because they e
 | [0007](0007-first-real-codex-sdk-provider.md) | First real Codex SDK Provider | `accepted` | Recorded by Decision 0010; depends on accepted raw observability and landed Repository selection | [WI-0003](../work-items/WI-0003-first-real-codex-sdk-provider.md), `done` |
 | [0008](0008-optional-operation-scoped-runtime-skill-kit.md) | Optional operation-scoped Runtime Skill Kit | `rejected` | The user chose repository-native Harness before any ChangeFleet-owned Runtime Kit | None; rejected before implementation |
 | [0009](0009-exact-repository-harness-snapshots-and-local-overlays.md) | Exact Repository Harness snapshots and local overlays | `accepted` | Recorded by Decision 0011; depends on exact base selection and repository-native Harness ownership | [WI-0004](../work-items/WI-0004-exact-repository-harness-snapshots-and-local-overlays.md), `done` |
+| [0010](0010-read-only-runtime-audit-projections.md) | Read-only Runtime audit projections | `accepted` | Recorded by Decision 0012; derives bounded Run and ChangeSet facts while comparison remains deferred | [WI-0005](../work-items/WI-0005-read-only-runtime-audit-projections.md), `done` |
 
 ## Status Rules
 

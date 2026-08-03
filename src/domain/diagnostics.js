@@ -3,6 +3,11 @@ export const DEFAULT_LOCALE = "zh-CN";
 
 const MESSAGES = {
   "zh-CN": {
+    INVALID_AUDIT_QUERY: "审计查询参数无效。",
+    AUDIT_SOURCE_NOT_FOUND: "未找到请求的审计源。",
+    AUDIT_REQUIRED_REFERENCE_INVALID: "审计所需的不可变引用无效或缺失。",
+    AUDIT_SOURCE_IDENTITY_MISMATCH: "审计源身份或内容摘要不匹配。",
+    AMBIGUOUS_OBSERVATION_OVERLAP: "用量观察可能重叠，无法安全计算唯一总量。",
     INVALID_ID: "标识符格式无效。",
     INVALID_PLAN: "变更计划无效。",
     INVALID_PROJECT_REPOSITORIES: "项目必须显式登记至少一个仓库。",
@@ -54,6 +59,11 @@ const MESSAGES = {
     CANDIDATE_HEAD_MISMATCH: "候选工作区的 Git 提交与记录不一致。",
   },
   en: {
+    INVALID_AUDIT_QUERY: "Audit query parameters are invalid.",
+    AUDIT_SOURCE_NOT_FOUND: "The requested audit source was not found.",
+    AUDIT_REQUIRED_REFERENCE_INVALID: "A required immutable audit reference is missing or invalid.",
+    AUDIT_SOURCE_IDENTITY_MISMATCH: "Audit source identity or content digest does not match.",
+    AMBIGUOUS_OBSERVATION_OVERLAP: "Usage observations may overlap, so one safe total cannot be derived.",
     INVALID_ID: "Identifier format is invalid.",
     INVALID_PLAN: "Change plan is invalid.",
     INVALID_PROJECT_REPOSITORIES: "A Project must explicitly register at least one Repository.",

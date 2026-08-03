@@ -56,3 +56,14 @@ test("Repository Harness failures are localized without changing stable codes", 
     assert.equal(diagnosticMessage(code, { locale: "en" }), english);
   }
 });
+
+test("Runtime audit diagnostics keep unknown and overlap failures explicit", () => {
+  assert.equal(
+    diagnosticMessage("AMBIGUOUS_OBSERVATION_OVERLAP"),
+    "用量观察可能重叠，无法安全计算唯一总量。",
+  );
+  assert.equal(
+    diagnosticMessage("AUDIT_SOURCE_IDENTITY_MISMATCH", { locale: "en" }),
+    "Audit source identity or content digest does not match.",
+  );
+});

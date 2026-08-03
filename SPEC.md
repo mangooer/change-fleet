@@ -585,8 +585,25 @@ monetary values are labeled estimates; normalized cost requires separately accep
 pricing authority.
 
 Runtime usage, cost, retry, effectiveness, and Provider traces are audit/debug evidence. Ordinary
-Control Contracts and current Run Context Projections exclude them. Later totals and comparisons
-are derived queries over immutable Run evidence and never become ChangeSet lifecycle authority.
+Control Contracts and current Run Context Projections exclude them.
+
+Private, versioned `RunAuditProjection` and `ChangeSetAuditProjection` views may be derived on
+demand from immutable ChangeSet, Run, evidence, Bundle, and human-decision records. The isolated
+query component is read-only: it does not persist a rollup, mutate lifecycle or recovery state,
+invoke an Agent, touch a workspace or Git, or affect routing and authority.
+
+Usage summaries identify the chosen source observation and selection reason. Exactly one valid
+Provider aggregate is preferred; one otherwise-unambiguous observation may be used; potentially
+overlapping observations produce an unknown total. Cached input and reasoning output are not added
+again when defined as subsets, null remains unknown, and aggregate-only evidence never implies
+per-step coverage. Reports keep Runtime, validation, wall, and human-gate clocks separate and keep
+Runtime, planning, WorkUnit, validation, Bundle, review, and delivery outcomes separate.
+
+Each bounded report binds its schema, exact source identity, query, and factual payload with a
+deterministic digest that excludes observation time. Broken required references fail closed;
+optional unsupported Provider values remain explicit unknowns. Large artifacts remain linked by
+reference. Cross-ChangeSet comparison, rankings, pricing, dashboards, exports, and automatic
+optimization require later accepted authority.
 
 Harness evidence separately identifies exact-base resources, frozen overlays, and
 Provider-observable discovery. Snapshot bodies and detailed inventories remain linked artifacts

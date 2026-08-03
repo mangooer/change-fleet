@@ -178,6 +178,23 @@ Skill settings. It:
 The adapter does not authorize repositories, accept plans or Bundles, install repository Harness,
 or maintain a universal model and Skill catalog.
 
+### RuntimeAuditQueryService
+
+Derives private, versioned `RunAuditProjection` and `ChangeSetAuditProjection` views from immutable
+ControlStore, RunStore, EvidenceStore, exact Bundle, and human-decision records. It depends only on
+read interfaces and has no Agent Runtime, scheduler, `RepositoryWorker`, lifecycle command, Git, or
+workspace mutation dependency.
+
+The service conservatively selects one canonical usage observation, preserves unknown and
+aggregate-only coverage, separates duration clocks and lifecycle outcomes, and fails closed on a
+broken required reference or identity mismatch. Reports bind exact source and query identity,
+paginate detailed Run rows to at most 100 per page, and link rather than embed large artifacts.
+
+Audit projections are operator/debug output. They are not persisted, do not enter the Control
+Contract or Run Context Projection, and cannot drive authorization, scheduling, Profile selection,
+Bundle decisions, or delivery. Cross-ChangeSet comparison and materialized analytics remain later
+architecture boundaries.
+
 ### WorkUnitScheduler
 
 The scheduler:
@@ -442,7 +459,7 @@ The following remain outside the currently authorized implementation slice:
 - production Runtime Skill packaging;
 - Codex App Server, in-flight steering, and durable Provider-session recovery;
 - a second real Provider such as Claude Agent SDK;
-- pricing, dashboards, budget enforcement, and effectiveness comparison;
+- pricing, dashboards, budget enforcement, and cross-ChangeSet effectiveness comparison;
 - Linear or another tracker integration;
 - continuous context enforcement;
 - stacked ChangeSets;

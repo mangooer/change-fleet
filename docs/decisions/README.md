@@ -17,6 +17,7 @@ projection.
 | [0009](0009-runtime-observability-evidence-boundary.md) | Runtime invocation, usage, coverage, and out-of-context audit evidence | Accepted |
 | [0010](0010-first-real-codex-sdk-provider.md) | First real Codex SDK Provider and exact-base planning workspace boundary | Accepted |
 | [0011](0011-exact-repository-harness-snapshots-and-local-overlays.md) | Exact-base Repository Harness and explicit immutable local overlays | Accepted |
+| [0012](0012-read-only-runtime-audit-projections.md) | Query-time Run and ChangeSet audit projections with strict isolation | Accepted |
 
 Changing one of these boundaries requires a proposal. When a decision is superseded, preserve this
 record and point to the later accepted authority.

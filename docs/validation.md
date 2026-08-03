@@ -1,6 +1,6 @@
 # Validation Policy
 
-Status: Active policy; WI-0004 deterministic commands and its opt-in real Provider gate pass
+Status: Active policy; WI-0005 deterministic commands and its opt-in real Provider gate pass
 
 ## Principles
 
@@ -24,6 +24,7 @@ Status: Active policy; WI-0004 deterministic commands and its opt-in real Provid
 | Git workspace or Candidate | affected real-Git integration tests |
 | Repository Harness overlay | selector and identity unit tests plus real-Git containment, restart, mutation, cleanup, and Candidate-exclusion integration tests |
 | Runtime adapter | deterministic protocol tests |
+| Runtime audit projection | canonical usage and unknown semantics, required-reference integrity, restart reproduction, zero writes, and context exclusion |
 | API or UI | affected tests plus one targeted user path |
 | Multi-repository orchestration | real two-repository acceptance fixture |
 | Delivery integration | provider fixture plus exact target-movement case |
@@ -57,6 +58,14 @@ Git-ignored Codex roots, byte limits, immutable restart reconstruction, overlay 
 writeback, and Candidate exclusion. The opt-in real Codex command must still prove one frozen
 ignored resource is available without claiming an unobservable Provider load event. The
 2026-08-03 authorized gate passed while retaining `unavailable` actual-load coverage.
+
+The accepted audit-projection boundary requires deterministic tests to prove canonical observation
+selection, null preservation, distinct duration and outcome semantics, exact source identity,
+bounded pagination, typed failure for malformed required evidence, restart reproduction, and zero
+mutation of control state, evidence, workspaces, Git, or registered repositories. A context
+regression must prove that audit fields do not enter ordinary Runtime input. The implementation
+WorkItem may require one explicitly authorized final paid Codex flow, but that flow remains outside
+`npm run check`, is not repeated automatically, and cannot be reported as passed when skipped.
 
 For Harness documentation, also inspect the byte sizes of `AGENTS.md`, `WORKFLOW.md`, and
 `docs/current-state.md` against the soft limits in `docs/harness.md`. This is a maintenance

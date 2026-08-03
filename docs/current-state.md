@@ -7,7 +7,7 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 
 ## Current Baseline
 
-- WI-0001 through WI-0004 are accepted and landed; Git owns their implementation.
+- WI-0001 through WI-0005 are accepted and landed; Git owns their implementation.
 - The Harness loads root rules, this projection, one active artifact, and targeted authority.
 - No released package, public CLI, compatibility contract, API, or UI exists.
 - The accepted private Node.js 24 ESM package uses a versioned filesystem store, `node:test`,
@@ -34,8 +34,8 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
   exact Candidates, immutable Bundle review subjects, and exact-subject validation evidence.
 - WorkUnits may run in parallel; delivery to one `repository_id + target_ref` is serialized, and
   cross-repository compensation never promises universal atomic rollback.
-- WI-0003 records each real Runtime call's identity, timing, available Provider usage, honest
-  coverage, profile and projection identity, and bounded raw references outside ordinary context.
+- WI-0003 records Runtime identity, timing, usage, profile, context, and Harness evidence; WI-0005
+  derives bounded read-only Run and ChangeSet audit projections without entering Agent context.
 - The accepted first production Provider uses the pinned Codex TypeScript SDK behind the narrow
   Runtime port, one fresh Provider thread per Run attempt, strict structured outcomes, exact-base
   read-only planning worktrees, and WorkUnit-scoped execution access.
@@ -71,21 +71,19 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
   real Provider with fresh Run threads and exact-base planning worktrees.
 - [0011](decisions/0011-exact-repository-harness-snapshots-and-local-overlays.md): default to
   exact-base Harness and permit only explicit immutable local overlays with no non-Git writeback.
+- [0012](decisions/0012-read-only-runtime-audit-projections.md): derive isolated, read-only Run and
+  ChangeSet audit views from immutable evidence.
 
 ## Repository Design Proposals
 
 - Proposals [0001](proposals/0001-local-two-repository-vertical-slice.md),
   [0004](proposals/0004-variable-scope-and-localized-diagnostics.md), and
-  [0006](proposals/0006-change-set-base-selection-and-revision.md) are accepted and implemented by
-  landed WI-0001 and WI-0002.
-- [Proposal 0005](proposals/0005-runtime-cost-and-effectiveness-observability.md) accepts raw
-  Provider evidence and audit isolation; pricing, dashboards, budgets, and comparison are deferred.
-- [Proposal 0007](proposals/0007-first-real-codex-sdk-provider.md) is implemented by
-  [WI-0003](work-items/WI-0003-first-real-codex-sdk-provider.md), `done`.
-- [Proposal 0009](proposals/0009-exact-repository-harness-snapshots-and-local-overlays.md) is
-  implemented by
-  [WI-0004](work-items/WI-0004-exact-repository-harness-snapshots-and-local-overlays.md),
-  `done`.
+  [0006](proposals/0006-change-set-base-selection-and-revision.md) landed through WI-0001/2;
+  [0007](proposals/0007-first-real-codex-sdk-provider.md) and
+  [0009](proposals/0009-exact-repository-harness-snapshots-and-local-overlays.md) through WI-0003/4.
+- [0005](proposals/0005-runtime-cost-and-effectiveness-observability.md) accepts raw audit evidence;
+  [0010](proposals/0010-read-only-runtime-audit-projections.md) accepts read-only projections by
+  Decision 0012 and is implemented by landed WI-0005; comparison is deferred.
 
 ## Open Questions
 
@@ -108,13 +106,13 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
   authority.
 - WI-0004 proves local immutable ignored Codex Harness; hosted retention, encryption, and
   Provider actual-load observability remain deferred.
-- Runtime Kit, App Server, another Provider, Linear, cost/effectiveness analysis, and continuous
-  context enforcement remain deferred.
+- Runtime Kit, App Server, another Provider, Linear, pricing, dashboards, and continuous context
+  enforcement are deferred.
 
 ## Next Recommended Task
 
-Discuss and select the next independently bounded vertical slice before creating another Repository
-Design Proposal or Development WorkItem. No later implementation stage is currently authorized.
+Discuss and select the next independently bounded vertical slice. No later implementation stage is
+currently authorized.
 
 ## Maintenance Contract
 

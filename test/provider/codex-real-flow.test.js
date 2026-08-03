@@ -6,6 +6,7 @@ import { test } from "node:test";
 
 import { CodexSdkRuntime } from "../../src/adapters/runtime/codex-sdk-runtime.js";
 import { ChangeFleetService } from "../../src/application/change-fleet-service.js";
+import { RuntimeAuditQueryService } from "../../src/application/runtime-audit-query-service.js";
 import {
   createFixtureRoot,
   createGitRepository,
@@ -245,18 +246,38 @@ test(
         total_tokens: usage.total_tokens,
       });
     }
+    // 真实门禁直接比较不可变 Provider 源证据与只读投影，避免用测试侧再次实现另一套汇总规则。
+    const auditQuery = new RuntimeAuditQueryService({
+      controlStore: service.controlStore,
+      runStore: service.runStore,
+      evidenceStore: service.evidenceStore,
+    });
+    const changeAudit = await auditQuery.getChangeSetAudit("real-change");
+    assert.equal(
+      changeAudit.payload.usage.observed_total_tokens,
+      runAudits.reduce((total, run) => total + run.total_tokens, 0),
+    );
+    assert.equal(changeAudit.payload.usage.observed_run_count, 2);
+    assert.equal(changeAudit.payload.usage.unknown_run_count, 0);
+    assert.equal(
+      changeAudit.payload.timing.provider_duration_sum.observed_sum,
+      runAudits.reduce((total, run) => total + run.duration_ms, 0),
+    );
+    for (const reference of state.run_references) {
+      const runAudit = await auditQuery.getRunAudit(reference.run_id);
+      const source = runAudits.find(
+        (item) => item.operation === runAudit.payload.identity.operation,
+      );
+      assert.equal(runAudit.payload.usage.canonical.total_tokens, source.total_tokens);
+      assert.equal(runAudit.payload.usage.canonical.coverage, "aggregate_only");
+    }
     t.diagnostic(
       `provider-audit ${JSON.stringify({
         runs: runAudits,
         task_total: {
-          duration_ms: runAudits.reduce(
-            (total, run) => total + run.duration_ms,
-            0,
-          ),
-          total_tokens: runAudits.reduce(
-            (total, run) => total + run.total_tokens,
-            0,
-          ),
+          duration_ms:
+            changeAudit.payload.timing.provider_duration_sum.observed_sum,
+          total_tokens: changeAudit.payload.usage.observed_total_tokens,
         },
       })}`,
     );
