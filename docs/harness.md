@@ -81,6 +81,23 @@ itself a reason to add a Core abstraction.
 and review sections; it should not automatically load repository configuration, rollback, and the
 entire initial-slice discussion.
 
+## External Reference Identity
+
+In current ChangeFleet work, an unqualified **Conductor** means the Melty Labs product documented
+at [conductor.build](https://www.conductor.build/docs). Verify time-sensitive behavior against its
+official online documentation or an official source explicitly linked there; record the exact URL
+and access date in any new proposal that relies on it.
+
+Do not inspect or cite `C:\myData\aiProject\conductor`, or another similarly named local directory,
+as authority for Conductor.build behavior unless the user explicitly identifies that exact checkout
+and Git subject as the requested evidence. Proposal 0001's local-checkout assessment is preserved
+as historical evidence about that exact subject only. It does not establish current Conductor.build
+workspace, review, PR, merge, Harness, or delivery behavior.
+
+External products are comparison evidence, not ChangeFleet authority. Separate an official fact
+from a ChangeFleet inference, and never import an external product's current behavior directly into
+`SPEC.md` without an accepted ChangeFleet decision.
+
 ## Task Startup
 
 For every task:

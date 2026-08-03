@@ -9,6 +9,7 @@ import {
 const EXPECTED_OPERATIONS = [
   "project.register",
   "project.repository_workspace_policy.revise",
+  "project.repository_delivery.github.configure",
   "changeset.create",
   "changeset.repository_selection.revise",
   "changeset.repository_harness_selection.revise",
@@ -16,6 +17,9 @@ const EXPECTED_OPERATIONS = [
   "changeset.plan.confirm",
   "changeset.execute",
   "changeset.bundle.decide",
+  "changeset.delivery.publish",
+  "changeset.delivery.read",
+  "changeset.delivery.refresh",
   "changeset.read",
 ];
 
@@ -76,6 +80,7 @@ function createServiceDouble(calls) {
   const methods = [
     "registerProject",
     "reviseRepositoryWorkspacePolicy",
+    "configureGithubDelivery",
     "createChangeSet",
     "reviseRepositorySelection",
     "reviseRepositoryHarnessSelection",
@@ -83,6 +88,9 @@ function createServiceDouble(calls) {
     "confirmPlanRevision",
     "executeChangeSet",
     "recordBundleDecision",
+    "publishDelivery",
+    "readDelivery",
+    "refreshDelivery",
   ];
   for (const method of methods) {
     service[method] = async (request) => {

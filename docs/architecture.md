@@ -36,7 +36,7 @@ Change Control
   ChangeSet lifecycle
   WorkUnit DAG scheduler
   CandidateBundle and validation matrix
-  delivery readiness
+  GitHub delivery requests, reconciliation, and aggregate completion
 
 Repository Execution
   RepositoryLocator resolution
@@ -72,7 +72,9 @@ The composition root for one local ChangeFleet control environment. It resolves:
 - scheduler ownership;
 - application services.
 
-It replaces the single-repository assumption of Conductor's `ProjectRuntime`.
+It supports one Project across one or more Repositories rather than adopting the one-Project,
+one-Repository model documented by
+[Melty Labs Conductor](https://www.conductor.build/docs/concepts/workspaces-and-branches).
 
 ### CatalogStore
 
@@ -84,6 +86,7 @@ Owns explicitly confirmed:
 - descriptions;
 - optional default refs;
 - optional confirmed Repository Harness workspace-policy revisions;
+- optional confirmed GitHub delivery-binding revisions;
 - mutation authorization.
 
 Catalog policy is control-plane state. Repository-native Harness remains project-owned and is
@@ -98,6 +101,7 @@ Owns current aggregate state and references to immutable evidence:
 - WorkUnit state;
 - scope decisions;
 - active or superseded CandidateBundle revision;
+- bounded current GitHub delivery requests and latest evidence references;
 - human decisions;
 - recovery markers.
 
@@ -209,6 +213,10 @@ it does not own normalization, authorization, state transitions, evidence semant
 decisions. Future API, App Server, UI, and tracker adapters reuse those application semantics but
 may have different transport, streaming, progress, and presentation.
 
+WI-0008 adds GitHub binding, delivery publish, bounded read, and explicit refresh through this same
+allowlist. The CLI does not invoke Git or `gh` directly and a future UI must not invoke the CLI
+parser; both delegate to the shared delivery application operations.
+
 Product commands have explicit `experimental` or later `stable` maturity. Bounded debug commands
 carry no public compatibility promise. Temporary development scripts remain outside the installed
 command tree, contain no unique lifecycle logic, and are removed at their WorkItem boundary unless
@@ -243,8 +251,9 @@ Execution capacity and destination serialization are separate concerns.
 
 ### RepositoryWorker
 
-`RepositoryWorker` is a ChangeFleet-owned adapter informed by selected Conductor behavior, not a
-Conductor extraction or compatibility layer in the first slice.
+`RepositoryWorker` is a ChangeFleet-owned adapter informed by separately verified Git behavior and
+selected official Conductor.build reference evidence, not a Conductor extraction or compatibility
+layer in the first slice.
 
 Conceptual interface:
 
@@ -295,10 +304,20 @@ Review may request:
 
 ### DeliveryCoordinator
 
-The first slice only prepares DeliveryTargets and detects target movement.
+Owns one stable delivery request for every Candidate in the accepted current Bundle. It separates
+Bundle acceptance from explicit publication, freezes a confirmed GitHub binding revision, acquires
+the `repository_id + target_ref` operation lease, verifies the exact target and Candidate, and
+persists enough identity to recover ambiguous external writes after restart.
 
-Future PR, merge, and rollout capabilities require separate accepted proposals. Delivery actions
-must remain distinct from Candidate acceptance.
+`DeliveryGitAdapter` reads the verified remote, publishes an exact SHA to a deterministic branch
+without force, and checks final target reachability. `GitHubPullRequestAdapter` creates or reads one
+exact head/base PR through host-managed authentication. Neither adapter owns ChangeSet transitions,
+human decisions, multi-Repository completion, or credentials in persistent state.
+
+Each refresh appends a bounded immutable observation linked as an evidence chain while aggregate
+state keeps only the latest reference and count. PR head divergence, target staleness,
+closed-unmerged state, provider failure, and exact merge result remain distinct. One human merges
+in GitHub; automatic merge and deployment require later accepted proposals.
 
 ## Context And Capability Model
 
@@ -415,7 +434,8 @@ of exact revision, workspace, event, and context identity.
 
 ## First Extraction Boundary
 
-Do not port the complete Conductor application.
+Do not treat Conductor.build as a source dependency or port the complete historical local reference
+application.
 
 Candidate reuse should begin with implementation-independent behavior:
 
@@ -503,7 +523,7 @@ The following remain outside the currently authorized implementation slice:
 - Linear or another tracker integration;
 - continuous context enforcement;
 - stacked ChangeSets;
-- PR creation and CI subscription;
+- GitHub webhooks, CI subscription, and non-GitHub delivery providers;
 - automatic merge;
 - deployment and production rollback;
 - hosted multi-tenancy.

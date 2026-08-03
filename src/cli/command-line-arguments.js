@@ -7,6 +7,10 @@ import { normalizeId } from "../domain/model.js";
 const SUPPORTED_LOCALES = new Set(["zh-CN", "en"]);
 const LIFECYCLE_ROUTES = Object.freeze([
   route(
+    ["project", "github-delivery", "configure"],
+    "project.repository_delivery.github.configure",
+  ),
+  route(
     ["project", "repository-policy", "revise"],
     "project.repository_workspace_policy.revise",
   ),
@@ -21,6 +25,8 @@ const LIFECYCLE_ROUTES = Object.freeze([
   ),
   route(["changeset", "plan", "confirm"], "changeset.plan.confirm"),
   route(["changeset", "bundle", "decide"], "changeset.bundle.decide"),
+  route(["changeset", "delivery", "publish"], "changeset.delivery.publish"),
+  route(["changeset", "delivery", "refresh"], "changeset.delivery.refresh"),
   route(["changeset", "create"], "changeset.create"),
   route(["changeset", "plan"], "changeset.plan"),
   route(["changeset", "execute"], "changeset.execute"),
@@ -37,6 +43,13 @@ export function parseCommandLine(arguments_) {
   }
   if (
     arguments_[0] === "changeset" &&
+    arguments_[1] === "delivery" &&
+    arguments_[2] === "show"
+  ) {
+    return parseDeliveryRead(arguments_.slice(3));
+  }
+  if (
+    arguments_[0] === "changeset" &&
     arguments_[1] === "show"
   ) {
     return parseChangeSetRead(arguments_.slice(2));
@@ -50,6 +63,22 @@ export function parseCommandLine(arguments_) {
     }
   }
   throw invalidCli("unsupported_command");
+}
+
+function parseDeliveryRead(arguments_) {
+  const [changeSetId, ...optionArguments] = arguments_;
+  validateSubjectId("change_set_id", changeSetId, invalidCli);
+  const options = parseOptions(
+    optionArguments,
+    new Set(["--config"]),
+    invalidCli,
+  );
+  return {
+    kind: "lifecycle",
+    operation: "changeset.delivery.read",
+    config_path: requireOption(options, "--config", invalidCli),
+    request: { change_set_id: changeSetId },
+  };
 }
 
 export function requestedCommandLocale(arguments_) {

@@ -50,7 +50,8 @@ Given a confirmed change intent and an explicitly registered Project, ChangeFlee
 7. bind repository and combined validation evidence to those Candidates;
 8. present one exact CandidateBundle for review;
 9. retain durable recovery and audit evidence;
-10. prepare explicit DeliveryTargets without claiming universal atomic merge or rollback.
+10. publish accepted exact Candidates through human-merged GitHub pull requests and reconcile exact
+    external results without claiming universal atomic merge or rollback.
 
 The primary product subject is the ChangeSet. A Run, Agent session, WorkUnit, Candidate, PR, or
 branch is evidence or execution detail within that subject.
@@ -65,6 +66,7 @@ branch is evidence or execution detail within that subject.
 - Freeze repository scope, target refs, base SHAs, and Candidate identity.
 - Support safe parallel WorkUnit execution and target-specific integration serialization.
 - Review one exact CandidateBundle with a complete validation matrix.
+- Publish accepted exact Candidates through explicit GitHub PR delivery and preserve partial merge.
 - Preserve state across Runtime or controller restart.
 - Make uncertainty, missing checks, partial failure, and stale Candidates visible.
 - Keep repository-specific intelligence in repository-native Harness and Agent Runtimes.
@@ -371,6 +373,28 @@ destination may move after Candidate creation.
 Publication or integration against a moved target requires new integration evidence and may require
 a new CandidateBundle. Evidence for the old Candidate never silently transfers to a changed SHA.
 
+### GitHub Delivery Request And Result
+
+GitHub is the first accepted delivery provider. Publication requires a separately confirmed,
+revisioned binding from one registered Repository to one canonical GitHub `owner/name` and verified
+Git push remote. Ambient remotes, Agent output, and Bundle acceptance do not independently grant
+external write authority. Credentials remain host-managed and outside persistent state, evidence
+payloads exposed by default, command output, and Agent context.
+
+One stable `DeliveryRequest` binds an accepted current Bundle revision, Repository, Candidate SHA,
+Candidate base, target ref, binding revision, deterministic remote branch, and eventual GitHub PR
+identity. Exact publication never force-pushes. An existing delivery branch at another SHA or a PR
+head that differs from the accepted Candidate is a divergence, not a subject update.
+
+A human merges through GitHub. ChangeFleet records the PR head and base, checks and review summary,
+merged actor and time, GitHub merge-result SHA, and target reachability as bounded observations with
+linked immutable evidence. Merge, squash, and rebase may produce a SHA different from the reviewed
+Candidate; both identities remain durable and equality is never assumed.
+
+One Candidate maps to one PR, while one Bundle may map to several PRs. Partial merge is preserved
+as fact. `done` requires a matching observed merge result for every selected exact Candidate;
+closed-unmerged, target-stale, Candidate-diverged, and failed destinations remain explicit.
+
 ## 7. Intake And Planning
 
 ChangeFleet supports two input shapes:
@@ -436,6 +460,7 @@ replanning
 validating
 candidate_review
 delivery_ready
+delivering
 done
 canceled
 failed
@@ -487,6 +512,11 @@ projects:
 
 Relationships and service descriptions are navigation hints. Agents must verify them against
 current repository code and Harness.
+
+An optional GitHub delivery binding is a separate stable control fact: provider `github`, canonical
+`owner/name`, verified push remote, revision, and human confirmation. The ChangeSet Repository
+selection continues to own the target ref. No token, credential path, or ambient remote authority
+is stored in this binding.
 
 Registration resolves a local locator through read-only Git inspection:
 
@@ -700,8 +730,7 @@ The adapter:
 
 The first stage proves one real single-Repository planning-to-Candidate flow. App Server, a second
 Provider, Provider-session recovery, Runtime Skill Kit packaging, continuous context enforcement,
-pricing, effectiveness comparison, dashboards, Linear, remote workers, and delivery remain
-deferred.
+pricing, effectiveness comparison, dashboards, Linear, and remote workers remain deferred.
 
 ## 15. Exact Repository Harness Overlay Stage
 
@@ -722,3 +751,28 @@ bounded identity and discovery evidence without eagerly adding snapshot bodies t
 Generic `workspace_seed`, setup/run/archive behavior, Claude support, external Harness roots,
 remote workspace materialization, non-Git Harness writeback, and a parallel Harness change review
 lifecycle are outside this stage.
+
+## 16. First GitHub Delivery Stage
+
+After exact Bundle acceptance, a separate explicit operator request creates or resumes one stable
+delivery request per Candidate. The first local implementation uses ordinary Git to publish the
+exact Candidate SHA to a deterministic `changefleet/...` branch and authenticated `gh` commands to
+create and read the PR. It verifies the remote target before publication, never force-pushes, and
+recovers an existing exact branch or PR after restart instead of blindly duplicating external
+writes.
+
+Delivery progresses from `delivery_ready` through `delivering` to `done`. Per-Repository states
+distinguish pending, publishing, open, merged, closed-unmerged, integration-stale,
+Candidate-diverged, and failed outcomes. Destination locks protect target-sensitive critical
+sections but are not held throughout human review. Another merge may move the target and stale
+integration evidence without rewriting historical Candidate identity.
+
+The experimental CLI exposes GitHub binding, publish, read, and explicit refresh only through
+shared typed application operations. Delivery observations and raw provider detail stay outside
+default Runtime context. A later UI must call the same semantics through a separately accepted
+transport rather than execute the CLI parser.
+
+ChangeFleet does not merge the PR. GitLab, automatic merge, merge queues, source-branch cleanup,
+GitHub App, webhook, daemon polling, deployment, remote workers, UI, and App Server remain outside
+this stage. Real GitHub validation requires separately confirmed repository, branch namespace, PR,
+and cleanup authority.

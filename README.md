@@ -15,9 +15,9 @@ reviewable `CandidateBundle` representing one exact cross-repository outcome.
 ## Current Status
 
 This repository contains the spec-first project Harness and the private implementation through
-landed WI-0006, including immutable Repository Harness overlays, read-only Runtime audit
-projections, and one exact-id local audit command. The package is not released and exposes no
-public CLI contract.
+landed WI-0008, including immutable Repository Harness overlays, Runtime audit projections, one
+experimental lifecycle CLI, and exact GitHub pull-request delivery. The package is not released
+and exposes no stable public CLI contract.
 
 The first accepted vertical slice, tracked by
 [`WI-0001`](docs/work-items/WI-0001-local-two-repository-vertical-slice.md), is:
@@ -34,6 +34,11 @@ confirmed intent
 
 Automatic merge, deployment, remote workers, and Git-URL materialization are outside that first
 slice.
+
+The landed delivery slice explicitly binds a Repository to GitHub, publishes an accepted exact
+Candidate to a deterministic non-force branch, creates or recovers one PR, and refreshes human
+merge results. It does not merge, deploy, store GitHub credentials, or contact GitHub during the
+deterministic test suite.
 
 The current overlay stage keeps exact-base Harness as the default. An optional confirmed Repository
 policy can freeze bounded Git-ignored Codex instructions or Skills at ChangeSet creation, restore
@@ -94,6 +99,7 @@ Run, Candidate, and CandidateBundle records.
 - **Candidate**: one immutable repository result identified by base and candidate SHAs.
 - **CandidateBundle**: the exact set of Candidates reviewed as one coherent change.
 - **DeliveryTarget**: the repository branch or integration destination for one Candidate.
+- **DeliveryRequest**: the stable exact Candidate, GitHub branch, PR, and target reconciliation record.
 
 See [`docs/glossary.md`](docs/glossary.md) for the complete vocabulary.
 
@@ -161,6 +167,7 @@ JSON file or `--request -` stdin:
 ```sh
 node ./bin/changefleet.js project register --config changefleet.json --request register.json
 node ./bin/changefleet.js project repository-policy revise --config changefleet.json --request policy.json
+node ./bin/changefleet.js project github-delivery configure --config changefleet.json --request github-binding.json
 node ./bin/changefleet.js changeset create --config changefleet.json --request create.json
 node ./bin/changefleet.js changeset repository-selection revise --config changefleet.json --request selection.json
 node ./bin/changefleet.js changeset harness-selection revise --config changefleet.json --request harness.json
@@ -168,6 +175,9 @@ node ./bin/changefleet.js changeset plan --config changefleet.json --request pla
 node ./bin/changefleet.js changeset plan confirm --config changefleet.json --request confirm.json
 node ./bin/changefleet.js changeset execute --config changefleet.json --request execute.json
 node ./bin/changefleet.js changeset bundle decide --config changefleet.json --request decision.json
+node ./bin/changefleet.js changeset delivery publish --config changefleet.json --request publish.json
+node ./bin/changefleet.js changeset delivery refresh --config changefleet.json --request refresh.json
+node ./bin/changefleet.js changeset delivery show <change_set_id> --config changefleet.json
 node ./bin/changefleet.js changeset show <change_set_id> --config changefleet.json
 ```
 

@@ -1,12 +1,14 @@
-import { mkdir } from "node:fs/promises";
+import { mkdir, readdir } from "node:fs/promises";
 import path from "node:path";
 
+import { sha256 } from "../../domain/canonical-json.js";
 import { ChangeFleetError, invariant } from "../../domain/errors.js";
 import { readJsonFile, writeJsonFileAtomic } from "./atomic-json-file.js";
 import { DirectoryLock } from "./directory-lock.js";
 
-// 当前快照在此管理；长输出和不可变证据由专门 Store 保存，避免聚合状态无限增长。
-export const CONTROL_SCHEMA_VERSION = 3;
+// v4 只增加 GitHub 绑定和有界交付请求；v3 私有快照可原地、可重入地迁移。
+export const CONTROL_SCHEMA_VERSION = 4;
+const PREVIOUS_CONTROL_SCHEMA_VERSION = 3;
 
 export class ControlStore {
   constructor(controlRoot, { clock = () => new Date() } = {}) {
@@ -35,12 +37,15 @@ export class ControlStore {
           projects: {},
           idempotency: {},
         });
+      } else if (existing.schema_version === PREVIOUS_CONTROL_SCHEMA_VERSION) {
+        await writeJsonFileAtomic(this.catalogPath, migrateCatalogV3(existing));
       } else {
         assertSchema(existing, "catalog");
       }
     } finally {
       await lock.release();
     }
+    await this.migrateChangeSets();
   }
 
   async readCatalog() {
@@ -131,6 +136,22 @@ export class ControlStore {
     );
   }
 
+  async acquireDeliveryLock(repositoryId, targetRef, ownerId) {
+    // 目标 ref 不进入文件名；稳定摘要既避免路径穿越，也让同一目标跨进程共享互斥锁。
+    const destination = sha256({
+      repository_id: repositoryId,
+      target_ref: targetRef,
+    });
+    return DirectoryLock.acquire(
+      path.join(this.locksRoot, "delivery", destination),
+      {
+        ownerType: "delivery_destination",
+        ownerId,
+        clock: this.clock,
+      },
+    );
+  }
+
   changeSetPath(changeSetId) {
     return path.join(this.changeSetsRoot, changeSetId, "state.json");
   }
@@ -152,6 +173,30 @@ export class ControlStore {
       },
     );
   }
+
+
+  async migrateChangeSets() {
+    const entries = await readdir(this.changeSetsRoot, {
+      withFileTypes: true,
+    });
+    for (const entry of entries
+      .filter((candidate) => candidate.isDirectory())
+      .sort((left, right) => left.name.localeCompare(right.name))) {
+      const lock = await this.acquireChangeSetLock(entry.name);
+      try {
+        const filePath = this.changeSetPath(entry.name);
+        const existing = await readJsonFile(filePath, { allowMissing: true });
+        if (!existing) continue;
+        if (existing.schema_version === PREVIOUS_CONTROL_SCHEMA_VERSION) {
+          await writeJsonFileAtomic(filePath, migrateChangeSetV3(existing));
+        } else {
+          assertSchema(existing, `ChangeSet ${entry.name}`);
+        }
+      } finally {
+        await lock.release();
+      }
+    }
+  }
 }
 
 function assertSchema(record, label) {
@@ -160,4 +205,23 @@ function assertSchema(record, label) {
     "UNSUPPORTED_SCHEMA_VERSION",
     `${label} schema version ${record.schema_version} is not supported`,
   );
+}
+
+function migrateCatalogV3(record) {
+  const migrated = structuredClone(record);
+  for (const project of Object.values(migrated.projects ?? {})) {
+    for (const repository of project.repositories ?? []) {
+      repository.delivery_binding_revisions ??= [];
+      repository.current_delivery_binding_revision ??= null;
+    }
+  }
+  migrated.schema_version = CONTROL_SCHEMA_VERSION;
+  return migrated;
+}
+
+function migrateChangeSetV3(record) {
+  const migrated = structuredClone(record);
+  migrated.delivery_requests ??= [];
+  migrated.schema_version = CONTROL_SCHEMA_VERSION;
+  return migrated;
 }

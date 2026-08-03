@@ -5,6 +5,8 @@ const OPERATION_METHODS = Object.freeze({
   "project.register": "registerProject",
   "project.repository_workspace_policy.revise":
     "reviseRepositoryWorkspacePolicy",
+  "project.repository_delivery.github.configure":
+    "configureGithubDelivery",
   "changeset.create": "createChangeSet",
   "changeset.repository_selection.revise": "reviseRepositorySelection",
   "changeset.repository_harness_selection.revise":
@@ -13,6 +15,9 @@ const OPERATION_METHODS = Object.freeze({
   "changeset.plan.confirm": "confirmPlanRevision",
   "changeset.execute": "executeChangeSet",
   "changeset.bundle.decide": "recordBundleDecision",
+  "changeset.delivery.publish": "publishDelivery",
+  "changeset.delivery.read": "readDelivery",
+  "changeset.delivery.refresh": "refreshDelivery",
   "changeset.read": "readChangeSet",
 });
 

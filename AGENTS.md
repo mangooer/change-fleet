@@ -1,17 +1,15 @@
 # ChangeFleet Agent Instructions
 
-ChangeFleet is a spec-first control plane for coordinated, auditable changes across multiple Git
-repositories. Keep its deterministic kernel small as Agent Runtime capabilities grow.
+ChangeFleet is a spec-first control plane for coordinated, auditable Git changes. Keep its
+deterministic kernel small as Agent Runtime capabilities grow.
 
 ## Start With Current Authority
 
 For every task:
 
-1. Read `docs/current-state.md`.
-2. Read the active Development WorkItem or current Repository Design Proposal for the task.
-3. Inspect Git status and the current diff; preserve unrelated user changes.
-4. Read only the relevant sections of `SPEC.md`, `docs/architecture.md`, decisions, protocols, and
-   evidence.
+1. Read `docs/current-state.md` and the active WorkItem or Proposal.
+2. Inspect Git status and the current diff; preserve unrelated user changes.
+3. Read only relevant sections of `SPEC.md`, architecture, decisions, protocols, and evidence.
 
 Do not read the complete `SPEC.md`, all proposals, or all WorkItems by default. Do not reconstruct
 current truth by replaying history.
@@ -19,10 +17,10 @@ current truth by replaying history.
 Authority is divided deliberately:
 
 - `SPEC.md`: accepted product contract;
-- `docs/current-state.md`: concise current implementation projection, gaps, and next task;
+- `docs/current-state.md`: current implementation, gaps, and next task;
 - decisions: durable accepted rationale;
-- Repository Design Proposals: chronological changes to this repository's product or architecture;
-- Development WorkItems: confirmed repository implementation demand and concise evidence;
+- Repository Design Proposals: chronological product or architecture changes;
+- Development WorkItems: confirmed implementation demand and concise evidence;
 - Git and linked artifacts: exact implementation and operational history.
 
 Design Proposals and Development WorkItems are Harness artifacts, not Runtime output. Runtime uses
@@ -34,16 +32,17 @@ See `docs/harness.md` for the loading map, size guardrails, and maintenance rule
 
 - ChangeFleet is a change control plane, not a hosted Agent frontend or generic multi-agent
   framework.
-- Agent Runtimes own semantic analysis, implementation planning, internal subagents, skills, tools,
-  code changes, native context, compaction, and task-specific check selection.
-- ChangeFleet owns confirmed intent, repository authorization, plan and scope revisions, scheduling,
-  workspace identity, exact Git subjects, evidence linkage, human gates, and durable recovery.
+- Agent Runtimes own semantic work, internal subagents, skills, tools, code changes, native context,
+  compaction, and task-specific checks.
+- ChangeFleet owns confirmed intent, repository authority, revisions, scheduling, workspace
+  identity, exact Git subjects, evidence, human gates, and recovery.
 - One business change is a `ChangeSet`; repository execution uses `WorkUnit`; review binds to one
   exact `CandidateBundle`.
 - Agent proposals never grant repository access, confirm a plan, or accept a Bundle by themselves.
 - Replanning continues the same ChangeSet. Preserve superseded plans and attempts as history, but
   expose only the current exact subject as actionable.
 - Evidence belongs to exact base and candidate SHAs. A changed SHA creates new evidence identity.
+- GitHub delivery requires a confirmed binding and exact Candidate head; humans merge, not Agents.
 - Git has no universal atomic transaction across repositories. Use precise discard, revert,
   rollout, and compensation language.
 
@@ -73,10 +72,10 @@ Create a proposal before changing product or architecture boundaries such as:
 - an authoritative service graph;
 - a public implementation stack when none is accepted.
 
-Durable implementation requires a confirmed `todo` Development WorkItem; explanation, review,
-proposal work, and small explicit maintenance do not. An Agent may draft a WorkItem. Only an
-unambiguous user implementation request or named standing policy may confirm it without another
-user round trip. Never self-confirm inferred scope, architecture, or high-risk work.
+Durable implementation requires a confirmed `todo` WorkItem; explanation, review, proposal work,
+and small explicit maintenance do not. An Agent may draft one. Only an unambiguous user request or
+named standing policy may confirm it without another user round trip. Never self-confirm inferred
+scope, architecture, or high-risk work.
 
 Prefer one end-to-end vertical slice over broad scaffolding. Do not add speculative provider,
 TaskSource, database, UI, PR, deployment, compatibility, or framework-detection abstractions.
@@ -103,12 +102,8 @@ nonexistent or unexecuted command as passed.
 For every executed check report the exact command, exit code, scope, concise observation, and
 relevant unverified boundary. Do not paste full output into project memory.
 
-Update `docs/current-state.md` only when a change alters:
-
-- a current implemented fact;
-- accepted unfinished work;
-- an open question or limitation;
-- the single next recommended task.
+Update `docs/current-state.md` only for an implemented fact, accepted unfinished work, an open
+question or limitation, or the single next recommended task.
 
 Do not promote an unaccepted proposal or unlanded branch into the canonical baseline.
 

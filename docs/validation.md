@@ -117,6 +117,19 @@ checks. Final review also inspects `bin/`, package scripts, documentation, and t
 standalone audit entry point and every unowned temporary executable are absent. Real Provider
 validation follows the shared development rule above rather than a CLI-specific permission gate.
 
+Decision 0015 requires deterministic GitHub delivery tests at four boundaries: pure binding and
+request identity; structured `gh` argv and bounded JSON normalization; real local Git remote
+publication, non-force conflict, target movement, and reachability; and complete application
+recovery through single- and multi-Repository acceptance. Tests must distinguish closed-unmerged,
+Candidate-diverged, integration-stale, partial merge, and exact completion. Provider fixtures stay
+under test support and cannot be selected by production configuration.
+
+Real GitHub validation is an external-write gate, not part of `npm run check` and not authorized by
+the standing real Codex test permission. Before running it, record the exact repository, branch
+namespace, PR visibility, expected writes, human merge behavior, and cleanup authority. An omitted
+real GitHub gate remains explicitly unverified even when deterministic Git and `gh` fixture tests
+pass.
+
 For Harness documentation, also inspect the byte sizes of `AGENTS.md`, `WORKFLOW.md`, and
 `docs/current-state.md` against the soft limits in `docs/harness.md`. This is a maintenance
 observation, not proof of provider token usage or the proposed 70-percent Runtime bound.

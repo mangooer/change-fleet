@@ -218,4 +218,27 @@ describe("RepositoryWorker", () => {
       fixture.base_sha,
     );
   });
+
+  test("does not persist credentials embedded in an HTTP origin", async (t) => {
+    const root = await createFixtureRoot(t, "changefleet-remote-redaction-");
+    const fixture = await createGitRepository(root, "api");
+    await git(fixture.path, [
+      "remote",
+      "add",
+      "origin",
+      "https://user:secret@github.com/Owner/Repository.git?token=hidden",
+    ]);
+    const worker = new RepositoryWorker({
+      workspaceRoot: path.join(root, "workspaces"),
+    });
+    const repository = await worker.inspectRegistration({
+      repositoryId: "api",
+      locator: fixture.path,
+    });
+    assert.equal(
+      repository.canonical_remote,
+      "https://github.com/Owner/Repository.git",
+    );
+    assert.doesNotMatch(JSON.stringify(repository), /secret|hidden/u);
+  });
 });

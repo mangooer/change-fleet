@@ -33,12 +33,15 @@ import { EvidenceStore } from "../adapters/filesystem/evidence-store.js";
 import { HarnessSnapshotStore } from "../adapters/filesystem/harness-snapshot-store.js";
 import { runCommand } from "../adapters/filesystem/command-runner.js";
 import { RunStore } from "../adapters/filesystem/run-store.js";
+import { DeliveryGitAdapter } from "../adapters/git/delivery-git-adapter.js";
 import { RepositoryWorker } from "../adapters/git/repository-worker.js";
+import { GhPullRequestAdapter } from "../adapters/github/gh-pull-request-adapter.js";
 import {
   invokeRuntime,
   measureInitialContext,
 } from "../adapters/runtime/runtime-port.js";
 import { CombinedValidator } from "./combined-validator.js";
+import { GithubDeliveryService } from "./github-delivery-service.js";
 
 const MAX_CONTEXT_HARNESS_RESOURCES = 32;
 
@@ -51,6 +54,8 @@ export class ChangeFleetService {
     agentProfile,
     clock = () => new Date(),
     idFactory = (prefix) => `${prefix}-${randomUUID()}`,
+    deliveryGitAdapter = new DeliveryGitAdapter(),
+    githubPullRequestAdapter = new GhPullRequestAdapter(),
   }) {
     this.controlRoot = path.resolve(controlRoot);
     this.workspaceRoot = path.resolve(workspaceRoot);
@@ -72,6 +77,15 @@ export class ChangeFleetService {
       repositoryWorker: this.repositoryWorker,
       evidenceStore: this.evidenceStore,
       clock,
+    });
+    this.githubDeliveryService = new GithubDeliveryService({
+      controlStore: this.controlStore,
+      evidenceStore: this.evidenceStore,
+      repositoryWorker: this.repositoryWorker,
+      deliveryGitAdapter,
+      githubPullRequestAdapter,
+      clock,
+      controllerId: this.instanceId,
     });
   }
 
@@ -116,6 +130,8 @@ export class ChangeFleetService {
         description: optionalString(input.description),
         workspace_policy_revisions: [],
         current_workspace_policy_revision: null,
+        delivery_binding_revisions: [],
+        current_delivery_binding_revision: null,
       });
     }
     repositories.sort((left, right) =>
@@ -328,6 +344,7 @@ export class ChangeFleetService {
       run_references: [],
       candidates: [],
       bundles: [],
+      delivery_requests: [],
       decisions: [],
       blockers: [],
       commands: {
@@ -1406,6 +1423,24 @@ export class ChangeFleetService {
         },
       }),
     );
+  }
+
+  configureGithubDelivery(request) {
+    // GitHub 绑定由独立交付应用服务确认；生命周期服务只保留统一操作入口。
+    return this.githubDeliveryService.configureGithubDelivery(request);
+  }
+
+  publishDelivery(request) {
+    // 发布与 Bundle 接受分离，避免 Agent 或审核动作隐式获得外部写权限。
+    return this.githubDeliveryService.publishDelivery(request);
+  }
+
+  readDelivery(request) {
+    return this.githubDeliveryService.readDelivery(request);
+  }
+
+  refreshDelivery(request) {
+    return this.githubDeliveryService.refreshDelivery(request);
   }
 
   readChangeSet(changeSetId) {

@@ -88,7 +88,7 @@ describe("read-only Runtime audit queries", () => {
     });
     assert.deepEqual(changeAudit.payload.outcomes.validation, { passed: 2 });
     assert.deepEqual(changeAudit.payload.outcomes.human_review, { accept: 1 });
-    assert.equal(changeAudit.payload.outcomes.delivery.reason, "not_implemented");
+    assert.equal(changeAudit.payload.outcomes.delivery.reason, "not_started");
     assert.equal(runAudit.payload.usage.canonical.coverage, "aggregate_only");
     assert.equal(runAudit.payload.usage.canonical.total_tokens, 120);
     assert.equal(runAudit.payload.usage.canonical.input_tokens, 100);

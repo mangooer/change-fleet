@@ -25,6 +25,10 @@ describe("unified local CLI grammar", () => {
         ["project", "repository-policy", "revise"],
         "project.repository_workspace_policy.revise",
       ],
+      [
+        ["project", "github-delivery", "configure"],
+        "project.repository_delivery.github.configure",
+      ],
       [["changeset", "create"], "changeset.create"],
       [
         ["changeset", "repository-selection", "revise"],
@@ -38,6 +42,8 @@ describe("unified local CLI grammar", () => {
       [["changeset", "plan", "confirm"], "changeset.plan.confirm"],
       [["changeset", "execute"], "changeset.execute"],
       [["changeset", "bundle", "decide"], "changeset.bundle.decide"],
+      [["changeset", "delivery", "publish"], "changeset.delivery.publish"],
+      [["changeset", "delivery", "refresh"], "changeset.delivery.refresh"],
     ];
     for (const [tokens, operation] of routes) {
       assert.deepEqual(
@@ -59,6 +65,22 @@ describe("unified local CLI grammar", () => {
   });
 
   test("parses exact ChangeSet reads and bounded debug audit queries", () => {
+    assert.deepEqual(
+      parseCommandLine([
+        "changeset",
+        "delivery",
+        "show",
+        "change-1",
+        "--config",
+        "changefleet.json",
+      ]),
+      {
+        kind: "lifecycle",
+        operation: "changeset.delivery.read",
+        config_path: "changefleet.json",
+        request: { change_set_id: "change-1" },
+      },
+    );
     assert.deepEqual(
       parseCommandLine([
         "changeset",

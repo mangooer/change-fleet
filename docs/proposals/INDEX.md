@@ -23,6 +23,7 @@ preserve chronological reasoning and are not current truth merely because they e
 | [0010](0010-read-only-runtime-audit-projections.md) | Read-only Runtime audit projections | `accepted` | Recorded by Decision 0012; derives bounded Run and ChangeSet facts while comparison remains deferred | [WI-0005](../work-items/WI-0005-read-only-runtime-audit-projections.md), `done` |
 | [0011](0011-local-read-only-audit-entry-point.md) | Local read-only audit entry point | `accepted` | Recorded by Decision 0013; exposes only the landed exact-id WI-0005 projections | [WI-0006](../work-items/WI-0006-local-read-only-audit-entry-point.md), `done` |
 | [0012](0012-shared-application-commands-and-unified-local-cli.md) | Shared application commands and a unified local CLI | `accepted` | Recorded by Decision 0014; accepts an experimental product CLI, debug namespace, and temporary-script retirement policy | [WI-0007](../work-items/WI-0007-shared-application-commands-and-unified-local-cli.md), `done` |
+| [0013](0013-exact-github-pull-request-delivery.md) | Exact GitHub pull-request delivery and human-controlled integration | `accepted` | Recorded by Decision 0015; GitHub-first publication and reconciliation over accepted Bundle, Repository selection, delivery serialization, and shared application-operation boundaries | [WI-0008](../work-items/WI-0008-exact-github-pull-request-delivery.md), `done` |
 
 ## Status Rules
 

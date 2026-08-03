@@ -254,6 +254,14 @@ Reference subject:
 - commit: `66faac3b16df8b287bae100ec5be82b79d32b872`
 - commit subject: `feat(onboarding): add project harness readiness`
 
+Reference identity correction (2026-08-03): the canonical product intended by current Conductor
+comparisons is the Melty Labs product documented at
+[conductor.build](https://www.conductor.build/docs). The local checkout above remains exact
+historical evidence for this proposal's listed tests only; it is not authority for current
+Conductor.build workspace, review, PR, merge, Harness, or delivery behavior. Future comparisons
+must follow the external-reference rule in `docs/harness.md` and use current official online
+sources.
+
 This update resolves the earlier design questions with concrete recommendations. It does not accept
 this proposal and does not authorize implementation.
 

@@ -15,7 +15,7 @@ import {
 } from "../domain/runtime-audit.js";
 
 const MAX_BOUNDED_ROWS = 100;
-const TERMINAL_CHANGE_SET_STATES = new Set(["delivery_ready", "done"]);
+const TERMINAL_CHANGE_SET_STATES = new Set(["done", "canceled", "failed"]);
 
 // 查询服务只接收 Store 的 read 能力，构造时不初始化目录，也不持有任何编排或写入端口。
 export class RuntimeAuditQueryService {
@@ -496,7 +496,30 @@ function summarizeOutcomes(state, loadedRuns, validation) {
         .filter((decision) => decision.type === "bundle_review")
         .map((decision) => decision.decision),
     ),
-    delivery: { unavailable: 1, reason: "not_implemented" },
+    delivery: summarizeDelivery(state),
+  };
+}
+
+function summarizeDelivery(state) {
+  // 审计只投影当前 Bundle 的有界状态计数；完整 GitHub 观察仍通过不可变证据链读取。
+  const bundleId = state.bundles.at(-1)?.bundle_id ?? null;
+  const requests = (state.delivery_requests ?? []).filter(
+    (request) => request.bundle_id === bundleId,
+  );
+  if (requests.length === 0) {
+    return { unavailable: 1, reason: "not_started" };
+  }
+  const states = countValues(requests.map((request) => request.state));
+  return {
+    unavailable: 0,
+    current_bundle_id: bundleId,
+    request_count: requests.length,
+    states,
+    merged_count: states.merged ?? 0,
+    complete: requests.every((request) => request.state === "merged"),
+    partial_merge:
+      requests.some((request) => request.state === "merged") &&
+      requests.some((request) => request.state !== "merged"),
   };
 }
 

@@ -39,6 +39,16 @@ allowed typed outcomes, evidence reporting, cancellation, and human gates.
 
 The intended repository destination ref or external PR subject for one Candidate.
 
+## DeliveryRequest
+
+A stable ChangeFleet record binding one accepted exact Candidate, target ref, confirmed delivery
+binding revision, deterministic remote branch, and GitHub pull-request identity.
+
+## DeliveryResult
+
+The exact observed external merge fact linking a reviewed Candidate SHA to GitHub's possibly
+different merge, squash, or rebase result SHA, actor, time, and target evidence.
+
 ## Development WorkItem
 
 A repository Harness artifact authorizing and tracking durable implementation work in the

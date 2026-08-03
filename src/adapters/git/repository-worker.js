@@ -64,7 +64,8 @@ export class RepositoryWorker {
         : normalizeTargetRef(defaultTargetRef);
     await resolveCommit(root, targetRef);
     const canonicalRemote = await git(root, ["remote", "get-url", "origin"])
-      .then((value) => value.trim())
+      // 登记只保存无凭据定位；真实认证继续由宿主 Git/gh 管理。
+      .then((value) => redactRemoteCredentials(value.trim()))
       .catch(() => null);
     return {
       repository_id: repositoryId,
@@ -1165,6 +1166,20 @@ function splitNull(value) {
 
 function samePath(left, right) {
   return path.resolve(left).toLowerCase() === path.resolve(right).toLowerCase();
+}
+
+function redactRemoteCredentials(value) {
+  try {
+    const parsed = new URL(value);
+    if (!new Set(["http:", "https:"]).has(parsed.protocol)) return value;
+    parsed.username = "";
+    parsed.password = "";
+    parsed.search = "";
+    parsed.hash = "";
+    return parsed.toString();
+  } catch {
+    return value;
+  }
 }
 
 function gitBoundaryError(error, code, message) {

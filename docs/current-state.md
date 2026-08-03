@@ -7,21 +7,19 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 
 ## Current Baseline
 
-- WI-0001 through WI-0007 are accepted and landed.
-- The Harness loads root rules, this projection, one active artifact, and targeted authority.
-- One private experimental CLI exists; no released package, stable public CLI contract, API, or UI.
-- The accepted private Node.js 24 ESM package uses a versioned filesystem store, `node:test`,
-  pinned `@openai/codex-sdk@0.146.0`, one real Codex adapter, and test-only scripted Runtime.
+- WI-0001 through WI-0008 are accepted and landed.
+- The private Node.js 24 ESM package has a versioned filesystem store, `node:test`, pinned
+  `@openai/codex-sdk@0.146.0`, one real Codex adapter, test-only scripted Runtime, and one
+  experimental CLI; no released package, stable CLI, API, or UI exists.
 - Agent Runtimes own semantic work. ChangeFleet owns cross-repository authorization, revisions,
   scheduling, exact Git and Bundle subjects, evidence, recovery, and human gates.
 
 ## Accepted Product Direction
 
-- Managed Runs receive a compact Control Contract and current projection; complete history remains
-  durable by reference rather than default Agent context.
-- ChangeFleet does not create or maintain registered-repository Harness.
-- Agent Profiles select provider-native Runtime, model, capability, and optional Skill settings.
-- Planning is read-only; execution writes only to its isolated WorkUnit workspace.
+- Managed Runs receive a compact Control Contract and current projection; referenced history stays
+  out of default context. ChangeFleet neither creates nor maintains registered-repository Harness.
+- Agent Profiles select Runtime settings. Planning is read-only; execution writes only to its
+  isolated WorkUnit workspace.
 - Initial context targets at most 70 percent usage and records `enforced | estimated | unknown`.
 - Tracker integrations remain edge projections, not ChangeSet authority.
 - A Project binds registered Repositories. A ChangePlan selects a non-empty subset;
@@ -34,13 +32,13 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
   exact Candidates, immutable Bundle review subjects, and exact-subject validation evidence.
 - WorkUnits may run in parallel; delivery to one `repository_id + target_ref` is serialized, and
   cross-repository compensation never promises universal atomic rollback.
-- WI-0003 records Runtime evidence; WI-0005 derives audit projections; WI-0007 exposes shared
-  application operations through one experimental CLI with read-only debug audit.
-- The accepted first production Provider uses the pinned Codex TypeScript SDK behind the narrow
-  Runtime port, one fresh Provider thread per Run attempt, strict structured outcomes, exact-base
-  read-only planning worktrees, and WorkUnit-scoped execution access.
-- Controller loss abandons the first Provider's incomplete attempt; blind Provider-session resume,
-  App Server, a second Provider, pricing, effectiveness comparison, and continuous context
+- Accepted GitHub-first delivery publishes exact Candidates to PRs, leaves merge to humans, and
+  records exact external results through UI-ready shared application operations.
+- WI-0003 records Runtime evidence; WI-0005 derives audit views; WI-0007 exposes shared operations
+  through one experimental CLI with read-only debug audit.
+- The first production Provider uses the pinned Codex SDK, a narrow Runtime port, one fresh thread
+  per attempt, structured outcomes, exact-base planning worktrees, and WorkUnit-scoped writes.
+- Controller loss abandons an incomplete attempt; blind session resume and continuous context
   enforcement remain deferred.
 
 ## Accepted Decisions
@@ -53,12 +51,10 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
   and local-path Repository locators.
 - [0004](decisions/0004-concurrency-delivery-and-compensation.md): separate parallel execution from
   destination serialization and use phase-specific compensation semantics.
-- [0005](decisions/0005-runtime-context-harness-and-capabilities.md): use a Control Contract,
-  current Run Context Projection, repository-native Harness, Agent Profiles, scoped capabilities,
-  and honest initial context evidence.
-- [0006](decisions/0006-first-vertical-slice-implementation-boundary.md): use Node.js 24 ESM
-  JavaScript, a versioned filesystem store, test-only application and fake Runtime ports, a
-  validation manifest, and a clean RepositoryWorker adapter for the first slice.
+- [0005](decisions/0005-runtime-context-harness-and-capabilities.md): use bounded projections,
+  repository Harness, Agent Profiles, scoped capabilities, and honest context evidence.
+- [0006](decisions/0006-first-vertical-slice-implementation-boundary.md): use Node.js 24 ESM, a
+  versioned filesystem store, test-only fakes, validation manifest, and RepositoryWorker adapter.
 - [0007](decisions/0007-variable-scope-and-localized-diagnostics.md): distinguish Project catalog
   scope from exact ChangePlan scope, allow one or more WorkUnits, and localize
   ChangeFleet-generated diagnostics.
@@ -69,12 +65,13 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
   default Agent context and record immutable usage observations with honest coverage.
 - [0010](decisions/0010-first-real-codex-sdk-provider.md): use Codex TypeScript SDK for the first
   real Provider with fresh Run threads and exact-base planning worktrees.
-- [0011](decisions/0011-exact-repository-harness-snapshots-and-local-overlays.md): default to
-  exact-base Harness and permit only explicit immutable local overlays with no non-Git writeback.
+- [0011](decisions/0011-exact-repository-harness-snapshots-and-local-overlays.md): use exact-base
+  Harness and only explicit immutable local overlays with no non-Git writeback.
 - [0012](decisions/0012-read-only-runtime-audit-projections.md) derives audit views;
   [0013](decisions/0013-local-read-only-audit-entry-point.md) exposes exact-id local inspection;
   [0014](decisions/0014-shared-application-commands-and-unified-local-cli.md) accepts shared
-  application semantics, one experimental CLI, and explicit executable retirement.
+  application semantics and one experimental CLI; [0015](decisions/0015-exact-github-pull-request-delivery.md)
+  accepts exact PR publication, human merge, and reconciliation.
 
 ## Repository Design Proposals
 
@@ -87,7 +84,8 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
   [0010](proposals/0010-read-only-runtime-audit-projections.md) accepts read-only projections by
   Decision 0012 and is implemented by landed WI-0005; comparison is deferred.
 - [0011](proposals/0011-local-read-only-audit-entry-point.md) is landed through WI-0006;
-  [0012](proposals/0012-shared-application-commands-and-unified-local-cli.md) through WI-0007.
+  [0012](proposals/0012-shared-application-commands-and-unified-local-cli.md) through WI-0007;
+  [0013](proposals/0013-exact-github-pull-request-delivery.md) through WI-0008.
 
 ## Open Questions
 
@@ -96,9 +94,10 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 
 ## Known Limitations
 
-- WI-0004's private schema v3 is landed but remains outside any released compatibility contract.
-- Git URLs, remote workers, PRs, merge, deployment, UI, service graph, and stacked ChangeSets are
-  not accepted.
+- Private schema v4 has no compatibility promise. Deterministic GitHub PR delivery is landed, but
+  a real GitHub external-write gate remains unverified.
+- Git URLs, remote workers, automatic merge, deployment, UI, service graph, and stacked ChangeSets
+  remain deferred.
 - WI-0003 proved native-Windows local-ChatGPT single-Repository use. Other auth/hosts, hostile
   access, hard interruption, and paid multi-Repository work remain unverified.
 - Codex SDK usage is aggregate-only; effective model and universal host read-denial remain unknown.
@@ -113,16 +112,14 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 
 ## Next Recommended Task
 
-Discuss and select the next independently bounded vertical slice. No later API, UI, App Server,
-stable CLI compatibility, or analytics surface is accepted yet.
+Discuss the smallest local UI and transport boundary as a new Repository Design Proposal, reusing
+the landed shared application and delivery operations. Real GitHub smoke validation requires
+separate repository, branch-namespace, and cleanup authority.
 
 ## Maintenance Contract
 
 Before reporting changes ready:
 
-- follow the progressive-loading and size rules in `docs/harness.md`;
-- update only current-state entries affected by the change;
-- never describe proposed or branch-local behavior as implemented baseline;
-- keep accepted work separate from open questions;
-- move detailed evidence to Development WorkItems, proposals, and Git history;
-- preserve a single explicit next recommended task.
+- follow `docs/harness.md` loading and size rules;
+- keep accepted baseline, branch-local work, open gaps, and one next task distinct;
+- put detailed evidence in the active WorkItem and Git rather than this projection.
