@@ -1014,7 +1014,8 @@ export class ChangeFleetService {
       }
     } catch (error) {
       runtimeError = error;
-      providerEvidence = error.runtime_evidence ?? null;
+      // Provider 已完成而领域规范化失败时，保留已观测证据；仅在错误携带更新证据时覆盖。
+      providerEvidence = error.runtime_evidence ?? providerEvidence;
     }
     // 该错误模拟进程已直接消失；保留 running Run 和 worktree 供下一控制器执行确定性恢复。
     if (runtimeError?.code === "CONTROLLER_INTERRUPTED") {

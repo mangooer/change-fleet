@@ -75,8 +75,9 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 - [0011](proposals/0011-local-read-only-audit-entry-point.md) is landed through WI-0006;
   [0012](proposals/0012-shared-application-commands-and-unified-local-cli.md) through WI-0007;
   [0013](proposals/0013-exact-github-pull-request-delivery.md) through WI-0008.
-- [0014](proposals/0014-local-review-and-delivery-console.md) is accepted; WI-0009 is started, but
-  implementation has not mutated.
+- [0014](proposals/0014-local-review-and-delivery-console.md) is accepted; WI-0009 is started. Two
+  dogfood planning corrections have direct deterministic coverage and await the next exact-base
+  selection before UI execution.
 
 ## Open Questions
 
@@ -92,8 +93,9 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 - WI-0003 proved native-Windows local-ChatGPT single-Repository use. Other auth/hosts, hostile
   access, hard interruption, and paid multi-Repository work remain unverified.
 - Codex SDK usage is aggregate-only; effective model and universal host read-denial remain unknown.
-- Native Windows needs a pre-provisioned elevated sandbox; capture recurring setup prompts before
-  changing the no-full-access-fallback policy.
+- Native Windows needs a pre-provisioned elevated sandbox. An explicit 2026-08-03 administrator
+  refresh produced the expected one-time UAC prompt and restored ordinary-user sandbox execution;
+  a recurring prompt during managed Runs remains an operational defect, not an authority grant.
 - Local workspaces use the registered Git object database; Git URL and remote-worker work need new
   authority.
 - Local ignored Codex Harness is proven; hosted retention, encryption, and actual-load evidence are
@@ -103,9 +105,9 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 
 ## Next Recommended Task
 
-Land the accepted Proposal 0014, Decision 0016, and started
-[WI-0009](work-items/WI-0009-local-review-and-delivery-console.md), then create its dogfood ChangeSet
-from that exact base. GitHub publication remains a separate exact external-write gate.
+Land WI-0009's two validated dogfood planning corrections, revise `changefleet-wi-0009` to that
+exact base, and retry planning once. GitHub publication remains a separate exact external-write
+gate.
 
 ## Maintenance Contract
 

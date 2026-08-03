@@ -28,6 +28,11 @@ control-plane logic or expanding into a full lifecycle frontend.
 
 ## Scope
 
+- Correct the dogfood planning boundary discovered after start: planning may select a non-empty
+  subset of authorized Repositories, but must combine all work for one Repository into at most one
+  WorkUnit.
+- Preserve completed Provider identity, timing, and aggregate usage evidence when deterministic
+  post-Provider plan normalization rejects the proposed plan.
 - Add a bounded, cursor-stable `changeset.list` query over one configured ChangeFleet control root.
 - Add one retained experimental `changefleet serve --config <path> [--port <port>]` product command
   that runs in the foreground and binds only loopback.
@@ -111,6 +116,7 @@ control-plane logic or expanding into a full lifecycle frontend.
 | Existing affected Node suites | current domain, store, CLI, delivery, and acceptance regressions selected from final diff | Required | The slice crosses existing operator and delivery surfaces |
 | Full deterministic `npm run check` | final stable implementation subject | Required unless final selection documents a narrower equivalent gate | Broad cross-layer implementation |
 | Real Codex Provider | implementation through a ChangeFleet ChangeSet | Selected only when WI-0009 is explicitly started through the dogfood path | Proposal recommends self-iteration, but confirmation alone does not start a Run |
+| Provider planning regression | one-WorkUnit-per-Repository prompt and post-Provider rejection evidence | Required before retrying dogfood planning | Prevents a known-invalid retry and preserves the cost audit of failed proposals |
 | Real GitHub delivery | exact UI Candidate branch and PR | Conditional on separate exact external-write authority | Proposal and WorkItem confirmation do not authorize GitHub mutation |
 | Documentation and boundary audit | links, status projections, eager sizes, commands, comments, assets, fakes | Required | Maintains Harness and stage boundaries |
 
@@ -132,17 +138,34 @@ authority is reported as unverified, never passed.
 ## Current Projection
 
 - Current subject: WI-0009 is started as the sole implementation WorkItem for accepted Proposal
-  0014; production implementation has not mutated yet.
-- Last verified state: Proposal 0014 and Decision 0016 are accepted; no UI code, API, browser
-  dependency, service process, Runtime ChangeSet, or GitHub write has started.
-- Next step: land the accepted Proposal/Decision/WorkItem authority so the dogfood ChangeSet can
-  select an exact base that contains its own demand, then create that Runtime ChangeSet.
-- Active blocker or decision: the authority documents are uncommitted and therefore excluded from
-  an exact-base ChangeSet; real GitHub delivery also requires separate external-write authority.
+  0014; its dogfood ChangeSet is `changefleet-wi-0009` at exact base `a2d6c84`.
+- Last verified state: an explicit Windows administrator refresh regenerated the elevated-sandbox
+  marker after one UAC prompt, and a subsequent ordinary-user elevated probe passed without another
+  prompt. Planning attempt 1 was abandoned after the broken sandbox stalled; attempt 2 reached a
+  terminal Provider response but failed deterministic validation with
+  `DUPLICATE_REPOSITORY_WORK_UNIT`. Both confirmed planning blocker corrections now have direct
+  deterministic coverage and are ready to become the next exact base.
+- Next step: commit the two corrections, revise the same ChangeSet to that exact base, and retry
+  planning once.
+- Active blocker or decision: no known local planning blocker remains after the direct regression
+  gates; real GitHub delivery still requires separate external-write authority.
 
 ## Implementation Evidence
 
-Pending implementation.
+- 2026-08-03 host repair: explicit `RunAs` elevated refresh returned exit code `0`; the ordinary
+  elevated sandbox probe then returned exit code `0`. The UAC prompt belongs to host provisioning,
+  not SDK per-Run approval.
+- Dogfood planning attempt 1 is durably `abandoned/controller_restart`; attempt 2 is durably
+  `failed/DUPLICATE_REPOSITORY_WORK_UNIT` after 158453 ms. Its persisted usage is unavailable,
+  demonstrating the post-Provider evidence-preservation defect covered by this revision.
+- `node --test test/integration/codex-sdk-runtime.test.js
+  test/integration/planning-workspace.test.js` under Node.js 24 returned exit code `0`: 6 tests
+  passed, including prompt uniqueness and completed-Provider evidence preservation after plan
+  rejection.
+- `node --test test/integration/runtime-audit-query.test.js` under Node.js 24 returned exit code
+  `0`: 4 tests passed, preserving bounded audit, unknown, cancellation, and restart semantics.
+- `git diff --check` returned exit code `0`. The full deterministic suite, real planning retry,
+  UI implementation, Chromium, and GitHub external-write gate remain unverified at this checkpoint.
 
 ## Acceptance Review
 

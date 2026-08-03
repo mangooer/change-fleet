@@ -23,6 +23,7 @@ describe("Codex SDK Runtime protocol", () => {
     const factoryCalls = [];
     const threadOptions = [];
     const turnOptions = [];
+    const prompts = [];
     const events = [];
     const finalResponse = JSON.stringify({
       type: "plan_proposed",
@@ -64,7 +65,8 @@ describe("Codex SDK Runtime protocol", () => {
           startThread(options_) {
             threadOptions.push(options_);
             return {
-              async runStreamed(_prompt, turnOptions_) {
+              async runStreamed(prompt, turnOptions_) {
+                prompts.push(prompt);
                 turnOptions.push(turnOptions_);
                 return {
                   events: providerEvents(finalResponse),
@@ -106,6 +108,10 @@ describe("Codex SDK Runtime protocol", () => {
     assert.equal(threadOptions[0].sandboxMode, "read-only");
     assert.equal(threadOptions[0].networkAccessEnabled, false);
     assert.equal(threadOptions[0].approvalPolicy, "never");
+    assert.match(
+      prompts[0],
+      /at most one WorkUnit for each repository_id; combine all tasks for the same Repository/u,
+    );
     assert.equal(turnOptions[0].outputSchema.additionalProperties, false);
     assert.equal(
       events.some(
