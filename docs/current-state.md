@@ -34,6 +34,8 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
   cross-repository compensation never promises universal atomic rollback.
 - Accepted GitHub-first delivery publishes exact Candidates to PRs, leaves merge to humans, and
   records exact external results through UI-ready shared application operations.
+- The accepted next surface is a foreground loopback review and delivery console with bounded
+  ChangeSet discovery, exact Bundle decisions, delivery actions, and no CLI invocation.
 - WI-0003 records Runtime evidence; WI-0005 derives audit views; WI-0007 exposes shared operations
   through one experimental CLI with read-only debug audit.
 - The first production Provider uses the pinned Codex SDK, a narrow Runtime port, one fresh thread
@@ -43,35 +45,22 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 
 ## Accepted Decisions
 
-- [0001](decisions/0001-control-plane-boundary.md): keep semantic Agent work outside the
-  deterministic control plane.
-- [0002](decisions/0002-changeset-and-bundle-aggregate.md): make ChangeSet the aggregate root and
-  CandidateBundle the review subject.
-- [0003](decisions/0003-minimal-repository-catalog.md): begin with minimal Project descriptions
-  and local-path Repository locators.
-- [0004](decisions/0004-concurrency-delivery-and-compensation.md): separate parallel execution from
-  destination serialization and use phase-specific compensation semantics.
-- [0005](decisions/0005-runtime-context-harness-and-capabilities.md): use bounded projections,
-  repository Harness, Agent Profiles, scoped capabilities, and honest context evidence.
-- [0006](decisions/0006-first-vertical-slice-implementation-boundary.md): use Node.js 24 ESM, a
-  versioned filesystem store, test-only fakes, validation manifest, and RepositoryWorker adapter.
-- [0007](decisions/0007-variable-scope-and-localized-diagnostics.md): distinguish Project catalog
-  scope from exact ChangePlan scope, allow one or more WorkUnits, and localize
-  ChangeFleet-generated diagnostics.
-- [0008](decisions/0008-change-set-repository-selection.md): select Repository branches when a
-  ChangeSet is created, freeze exact bases before planning, and revise selection in the same
-  aggregate.
-- [0009](decisions/0009-runtime-observability-evidence-boundary.md): keep Runtime audit data out of
-  default Agent context and record immutable usage observations with honest coverage.
-- [0010](decisions/0010-first-real-codex-sdk-provider.md): use Codex TypeScript SDK for the first
-  real Provider with fresh Run threads and exact-base planning worktrees.
-- [0011](decisions/0011-exact-repository-harness-snapshots-and-local-overlays.md): use exact-base
-  Harness and only explicit immutable local overlays with no non-Git writeback.
-- [0012](decisions/0012-read-only-runtime-audit-projections.md) derives audit views;
-  [0013](decisions/0013-local-read-only-audit-entry-point.md) exposes exact-id local inspection;
-  [0014](decisions/0014-shared-application-commands-and-unified-local-cli.md) accepts shared
-  application semantics and one experimental CLI; [0015](decisions/0015-exact-github-pull-request-delivery.md)
-  accepts exact PR publication, human merge, and reconciliation.
+- [0001](decisions/0001-control-plane-boundary.md) sets the control-plane boundary;
+  [0002](decisions/0002-changeset-and-bundle-aggregate.md) the aggregate and Bundle;
+  [0003](decisions/0003-minimal-repository-catalog.md) the catalog; and
+  [0004](decisions/0004-concurrency-delivery-and-compensation.md) concurrency and compensation.
+- [0005](decisions/0005-runtime-context-harness-and-capabilities.md) governs context and Harness;
+  [0006](decisions/0006-first-vertical-slice-implementation-boundary.md) the first stack;
+  [0007](decisions/0007-variable-scope-and-localized-diagnostics.md) variable scope; and
+  [0008](decisions/0008-change-set-repository-selection.md) exact base selection.
+- [0009](decisions/0009-runtime-observability-evidence-boundary.md) governs Runtime evidence;
+  [0010](decisions/0010-first-real-codex-sdk-provider.md) the Codex Provider;
+  [0011](decisions/0011-exact-repository-harness-snapshots-and-local-overlays.md) local Harness; and
+  [0012](decisions/0012-read-only-runtime-audit-projections.md) audit projections.
+- [0013](decisions/0013-local-read-only-audit-entry-point.md) exposes exact audit reads;
+  [0014](decisions/0014-shared-application-commands-and-unified-local-cli.md) shared operations;
+  [0015](decisions/0015-exact-github-pull-request-delivery.md) GitHub delivery; and
+  [0016](decisions/0016-local-review-and-delivery-console.md) the local review console.
 
 ## Repository Design Proposals
 
@@ -86,6 +75,8 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 - [0011](proposals/0011-local-read-only-audit-entry-point.md) is landed through WI-0006;
   [0012](proposals/0012-shared-application-commands-and-unified-local-cli.md) through WI-0007;
   [0013](proposals/0013-exact-github-pull-request-delivery.md) through WI-0008.
+- [0014](proposals/0014-local-review-and-delivery-console.md) is accepted; WI-0009 is started, but
+  implementation has not mutated.
 
 ## Open Questions
 
@@ -96,8 +87,8 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 
 - Private schema v4 has no compatibility promise. Deterministic GitHub PR delivery is landed, but
   a real GitHub external-write gate remains unverified.
-- Git URLs, remote workers, automatic merge, deployment, UI, service graph, and stacked ChangeSets
-  remain deferred.
+- Git URLs, remote workers, automatic merge, deployment, service graph, and stacked ChangeSets
+  remain deferred; the accepted local console is not implemented.
 - WI-0003 proved native-Windows local-ChatGPT single-Repository use. Other auth/hosts, hostile
   access, hard interruption, and paid multi-Repository work remain unverified.
 - Codex SDK usage is aggregate-only; effective model and universal host read-denial remain unknown.
@@ -107,14 +98,14 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
   authority.
 - Local ignored Codex Harness is proven; hosted retention, encryption, and actual-load evidence are
   deferred.
-- Runtime Kit, App Server, another Provider, Linear, pricing, dashboards, and continuous context
-  enforcement are deferred.
+- Runtime Kit, Codex App Server, another Provider, Linear, pricing, dashboards, and continuous
+  context enforcement are deferred.
 
 ## Next Recommended Task
 
-Discuss the smallest local UI and transport boundary as a new Repository Design Proposal, reusing
-the landed shared application and delivery operations. Real GitHub smoke validation requires
-separate repository, branch-namespace, and cleanup authority.
+Land the accepted Proposal 0014, Decision 0016, and started
+[WI-0009](work-items/WI-0009-local-review-and-delivery-console.md), then create its dogfood ChangeSet
+from that exact base. GitHub publication remains a separate exact external-write gate.
 
 ## Maintenance Contract
 

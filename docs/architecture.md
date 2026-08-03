@@ -222,6 +222,34 @@ carry no public compatibility promise. Temporary development scripts remain outs
 command tree, contain no unique lifecycle logic, and are removed at their WorkItem boundary unless
 a confirmed follow-up owns them. A generic command bus and public service graph remain deferred.
 
+### LocalReviewAndDeliveryConsole
+
+Decision 0016 accepts the next unimplemented operator adapter as one foreground local process. A
+retained experimental `changefleet serve` command will compose exactly one configured control root,
+bind only loopback, serve repository-owned HTML/CSS/browser modules, and expose a small explicit
+JSON route allowlist. It is not a daemon, Codex App Server, remote API, generic operation bus, or
+second authority graph.
+
+The adapter will call the existing `OperatorApplication` for exact Bundle decisions and GitHub
+publish/refresh, plus one new bounded `changeset.list` query and existing exact read/audit queries.
+It will not invoke the CLI parser or receive raw Store, Runtime, Git, workspace, or provider helper
+methods as HTTP operations. The existing isolated audit CLI retains its stronger read-only process
+composition; an audit view inside the lifecycle server does not claim that boundary.
+
+The first view is current-subject only and bounded. Full logs, transcripts, diffs, GitHub payloads,
+and evidence bodies remain linked on-demand artifacts. Browser actions carry caller attempt
+identity and exact Bundle or delivery subjects; browser state never becomes lifecycle authority or
+Agent context.
+
+The local trust boundary requires exact loopback and Host, same-origin requests, no CORS, an
+in-memory session/CSRF nonce, bounded JSON mutations, restrictive security headers, safe errors,
+and graceful shutdown. Remote access and another local-user security model require a later design.
+
+Production stays on Node.js 24 ESM with centralized `node:http` and native browser modules. The
+first slice adds no production web framework, frontend framework, bundler, CDN, or external assets.
+An exact pinned Playwright development dependency and explicit Chromium installation provide a
+selected browser gate for affected UI and transport changes.
+
 ### ReadOnlyAuditCliRoute
 
 The unified CLI's debug audit route provides one process boundary over `RuntimeAuditQueryService`.
@@ -526,4 +554,5 @@ The following remain outside the currently authorized implementation slice:
 - GitHub webhooks, CI subscription, and non-GitHub delivery providers;
 - automatic merge;
 - deployment and production rollback;
+- remote or multi-user UI, daemon service, desktop shell, and full lifecycle controls;
 - hosted multi-tenancy.

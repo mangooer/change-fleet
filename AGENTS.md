@@ -43,6 +43,7 @@ See `docs/harness.md` for the loading map, size guardrails, and maintenance rule
   expose only the current exact subject as actionable.
 - Evidence belongs to exact base and candidate SHAs. A changed SHA creates new evidence identity.
 - GitHub delivery requires a confirmed binding and exact Candidate head; humans merge, not Agents.
+- Local UI/HTTP adapters use shared operations, never the CLI or internal control helpers.
 - Git has no universal atomic transaction across repositories. Use precise discard, revert,
   rollout, and compensation language.
 

@@ -17,7 +17,9 @@ reviewable `CandidateBundle` representing one exact cross-repository outcome.
 This repository contains the spec-first project Harness and the private implementation through
 landed WI-0008, including immutable Repository Harness overlays, Runtime audit projections, one
 experimental lifecycle CLI, and exact GitHub pull-request delivery. The package is not released
-and exposes no stable public CLI contract.
+and exposes no stable public CLI contract. Accepted Proposal 0014 defines a local review and
+delivery console, and WI-0009 is started but has not mutated implementation; no API or UI exists
+yet.
 
 The first accepted vertical slice, tracked by
 [`WI-0001`](docs/work-items/WI-0001-local-two-repository-vertical-slice.md), is:

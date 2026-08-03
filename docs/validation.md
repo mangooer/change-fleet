@@ -130,6 +130,24 @@ namespace, PR visibility, expected writes, human merge behavior, and cleanup aut
 real GitHub gate remains explicitly unverified even when deterministic Git and `gh` fixture tests
 pass.
 
+Decision 0016 requires selected tests for the bounded ChangeSet list, exact-subject UI projection,
+explicit HTTP route allowlist, body and output limits, typed error mapping, loopback/Host/Origin and
+session/CSRF checks, graceful shutdown, zero-mutation GET behavior, caller idempotency, stale Bundle
+decisions, delivery reconciliation, and Runtime-context exclusion. The existing isolated audit CLI
+keeps its stronger zero-capability process tests even when the local lifecycle server presents the
+same bounded audit facts.
+
+The first UI WorkItem may add one exact pinned `@playwright/test` development dependency and an
+explicit Chromium install step. Its `test:ui` gate is required when browser assets, view models,
+HTTP behavior, or local-browser security change. Documentation-only and unrelated domain changes
+do not launch or download a browser. Missing browser infrastructure is reported as unavailable,
+not passed, and generated screenshots, traces, reports, and browser binaries stay outside Git and
+control state.
+
+The recommended first real GitHub gate is the accepted UI WorkItem's exact Candidate rather than a
+disposable smoke change. It remains separately authorized under the repository, branch, PR, merge,
+and cleanup rules above; Proposal or WorkItem acceptance alone does not grant the write.
+
 For Harness documentation, also inspect the byte sizes of `AGENTS.md`, `WORKFLOW.md`, and
 `docs/current-state.md` against the soft limits in `docs/harness.md`. This is a maintenance
 observation, not proof of provider token usage or the proposed 70-percent Runtime bound.

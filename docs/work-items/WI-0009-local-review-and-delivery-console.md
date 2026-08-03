@@ -1,0 +1,154 @@
+---
+artifact_type: development_work_item
+id: WI-0009
+status: in_progress
+title: Implement the local review and delivery console
+source: 'User request: "创建并确认WI-0009。"'
+confirmed_by: user
+confirmed_at: 2026-08-03
+started_by: user
+started_at: 2026-08-03
+review_ready_at:
+completed_by:
+completed_at:
+standing_policy:
+design_proposal: docs/proposals/0014-local-review-and-delivery-console.md
+accepted_decisions:
+  - docs/decisions/0016-local-review-and-delivery-console.md
+---
+
+# WI-0009: Implement The Local Review And Delivery Console
+
+## Objective
+
+Implement the sole foreground local review and delivery console accepted by Proposal 0014: add a
+bounded recent-ChangeSet read model, one loopback HTTP adapter over explicit shared operations, and
+a repository-owned browser UI for exact Bundle decisions and GitHub delivery without duplicating
+control-plane logic or expanding into a full lifecycle frontend.
+
+## Scope
+
+- Add a bounded, cursor-stable `changeset.list` query over one configured ChangeFleet control root.
+- Add one retained experimental `changefleet serve --config <path> [--port <port>]` product command
+  that runs in the foreground and binds only loopback.
+- Add an explicit experimental local HTTP route allowlist for recent and exact ChangeSet reads,
+  exact audit presentation, exact Bundle decisions, and delivery read/publish/refresh.
+- Delegate mutations unchanged to shared application operations and reads to explicit bounded query
+  services; do not expose arbitrary operation names or internal helpers.
+- Add repository-owned HTML, CSS, and browser ESM views for recent ChangeSets, exact current state,
+  Bundle subject and evidence summary, Runtime audit summary, and per-Repository GitHub delivery.
+- Add exact Bundle accept/reject, delivery publish, and delivery refresh interactions with explicit
+  confirmation, exact-subject display, caller attempt identity, and ambiguous-result recovery.
+- Enforce exact loopback and Host, same-origin requests, no CORS, an in-memory session/CSRF nonce,
+  bounded JSON mutation bodies, restrictive security headers, safe errors, and graceful shutdown.
+- Keep UI, HTTP, audit, and browser state outside Runtime context and keep large or sensitive
+  artifacts out of list and bootstrap payloads.
+- Add one exact pinned `@playwright/test` development dependency, explicit Chromium setup, and a
+  selected `test:ui` gate without adding a production UI framework or build system.
+- Add Simplified Chinese intent comments to every new production module and non-obvious changed
+  boundary.
+- Remove every temporary server, command, generated browser report, screenshot, trace, fixture
+  executable, and unowned scaffold before review.
+
+## Non-Goals
+
+- Project registration, Repository or Harness configuration, selection revision, planning,
+  execution, cancellation, recovery, or Agent chat UI.
+- GitHub binding configuration, merge button, automatic merge, merge queue, deployment, rollback,
+  PR comments, or issue synchronization.
+- Generic REST API, GraphQL, generic operation bus, generated client, stable public API, or stable
+  UI compatibility promise.
+- Daemon, background poller, webhook, SSE, WebSocket, system service, tray process, Electron, Tauri,
+  remote listener, multi-user account, TLS, or hosted tenancy.
+- React, Vue, Svelte, frontend router, bundler, production web framework, CDN, external assets,
+  telemetry, or analytics.
+- Full unbounded diff transport, source editor, inline code review, pricing, comparison dashboard,
+  Linear, remote workers, or another Agent Provider.
+- Real GitHub writes without separately recorded repository, target, namespace, PR, merge, and
+  cleanup authority.
+
+## Acceptance Criteria
+
+- The recent list is bounded to at most 50 entries per page, cursor-stable, current-subject only,
+  and free of transcripts, full diffs, logs, raw provider payloads, secrets, and artifact bodies.
+- The browser never scans a control directory or supplies a control root, repository path,
+  operation name, executable, or internal capability through HTTP.
+- The server runs in the foreground, binds exactly one configured root and loopback address, and
+  closes listeners and idle connections cleanly.
+- Only accepted explicit routes exist; unknown paths, methods, fields, hosts, origins, sessions,
+  content types, and oversized bodies fail closed with bounded typed responses.
+- UI and HTTP adapters invoke neither the CLI parser nor raw Store, Runtime, Git, workspace, `gh`,
+  failure-recording, or recovery helpers.
+- Bundle actions show and bind the exact Bundle revision and hash, Candidate ids and SHAs, changed
+  paths, validation identity, and available or omitted evidence before confirmation.
+- Delivery actions retain the landed binding, exact-Candidate, target, non-force, human-merge,
+  idempotency, restart, partial-result, and divergence semantics.
+- Browser retries reuse one attempt id while a result is ambiguous and reread durable state after
+  reload or service restart.
+- GET and ordinary page reload produce no lifecycle, repair, Runtime, GitHub refresh, or evidence
+  mutation.
+- Audit presentation calls the unchanged read-only query component, remains outside Runtime
+  context, and does not claim the isolated CLI audit route's stronger process boundary.
+- Frontend production assets make no external network request and require no framework, bundler,
+  CDN, analytics, font, or telemetry dependency.
+- All new production modules contain Chinese intent comments and key non-obvious security,
+  identity, recovery, and context boundaries are commented in Chinese.
+- Every maintained test fixture and product command has an ongoing accepted purpose; no temporary
+  command or generated browser artifact remains.
+- Real self-iteration success is recorded only if the exact UI Candidate is separately authorized,
+  published, human-merged, and reconciled; otherwise that gate remains unverified.
+
+## Validation Selection
+
+| Command or gate | Scope | Requirement | Selection reason |
+| --- | --- | --- | --- |
+| ChangeSet query and view-model unit tests | cursor ordering, limit, exact subjects, bounded fields, formatting | Required | New read model and browser transformation logic |
+| HTTP adapter unit tests | explicit routes, parsing, limits, typed errors, safe responses | Required | New local transport boundary |
+| Local service integration tests | loopback, one root, Host/Origin/session, shutdown, zero-write GET | Required | New foreground process and browser-security boundary |
+| Shared-operation integration tests | Bundle decision, publish, refresh, idempotency, stale subject, restart | Required | UI mutations must preserve landed application semantics |
+| Context regression | UI, HTTP, audit, and browser fields absent from Runtime invocations | Required | Accepted audit and context isolation boundary |
+| Chromium `test:ui` acceptance | list, exact view, confirmation, decision, publish, partial/merged refresh, basic accessibility | Required when browser assets and server are implemented | Proves the real operator path rather than HTML strings only |
+| Existing affected Node suites | current domain, store, CLI, delivery, and acceptance regressions selected from final diff | Required | The slice crosses existing operator and delivery surfaces |
+| Full deterministic `npm run check` | final stable implementation subject | Required unless final selection documents a narrower equivalent gate | Broad cross-layer implementation |
+| Real Codex Provider | implementation through a ChangeFleet ChangeSet | Selected only when WI-0009 is explicitly started through the dogfood path | Proposal recommends self-iteration, but confirmation alone does not start a Run |
+| Real GitHub delivery | exact UI Candidate branch and PR | Conditional on separate exact external-write authority | Proposal and WorkItem confirmation do not authorize GitHub mutation |
+| Documentation and boundary audit | links, status projections, eager sizes, commands, comments, assets, fakes | Required | Maintains Harness and stage boundaries |
+
+Every changed test file must execute. Chromium binaries and generated reports remain external test
+infrastructure, not repository or control-state artifacts. A missing browser or withheld external
+authority is reported as unverified, never passed.
+
+## Execution And External Authority
+
+- Intended dogfood subject: one future ChangeFleet ChangeSet implementing WI-0009 against the
+  registered ChangeFleet repository and an explicitly selected base branch.
+- Current confirmation does not select that Runtime ChangeSet, base, Agent Profile, or execution
+  time and does not start a Provider.
+- Before real GitHub publication, record exact repository, remote, target, `changefleet/` namespace,
+  PR visibility, human merge behavior, and branch cleanup authority.
+- If GitHub authority is withheld, local implementation and deterministic review may still finish,
+  but the external self-iteration claim remains open.
+
+## Current Projection
+
+- Current subject: WI-0009 is started as the sole implementation WorkItem for accepted Proposal
+  0014; production implementation has not mutated yet.
+- Last verified state: Proposal 0014 and Decision 0016 are accepted; no UI code, API, browser
+  dependency, service process, Runtime ChangeSet, or GitHub write has started.
+- Next step: land the accepted Proposal/Decision/WorkItem authority so the dogfood ChangeSet can
+  select an exact base that contains its own demand, then create that Runtime ChangeSet.
+- Active blocker or decision: the authority documents are uncommitted and therefore excluded from
+  an exact-base ChangeSet; real GitHub delivery also requires separate external-write authority.
+
+## Implementation Evidence
+
+Pending implementation.
+
+## Acceptance Review
+
+Pending implementation, selected validation, and user review.
+
+## Project Memory Impact
+
+WI-0009 is accepted unfinished work. It does not change the landed WI-0001 through WI-0008 baseline
+until its implementation is reviewed, accepted, and committed.

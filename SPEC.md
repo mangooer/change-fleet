@@ -776,3 +776,39 @@ ChangeFleet does not merge the PR. GitLab, automatic merge, merge queues, source
 GitHub App, webhook, daemon polling, deployment, remote workers, UI, and App Server remain outside
 this stage. Real GitHub validation requires separately confirmed repository, branch namespace, PR,
 and cleanup authority.
+
+## 17. First Local Review And Delivery Console Stage
+
+The accepted next operator surface is a foreground, single-user, loopback-only local console over
+explicit shared application and query operations. It is a presentation adapter, not an Agent
+frontend, daemon, remote API, generic operation bus, or new authority store.
+
+The first console shows a bounded recent-ChangeSet list, one exact current ChangeSet, Bundle,
+available validation and audit summaries, and exact GitHub delivery state. It may accept or reject
+the current exact Bundle, publish an accepted Bundle, and explicitly refresh delivery. It does not
+configure Projects, Repositories, Harness, selection, planning, execution, GitHub binding, merge,
+deployment, or recovery.
+
+One bounded `changeset.list` read model uses stable cursor ordering and returns only current summary
+fields. It never exposes arbitrary filesystem enumeration, full transcripts, logs, diffs, raw
+provider payloads, secrets, or artifact bodies. UI and audit presentation remain outside every
+Agent Runtime context.
+
+The experimental `changefleet serve` command binds one configured control root to loopback in the
+foreground. Its explicit local HTTP route allowlist delegates to shared operations and cannot
+accept a control-root path, operation name, executable, or internal capability from a request. GET
+and page reload do not invoke Agents, refresh GitHub, repair state, or advance lifecycle.
+
+The first implementation uses Node.js 24 ESM, centralized `node:http`, and repository-owned HTML,
+CSS, and browser modules without a production web or frontend framework. It enforces strict Host
+and same-origin requests, no CORS, an in-memory browser-session/CSRF nonce, bounded JSON mutation
+bodies, security headers, safe errors, and graceful shutdown. Remote or multi-user access requires
+a later authority model.
+
+An exact pinned Playwright development dependency and explicitly installed Chromium validate
+affected UI and HTTP boundaries. Browser infrastructure is selected when those files or security
+boundaries change rather than for unrelated work.
+
+The recommended first real GitHub gate is the console implementation Candidate itself. Acceptance
+of this contract does not authorize that write; repository, target, branch namespace, PR behavior,
+human merge, and cleanup authority must be confirmed separately.

@@ -305,11 +305,12 @@ chronological reasoning:
 
 The deterministic first slice proved the Control Contract, projections, scoped capabilities, and
 initial budget evidence using a scripted test Runtime. Decisions 0009 and 0010 accept raw
-out-of-context Runtime evidence and one first Codex SDK Provider. Decision 0011 accepts frozen
-ignored Codex Harness as the next implementation stage. Snapshot bodies and detailed inventories
-remain linked evidence rather than eager Harness context. Runtime Kit packaging, general workspace
-seeds, App Server, a second Provider, Linear, pricing/effectiveness analysis, and continuous context
-enforcement remain deferred.
+out-of-context Runtime evidence and one first Codex SDK Provider. Decision 0011's frozen ignored
+Codex Harness is landed. Decision 0016 keeps the accepted local console and its audit presentation
+outside Runtime context. Snapshot bodies and detailed inventories remain linked evidence rather
+than eager Harness context. Runtime Kit packaging, general workspace seeds, Codex App Server, a
+second Provider, Linear, pricing/effectiveness analysis, and continuous context enforcement remain
+deferred.
 
 ## Maintenance Check
 
