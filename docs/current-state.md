@@ -8,7 +8,7 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 ## Current Baseline
 
 - WI-0001 through WI-0008 and WI-0010 through WI-0011 are accepted and landed. WI-0009 remains
-  unfinished and its old Runtime ChangeSet has not yet been explicitly closed.
+  unfinished; its old Runtime ChangeSet is abandoned and `changefleet-wi-0009-v2` is newly created.
 - The private Node.js 24 ESM package has a versioned filesystem store, `node:test`, pinned
   `@openai/codex-sdk@0.146.0`, one real Codex adapter, test-only scripted Runtime, and one
   experimental CLI; no released package, stable CLI, API, or UI exists.
@@ -73,9 +73,9 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 - The [Proposal Index](proposals/INDEX.md) owns chronology. Accepted implementation through Proposal
   0013 is represented by landed WI-0001 through WI-0008; superseded, rejected, and deferred
   boundaries remain explicit there and in their Decisions.
-- Accepted [0014](proposals/0014-local-review-and-delivery-console.md) remains blocked: exact
-  Candidate `12a7036` passed repository validation but its invalid combined command produced no
-  Bundle. Landed WI-0010 preserved it without another Runtime Run. Accepted
+- Accepted [0014](proposals/0014-local-review-and-delivery-console.md) is restarting in a fresh
+  ChangeSet. The old attempt and exact Candidate `12a7036` remain immutable history rather than
+  input to the new task. Accepted
   [0016](proposals/0016-explicit-changeset-closure.md) is implemented by landed WI-0011, adding
   human closure before the user creates a fresh task.
 
@@ -94,10 +94,8 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 - WI-0003 proved native-Windows local-ChatGPT single-Repository use. Other auth/hosts, hostile
   access, hard interruption, and paid multi-Repository work remain unverified.
 - Codex SDK usage is aggregate-only; effective model and universal host read-denial remain unknown.
-- WI-0009 has no exact Bundle: its current state is `failed`, its confirmed combined command cannot
-  run from the specified validation directory, and the current public state machine has no
-  pre-Bundle transition back to a human-confirmed revised plan. Validation evidence records the
-  outer npm shim but not the nested Node 24 child locator enforced by the repository check.
+- The abandoned WI-0009 attempt has no exact Bundle. Its invalid combined command and review
+  findings remain historical evidence; the new ChangeSet has no plan, Run, Candidate, or Bundle.
 - Native Windows needs a pre-provisioned elevated sandbox. The explicit administrator refresh
   necessarily raised UAC; the user still observed a consent prompt afterward, but its exact trigger
   was not captured. Recurring managed-Run prompts remain unresolved and grant no product authority.
@@ -110,8 +108,8 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 
 ## Next Recommended Task
 
-Explicitly close the old WI-0009 Runtime ChangeSet. The user can then create a fresh ChangeSet on a
-newly selected branch and frozen base through the ordinary creation operation.
+Plan `changefleet-wi-0009-v2` from its latest explicit `main` selection. Plan confirmation and any
+real Provider execution remain separate human gates.
 
 ## Maintenance Contract
 

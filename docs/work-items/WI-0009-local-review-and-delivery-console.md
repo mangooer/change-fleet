@@ -137,10 +137,10 @@ authority is reported as unverified, never passed.
 
 ## Current Projection
 
-- Current subject: WI-0009 remains the started implementation WorkItem for accepted Proposal 0014,
-  and its WI-0010 prerequisite is accepted and landed. Its dogfood ChangeSet remains
-  `changefleet-wi-0009` at exact base `5f2ad1d`.
-- Planning attempt 3 produced and confirmed one WorkUnit. Execution Run
+- Current subject: WI-0009 remains the started implementation WorkItem for accepted Proposal 0014.
+  The user explicitly abandoned old Runtime ChangeSet `changefleet-wi-0009` and created
+  `changefleet-wi-0009-v2` with the same confirmed objective and an explicit current `main` branch.
+- The abandoned attempt's planning attempt 3 produced and confirmed one WorkUnit. Execution Run
   `run-f7d39a4b-2469-46d2-afa7-204cb7328fba` completed Provider implementation and the owned
   workspace contains clean commit `12a7036`. Exact legacy recovery created checkpoint
   `candidate-checkpoint-4da5d6ffed87f65ef75db5d8`; resumed repository validation passed and
@@ -151,13 +151,12 @@ authority is reported as unverified, never passed.
 - Read-only review found a partial but reusable implementation with blockers: incomplete Playwright
   lock data, false-success browser skips, inline-bootstrap XSS, non-strict HTTP fields/media types,
   unsafe error details, and missing required browser scenarios.
-- Next step: discuss a narrow Proposal 0016 for a human-confirmed pre-Bundle plan correction after
-  deterministic validation failure. It must preserve the exact Candidate and evidence, replace
-  neither the confirmed command nor toolchain silently, and return the same ChangeSet to an exact
-  revised validation plan without another semantic implementation Run.
-- Active blockers: the current state is `failed`, no exact CandidateBundle exists, and the current
-  public state machine has no pre-Bundle route back to `replanning`. UAC recurrence is unresolved;
-  real Chromium and GitHub external-write gates remain unverified.
+- The new ChangeSet is `analyzing` with no Plan or Run. Its selected base will be revised once after
+  this authority-maintenance commit so planning observes the latest accepted `main`.
+- Next step: plan and confirm `changefleet-wi-0009-v2`; do not import the abandoned Candidate as
+  current work or aggregate its cost into the new task.
+- Active blockers: UAC recurrence is unresolved; real Chromium and GitHub external-write gates
+  remain unverified.
 
 ## Implementation Evidence
 
@@ -211,7 +210,6 @@ Pending implementation, selected validation, and user review.
 
 ## Project Memory Impact
 
-WI-0009 is accepted unfinished work. WI-0010 is landed and legacy recovery preserved an exact
-Candidate without repeating Provider work, but invalid confirmed validation commands and the absent
-pre-Bundle replanning transition now block Bundle creation. The Candidate remains unaccepted and
-does not change the landed baseline.
+WI-0009 is accepted unfinished work. The old ChangeSet and its recovered Candidate remain abandoned
+audit history. The new ChangeSet starts independently from current accepted source and does not
+change the landed baseline until a new exact Bundle is reviewed and accepted.
