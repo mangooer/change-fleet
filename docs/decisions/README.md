@@ -23,6 +23,7 @@ projection.
 | [0015](0015-exact-github-pull-request-delivery.md) | Exact GitHub pull-request delivery and human-controlled integration | Accepted |
 | [0016](0016-local-review-and-delivery-console.md) | Foreground local review and delivery console | Accepted |
 | [0017](0017-post-provider-candidate-finalization-and-recovery.md) | Post-Provider Candidate finalization and recovery | Accepted |
+| [0018](0018-explicit-changeset-closure.md) | Explicit human closure of an unfinished ChangeSet | Accepted |
 
 Changing one of these boundaries requires a proposal. When a decision is superseded, preserve this
 record and point to the later accepted authority.

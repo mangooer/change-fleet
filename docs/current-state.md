@@ -44,6 +44,7 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
   per attempt, structured outcomes, exact-base planning worktrees, and WorkUnit-scoped writes.
 - Controller loss abandons an incomplete attempt; blind session resume and continuous context
   enforcement remain deferred.
+- Closing an unfinished task and ordinarily creating a later exact-base task are separate actions.
 
 ## Accepted Decisions
 
@@ -62,20 +63,20 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 - [0013](decisions/0013-local-read-only-audit-entry-point.md) exposes exact audit reads;
   [0014](decisions/0014-shared-application-commands-and-unified-local-cli.md) shared operations;
   [0015](decisions/0015-exact-github-pull-request-delivery.md) GitHub delivery; and
-  [0016](decisions/0016-local-review-and-delivery-console.md) the local review console; and
-  [0017](decisions/0017-post-provider-candidate-finalization-and-recovery.md) finalization recovery.
+  [0016](decisions/0016-local-review-and-delivery-console.md) the local review console;
+  [0017](decisions/0017-post-provider-candidate-finalization-and-recovery.md) finalization recovery;
+  and [0018](decisions/0018-explicit-changeset-closure.md) explicit closure.
 
 ## Repository Design Proposals
 
 - The [Proposal Index](proposals/INDEX.md) owns chronology. Accepted implementation through Proposal
   0013 is represented by landed WI-0001 through WI-0008; superseded, rejected, and deferred
   boundaries remain explicit there and in their Decisions.
-- [0014](proposals/0014-local-review-and-delivery-console.md) is accepted. WI-0009 legacy recovery
-  preserved exact commit `12a7036` as a Candidate without another Runtime Run, and repository
-  validation passed, but its confirmed combined command failed before Bundle creation because it
-  requires repository cwd instead of the specified control-owned validation directory.
-  Accepted [0015](proposals/0015-post-provider-candidate-finalization-and-recovery.md) and landed
-  WI-0010 now provide the checkpoint, exact resume, bounded feedback, and narrow shim prerequisite.
+- Accepted [0014](proposals/0014-local-review-and-delivery-console.md) remains blocked: exact
+  Candidate `12a7036` passed repository validation but its invalid combined command produced no
+  Bundle. Landed WI-0010 preserved it without another Runtime Run. Accepted
+  [0016](proposals/0016-explicit-changeset-closure.md) and active WI-0011 add human closure before
+  the user creates a fresh task.
 
 ## Open Questions
 
@@ -108,10 +109,9 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 
 ## Next Recommended Task
 
-Discuss a narrow Proposal 0016 for human-confirmed pre-Bundle plan correction after deterministic
-validation failure. Preserve the exact Candidate, checkpoint, attempts, and zero-Runtime recovery;
-never mutate the confirmed command or persisted state in place. GitHub publication remains a
-separate gate.
+Implement and review WI-0011's close-only shared operation. After it lands, close the old WI-0009
+Runtime ChangeSet and let the user create a fresh ChangeSet on a newly frozen base. Generic resume,
+rewind, restart, and fork remain later interactive-stage work.
 
 ## Maintenance Contract
 

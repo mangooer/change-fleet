@@ -556,6 +556,21 @@ writes overlay content back to the registered checkout.
 Run evidence records exact-base availability, overlay identity, and Provider-observable discovery
 separately. Detailed inventories and bytes remain linked artifacts outside default Agent context.
 
+## Explicit ChangeSet Closure Boundary
+
+One shared human operation may close an unfinished quiescent pre-delivery ChangeSet as
+`abandoned`. It appends a bounded decision and changes only the aggregate's current terminal
+projection. Existing Runs, evidence, usage, repository authority, checkpoints, Candidates, Bundles,
+commands, decisions, and blockers remain immutable history and exact reads continue to work.
+
+Close does not invoke Runtime, Git, validation, workspace cleanup, delivery, or another external
+adapter. It neither creates nor links a successor. The user creates a later task through the
+ordinary creation operation, which resolves and freezes its branch and base independently.
+
+The initial operation rejects active lifecycle work and any begun delivery. Generic resume,
+human-hold, retry policy, turn checkpoints, rewind, restart, fork, conversation deletion, and
+retention remain deferred rather than hidden behind a broad lifecycle command.
+
 ## Deferred Architecture
 
 The following remain outside the currently authorized implementation slice:

@@ -857,3 +857,21 @@ Bundle `request_revision` decisions carry bounded current feedback for the next 
 execution projection. Checkpoints, host locators, validation output, full review artifacts, and
 superseded feedback remain outside default Runtime context. This stage does not add UI recovery,
 Provider-session resume, generic import, automatic retry policy, or GitHub write authority.
+
+## 19. Explicit ChangeSet Closure Stage
+
+An exact human request may close one unfinished, quiescent ChangeSet before delivery begins. The
+aggregate becomes `abandoned`, records a bounded closure reason and actor, remains readable and
+auditable, and rejects later lifecycle mutation. Closure preserves all prior intent, selections,
+Plans, WorkUnits, Runs, usage, evidence, checkpoints, validation attempts, Candidates, Bundles,
+commands, decisions, and blockers.
+
+Closure does not create or link a successor, resolve another branch, revise a base, copy intent,
+invoke Runtime, retry validation, clean a workspace, delete content, or mutate GitHub. A user who
+wants to restart from another branch uses ordinary ChangeSet creation and confirms the new exact
+base independently.
+
+The first close operation requires no active Run or lifecycle command and no begun delivery.
+Generic resume, human holds, automatic retry, turn checkpoints, rewind, restart, fork, conversation
+deletion, content retention, and Provider-session continuation remain deferred to a later
+interactive lifecycle stage.
