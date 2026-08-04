@@ -7,8 +7,8 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 
 ## Current Baseline
 
-- WI-0001 through WI-0008 and WI-0010 through WI-0013 are landed. WI-0009-v3 Plan revision 1 is
-  proposed but unconfirmed because its validation commands cannot exercise the exact Candidate.
+- WI-0001 through WI-0008 and WI-0010 through WI-0013 are landed. WI-0009 remains unfinished;
+  v3 is abandoned with an immutable, unaccepted Candidate that may be reused only as Git input.
 - Agent Runtimes own semantic work. ChangeFleet owns cross-repository authorization, revisions,
   scheduling, exact Git and Bundle subjects, evidence, recovery, and human gates.
 
@@ -99,17 +99,18 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
   Console commit `12a7036` has security, lockfile, and real-Chromium blockers.
 - Native-Windows single-Repository use passed; other hosts and paid multi-Repository work are unverified.
 - Codex SDK usage is aggregate-only; effective model and universal host read-denial remain unknown.
-- The old WI-0009 attempt has no Bundle; its invalid command and review remain history. V2 closed
-  with a clean base-equal workspace and no Candidate or Bundle.
-- V3 planning succeeded under revision 2 `host_user` without a UAC interruption. Its first Plan
-  repeats the known combined-validation working-directory defect and must be superseded.
+- The old WI-0009 attempt and v2 remain abandoned history. V3 produced exact Candidate `bb5ed6c`
+  but no Bundle: its UI gate falsely skipped unavailable Chromium and its combined check required
+  a `candidate_id` field that the validation manifest deliberately does not contain. V3 is closed;
+  the Candidate is reusable source material, not an accepted baseline.
 - Runtime Kit, Codex App Server, another Provider, Linear, pricing, dashboards, and continuous
   context enforcement are deferred.
 
 ## Next Recommended Task
 
-Land the clarified WI-0009 validation boundary, revise v3 to that exact base, and plan once. Confirm
-only a Plan whose Repository check runs in the Candidate and combined check consumes its manifest.
+Create a WI-0009 successor from the current exact `main` baseline. Its Agent should reuse
+the immutable `bb5ed6c` diff, make unavailable Chromium fail the Repository gate, and validate only
+the documented manifest identity fields in the control-owned combined check.
 
 ## Maintenance Contract
 

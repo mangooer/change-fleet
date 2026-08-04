@@ -143,33 +143,26 @@ authority is reported as unverified, never passed.
 
 ## Current Projection
 
-- Current subject: WI-0009 remains the started implementation WorkItem for accepted Proposal 0014.
-  The user explicitly abandoned old Runtime ChangeSet `changefleet-wi-0009` and created
-  `changefleet-wi-0009-v2` with the same confirmed objective and an explicit current `main` branch.
-- The abandoned attempt's planning attempt 3 produced and confirmed one WorkUnit. Execution Run
-  `run-f7d39a4b-2469-46d2-afa7-204cb7328fba` completed Provider implementation and the owned
-  workspace contains clean commit `12a7036`. Exact legacy recovery created checkpoint
-  `candidate-checkpoint-4da5d6ffed87f65ef75db5d8`; resumed repository validation passed and
-  persisted Candidate `candidate-d49b26ca52229dac377891f8` without another Runtime Run.
-- Combined validation then failed before Bundle creation because the confirmed command
-  `npm run test:ui` requires a repository working directory, while the accepted combined-validation
-  contract runs from the control-owned validation directory containing only `manifest.json`.
-- Read-only review found a partial but reusable implementation with blockers: incomplete Playwright
-  lock data, false-success browser skips, inline-bootstrap XSS, non-strict HTTP fields/media types,
-  unsafe error details, and missing required browser scenarios.
-- `changefleet-wi-0009-v2` froze exact base `54c42b4`, confirmed Plan revision 1, and ran once. Its
-  base-equal checkpoint had no changed path, Candidate, or Bundle. The user explicitly closed v2
-  instead of retrying its overlapping pre-WI-0012 base; its Runs and cost remain audit history.
-- `changefleet-wi-0009-v3` was independently created at exact base `f0dbe4f`. Its first planning
-  Run triggered native Windows UAC and ended as `CODEX_PROVIDER_FAILED`. V3 remains `analyzing`
-  with no Plan, Candidate, or Bundle. External configuration now selects revision 2 `host_user`;
-  its historical revision 1 Run remains immutable.
-- Planning attempt 2 succeeded on `109da56` with Plan revision 1, but its base-only Repository
-  check and Repository-relative combined command repeat the known validation failure. It remains
-  unconfirmed and must be superseded.
-- Next step: commit the clarified validation boundary, revise v3 to that exact base, and plan once
-  with a fresh idempotency key.
-- Active blockers: corrected Plan; real Chromium and GitHub external-write gates remain unverified.
+- WI-0009 remains the started, unfinished WorkItem. Runtime ChangeSets `changefleet-wi-0009`, v2,
+  and v3 are abandoned audit history; none produced an accepted Bundle.
+- V3 froze exact base `91114cd`, confirmed Plan revision 2, and completed implementation Run
+  `run-a77d1902-f3f7-4dd7-9b3f-56dd13cb5eb6`. Controller-owned checkpoint
+  `candidate-checkpoint-3a73cc1e1484b068738eaca8` preserved clean commit
+  `bb5ed6ce6b6a954e1bac0b1837e56bed6574abd7` in its assigned workspace.
+- Repository validation attempt 1 failed because the child `node` resolved to Node.js 22.19.0.
+  A zero-Provider resume with process-local Node.js 24.14.0 then passed the Node suites and created
+  Candidate `candidate-d419db22b26eb158f526abff`, but its own artifact reported Chromium
+  unavailable while `test:ui` returned zero. This is a false-success gate, so the Candidate is not
+  reviewable even though its Repository evidence says passed.
+- Combined validation failed because confirmed Plan revision 2 required `candidate_id`; the
+  documented manifest instead identifies each Candidate by `repository_id`, `target_ref`,
+  `base_sha`, and `candidate_sha`, with `workspace_path` as a locator. No Bundle was created.
+- V3 was explicitly closed through decision `decision-2ceb4101-0c03-469c-a2b3-ebfeee7e4ecb`.
+  Candidate `bb5ed6c` remains immutable, unaccepted, and available only as read-only Git material.
+- The next ordinary successor must start from a new exact `main` baseline, inspect and selectively
+  reuse the `bb5ed6c` diff, make missing Chromium fail the Repository check, and use only actual
+  manifest fields in the control-owned combined check. It must not merge or treat `bb5ed6c` as the
+  accepted base. Real Chromium and GitHub external-write gates remain unverified.
 
 ## Implementation Evidence
 
@@ -249,6 +242,21 @@ authority is reported as unverified, never passed.
 - Plan revision 1 correctly proposed one WorkUnit but used `git rev-parse` as its Repository check
   and `node scripts/run-checks.mjs` as its control-directory combined check. It is deliberately not
   confirmed; Candidate and Bundle counts remain zero.
+- V3 planning Run `run-b1eb2e23-5334-4a1f-853c-5318e204f8c8` completed in 125451 ms and recorded
+  386869 total tokens. Confirmed Plan revision 2 selected Candidate-scoped
+  `node scripts/run-checks.mjs` plus a manifest-only combined check.
+- V3 execution Run `run-a77d1902-f3f7-4dd7-9b3f-56dd13cb5eb6` completed in 988261 ms and recorded
+  4434148 total tokens: 4402405 input, 4249856 cached input, 31743 output, and 4109 reasoning.
+  It created checkpoint commit `bb5ed6c`; the first Repository validation then failed before tests
+  because Node.js 22.19.0 violated the Node.js 24 gate.
+- `changeset execute` resumed with a fresh key and a process-local Node.js 24 PATH. Exit code `1`
+  created no Provider Run: Repository validation attempt 2 passed 57 unit, 64 integration, and 6
+  acceptance tests and persisted `evidence-00b0fd50266475f34683da1c`, but the artifact explicitly
+  left Chromium unverified. Combined evidence `evidence-e6783e3d07881266317157f0` then failed
+  because the plan required a nonexistent `candidate_id` manifest field.
+- `changeset close` under Node.js 24 returned exit code `0` and abandoned v3 through decision
+  `decision-2ceb4101-0c03-469c-a2b3-ebfeee7e4ecb`. All prior Run, Candidate, validation, and cost
+  records remain immutable audit history.
 
 ## Acceptance Review
 
@@ -256,6 +264,5 @@ Pending implementation, selected validation, and user review.
 
 ## Project Memory Impact
 
-WI-0009 is accepted unfinished work. The old ChangeSet and v2 are abandoned audit history. V3 is
-the current unplanned ChangeSet and does not change the landed baseline until an exact Bundle is
-reviewed and accepted.
+WI-0009 is accepted unfinished work. The old ChangeSet, v2, and v3 are abandoned audit history.
+No Candidate changes the landed baseline until an exact Bundle is reviewed and accepted.
