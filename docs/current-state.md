@@ -8,7 +8,7 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 ## Current Baseline
 
 - WI-0001 through WI-0008 and WI-0010 through WI-0012 are accepted and landed. WI-0009 remains
-  unfinished; its old Runtime ChangeSet is abandoned and `changefleet-wi-0009-v2` is newly created.
+  unfinished; its old ChangeSet is abandoned and failed v2 is selected for explicit closure.
 - Agent Runtimes own semantic work. ChangeFleet owns cross-repository authorization, revisions,
   scheduling, exact Git and Bundle subjects, evidence, recovery, and human gates.
 
@@ -85,7 +85,8 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
   human closure before the user creates a fresh task.
 - Accepted [0018](proposals/0018-provider-environment-ownership-and-pre-candidate-retry-correction.md)
   supersedes Proposal 0017's Provider Home mechanism. Landed WI-0012 removes that code while
-  retaining blocked, empty-result, and exact retry semantics. WI-0009-v2 remains blocked.
+  retaining blocked, empty-result, and exact retry semantics. WI-0009-v2 will close because its old
+  base overlaps UI control surfaces; v3 will use current main.
 
 ## Open Questions
 
@@ -100,19 +101,19 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 - WI-0003 proved native-Windows local-ChatGPT single-Repository use. Other auth/hosts, hostile
   access, hard interruption, and paid multi-Repository work remain unverified.
 - Codex SDK usage is aggregate-only; effective model and universal host read-denial remain unknown.
-- The abandoned WI-0009 attempt has no exact Bundle. Its invalid combined command and review
-  findings remain historical evidence. The new ChangeSet has a confirmed plan but its first
-  execution produced no Candidate or code change.
+- The abandoned WI-0009 attempt has no Bundle; its invalid command and review remain history. V2
+  has a confirmed plan, clean base-equal workspace, and no Candidate or Bundle. Its overlapping
+  base is selected for closure rather than retry.
 - WI-0009-v2 proved that a partial Codex Home can retrigger elevated setup and yield an empty
-  checkpoint. Copied Sandbox state was incompatible and lacked protected ACL lifecycle. Decision
-  0020 returns all Provider host state to the Harness or operator; no later retry ran.
+  checkpoint. Decision 0020 returns all Provider host state to the Harness or operator; Provider
+  readiness after host restart remains unverified.
 - Runtime Kit, Codex App Server, another Provider, Linear, pricing, dashboards, and continuous
   context enforcement are deferred.
 
 ## Next Recommended Task
 
-After the selected Codex environment is healthy, explicitly retry the clean exact-base WI-0009-v2
-WorkUnit under Node.js 24. Do not resume its historical empty checkpoint.
+Close WI-0009-v2, create v3 at current main, then plan, confirm, and execute under Node.js 24. Stop
+on any Provider environment or UAC blocker instead of retrying automatically.
 
 ## Maintenance Contract
 

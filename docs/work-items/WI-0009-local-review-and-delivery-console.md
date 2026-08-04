@@ -151,12 +151,17 @@ authority is reported as unverified, never passed.
 - Read-only review found a partial but reusable implementation with blockers: incomplete Playwright
   lock data, false-success browser skips, inline-bootstrap XSS, non-strict HTTP fields/media types,
   unsafe error details, and missing required browser scenarios.
-- The new ChangeSet is `analyzing` with no Plan or Run. Its current Repository selection explicitly
-  freezes the latest accepted maintenance baseline on `main`.
-- Next step: plan and confirm `changefleet-wi-0009-v2`; do not import the abandoned Candidate as
-  current work or aggregate its cost into the new task.
-- Active blockers: UAC recurrence is unresolved; real Chromium and GitHub external-write gates
-  remain unverified.
+- `changefleet-wi-0009-v2` froze exact base `54c42b4`, confirmed Plan revision 1, and ran once. The
+  Provider produced no changed path; the historical base-equal checkpoint failed repository
+  validation before WI-0012 corrected empty-result and clean pre-Candidate retry handling. The
+  workspace remains clean, with no Candidate or Bundle.
+- Current `main` moved to accepted WI-0012 and changed application, CLI, and test surfaces that the
+  console is expected to touch. The user selected explicit closure of v2 and ordinary creation of
+  `changefleet-wi-0009-v3` from the latest exact baseline instead of retrying obsolete source.
+- Next step: close v2, create v3, then plan, confirm, and execute the same WI-0009 intent. Preserve
+  old and v2 Runs and cost as separate immutable ChangeSet audit history.
+- Active blockers: the selected Provider environment remains unverified after host restart; real
+  Chromium and GitHub external-write gates also remain unverified.
 
 ## Implementation Evidence
 
@@ -203,6 +208,11 @@ authority is reported as unverified, never passed.
   non-24 test Runtime before dispatch; its exit code `0` therefore verifies the selected test
   Runtime. Validation evidence does not expose the nested child locator, which remains an audit
   precision limitation rather than a failed gate.
+- UTF-8 inspection of `changefleet-wi-0009-v2` recorded failed ChangeSet state, confirmed Plan
+  revision 1, one `validation_failed` WorkUnit, exact base and checkpoint SHA `54c42b4`, zero
+  changed paths, zero Candidates, zero Bundles, and a clean owned workspace. Current `main` is one
+  overlapping WI-0012 commit ahead, so the user chose ordinary successor creation instead of an
+  exact-base retry.
 
 ## Acceptance Review
 
@@ -211,5 +221,5 @@ Pending implementation, selected validation, and user review.
 ## Project Memory Impact
 
 WI-0009 is accepted unfinished work. The old ChangeSet and its recovered Candidate remain abandoned
-audit history. The new ChangeSet starts independently from current accepted source and does not
-change the landed baseline until a new exact Bundle is reviewed and accepted.
+audit history. V2 will close without a Candidate; v3 starts independently from current accepted
+source and does not change the landed baseline until a new exact Bundle is reviewed and accepted.
