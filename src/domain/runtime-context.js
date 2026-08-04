@@ -3,7 +3,7 @@ import { invariant } from "./errors.js";
 
 // Runtime 只接收当前操作所需投影；完整历史留在控制存储中按引用读取。
 export const CONTROL_CONTRACT_VERSION = 3;
-export const CONTEXT_PROJECTION_VERSION = 3;
+export const CONTEXT_PROJECTION_VERSION = 4;
 
 export function createControlContract({
   operation,
@@ -56,13 +56,70 @@ export function createContextProjection({
     // 只投影当前选择，不把已废弃 revision 历史灌入 Agent 上下文。
     repository_selection: repositorySelection,
     repository_harness_selection: repositoryHarnessSelection,
-    work_unit: workUnit,
+    // 工作区 locator、Checkpoint、验证尝试和 Candidate 只属于控制与审计面。
+    work_unit: projectWorkUnit(workUnit),
     repositories,
     capability,
     required_evidence: requiredEvidence,
-    blockers: [...changeSet.blockers],
-    decisions: [...changeSet.decisions],
+    blockers: changeSet.blockers
+      .filter((blocker) => blocker.resolved_at === undefined)
+      .map(projectBlocker),
+    decisions: changeSet.decisions
+      .filter(
+        (decision) =>
+          !new Set(["bundle_review", "legacy_candidate_recovery"]).has(
+            decision.type,
+          ),
+      )
+      .slice(-16)
+      .map((decision) => structuredClone(decision)),
+    revision_feedback: projectRevisionFeedback(
+      changeSet.current_revision_feedback,
+    ),
     history_references: historyReferences,
+  };
+}
+
+function projectBlocker(blocker) {
+  return Object.fromEntries(
+    ["code", "work_unit_id", "run_id", "request_id"]
+      .filter((key) => blocker[key] !== undefined)
+      .map((key) => [key, blocker[key]]),
+  );
+}
+
+function projectWorkUnit(workUnit) {
+  if (!workUnit) return null;
+  return Object.fromEntries(
+    [
+      "work_unit_id",
+      "repository_id",
+      "task",
+      "dependencies",
+      "target_ref",
+      "base_sha",
+      "repository_selection_revision",
+      "repository_harness_selection_revision",
+      "repository_check",
+      "plan_revision",
+      "state",
+      "last_error",
+    ]
+      .filter((key) => workUnit[key] !== undefined)
+      .map((key) => [key, structuredClone(workUnit[key])]),
+  );
+}
+
+function projectRevisionFeedback(feedback) {
+  if (!feedback) return null;
+  return {
+    bundle_revision: feedback.bundle_revision,
+    bundle_hash: feedback.bundle_hash,
+    summary: feedback.summary,
+    findings: feedback.findings.map((finding) => ({
+      finding_id: finding.finding_id,
+      text: finding.text,
+    })),
   };
 }
 

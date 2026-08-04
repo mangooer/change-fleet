@@ -1,9 +1,18 @@
-import { canonicalize, sha256, stableId } from "./canonical-json.js";
+import {
+  canonicalStringify,
+  canonicalize,
+  sha256,
+  stableId,
+} from "./canonical-json.js";
 import { invariant } from "./errors.js";
 
 // 领域模块保持纯函数：只验证输入与构造稳定身份，不读取 Git、文件或当前时间。
 const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const HUMAN_DECISIONS = new Set(["accept", "reject", "request_revision"]);
+const FEEDBACK_FINDING_LIMIT = 20;
+const FEEDBACK_SUMMARY_BYTES = 2 * 1024;
+const FEEDBACK_FINDING_BYTES = 2 * 1024;
+const FEEDBACK_TOTAL_BYTES = 16 * 1024;
 
 export function normalizeId(label, value) {
   invariant(
@@ -307,6 +316,113 @@ export function createCandidate({
   };
 }
 
+export function createCandidateCheckpoint({
+  changeSetId,
+  intentRevision,
+  planRevision,
+  repositorySelectionRevision,
+  repositoryHarnessSelectionRevision,
+  workUnitId,
+  repositoryId,
+  targetRef,
+  baseSha,
+  candidateSha,
+  workspaceId,
+  workspacePath,
+  changedPaths,
+  sourceRunId,
+  provenance = "automatic",
+  recoveryDecisionId = null,
+  createdAt,
+}) {
+  // Checkpoint 只冻结已发布 Git 主体；验证通过前不能借此获得 Candidate 权限。
+  const identity = {
+    change_set_id: normalizeId("change_set_id", changeSetId),
+    intent_revision: requirePositiveInteger("intent_revision", intentRevision),
+    plan_revision: requirePositiveInteger("plan_revision", planRevision),
+    repository_selection_revision: requirePositiveInteger(
+      "repository_selection_revision",
+      repositorySelectionRevision,
+    ),
+    repository_harness_selection_revision: requirePositiveInteger(
+      "repository_harness_selection_revision",
+      repositoryHarnessSelectionRevision,
+    ),
+    work_unit_id: normalizeId("work_unit_id", workUnitId),
+    repository_id: normalizeId("repository_id", repositoryId),
+    target_ref: requireString("target_ref", targetRef),
+    base_sha: requireCommitSha("base_sha", baseSha),
+    candidate_sha: requireCommitSha("candidate_sha", candidateSha),
+    workspace_id: normalizeId("workspace_id", workspaceId),
+    source_run_id: normalizeId("source_run_id", sourceRunId),
+  };
+  invariant(
+    provenance === "automatic" || provenance === "legacy_candidate_recovery",
+    "INVALID_CANDIDATE_CHECKPOINT",
+    "CandidateCheckpoint provenance is invalid",
+  );
+  invariant(
+    provenance === "automatic"
+      ? recoveryDecisionId === null
+      : typeof recoveryDecisionId === "string",
+    "INVALID_CANDIDATE_CHECKPOINT",
+    "Legacy CandidateCheckpoint requires its recovery decision",
+  );
+  return {
+    schema_version: 1,
+    checkpoint_id: stableId("candidate-checkpoint", identity),
+    ...identity,
+    workspace_path: requireString("workspace_path", workspacePath),
+    changed_paths: normalizeUniqueStringArray(changedPaths),
+    provenance,
+    recovery_decision_id:
+      recoveryDecisionId === null
+        ? null
+        : normalizeId("recovery_decision_id", recoveryDecisionId),
+    created_at: requireString("created_at", createdAt),
+  };
+}
+
+export function createValidationAttempt({
+  kind,
+  subjectId,
+  attempt,
+  status,
+  evidence,
+  errorCode = null,
+  createdAt,
+}) {
+  // 聚合只保存有界尝试索引；完整输出继续由不可变 EvidenceStore 外置。
+  invariant(
+    kind === "repository_validation" || kind === "combined_validation",
+    "INVALID_VALIDATION_ATTEMPT",
+    "Validation attempt kind is invalid",
+  );
+  invariant(
+    status === "passed" || status === "failed",
+    "INVALID_VALIDATION_ATTEMPT",
+    "Validation attempt status is invalid",
+  );
+  validateEvidenceReference(evidence, "validation attempt evidence");
+  const normalizedAttempt = requirePositiveInteger("attempt", attempt);
+  const normalizedSubjectId = normalizeId("validation_subject_id", subjectId);
+  return {
+    validation_attempt_id: stableId("validation-attempt", {
+      kind,
+      subject_id: normalizedSubjectId,
+      attempt: normalizedAttempt,
+      evidence_id: evidence.evidence_id,
+    }),
+    kind,
+    subject_id: normalizedSubjectId,
+    attempt: normalizedAttempt,
+    status,
+    evidence: structuredClone(evidence),
+    error_code: errorCode === null ? null : normalizeId("error_code", errorCode),
+    created_at: requireString("created_at", createdAt),
+  };
+}
+
 export function createCandidateBundle({
   changeSet,
   plan,
@@ -377,6 +493,56 @@ export function normalizeHumanDecision(value) {
   return value;
 }
 
+export function normalizeRevisionFeedback(input) {
+  invariant(
+    input && typeof input === "object" && !Array.isArray(input),
+    "INVALID_REVISION_FEEDBACK",
+    "Request revision feedback must be one object",
+  );
+  const summary = boundedUtf8String(
+    "revision_feedback.summary",
+    input.summary,
+    FEEDBACK_SUMMARY_BYTES,
+  );
+  invariant(
+    Array.isArray(input.findings) &&
+      input.findings.length >= 1 &&
+      input.findings.length <= FEEDBACK_FINDING_LIMIT,
+    "INVALID_REVISION_FEEDBACK",
+    `Revision feedback requires 1-${FEEDBACK_FINDING_LIMIT} findings`,
+  );
+  const seen = new Set();
+  const findings = input.findings.map((finding) => {
+    invariant(
+      finding && typeof finding === "object" && !Array.isArray(finding),
+      "INVALID_REVISION_FEEDBACK",
+      "Each revision finding must be one object",
+    );
+    const findingId = normalizeId("finding_id", finding.finding_id);
+    invariant(
+      !seen.has(findingId),
+      "INVALID_REVISION_FEEDBACK",
+      `Duplicate revision finding ${findingId}`,
+    );
+    seen.add(findingId);
+    return {
+      finding_id: findingId,
+      text: boundedUtf8String(
+        "revision_feedback.finding.text",
+        finding.text,
+        FEEDBACK_FINDING_BYTES,
+      ),
+    };
+  });
+  const normalized = { summary, findings };
+  invariant(
+    Buffer.byteLength(canonicalStringify(normalized)) <= FEEDBACK_TOTAL_BYTES,
+    "INVALID_REVISION_FEEDBACK",
+    `Revision feedback exceeds ${FEEDBACK_TOTAL_BYTES} bytes`,
+  );
+  return normalized;
+}
+
 export function commandFingerprint(command, input) {
   return sha256({ command, input: canonicalize(input) });
 }
@@ -434,6 +600,17 @@ function normalizeStringArray(value) {
   return value.map((item) => requireString("array item", item));
 }
 
+function normalizeUniqueStringArray(value) {
+  invariant(Array.isArray(value), "INVALID_STRING_ARRAY", "Expected an array");
+  const normalized = value.map((item) => requireString("array item", item));
+  invariant(
+    new Set(normalized).size === normalized.length,
+    "DUPLICATE_STRING",
+    "String array cannot contain duplicates",
+  );
+  return normalized.sort();
+}
+
 function normalizeIdArray(label, value) {
   if (value === undefined) return [];
   invariant(Array.isArray(value), "INVALID_ID_ARRAY", `${label} must be an array`);
@@ -469,6 +646,34 @@ function requireString(label, value) {
     `${label} must be a non-empty string`,
   );
   return value.trim();
+}
+
+function boundedUtf8String(label, value, maximumBytes) {
+  const normalized = requireString(label, value);
+  invariant(
+    Buffer.byteLength(normalized) <= maximumBytes,
+    "INVALID_REVISION_FEEDBACK",
+    `${label} exceeds ${maximumBytes} bytes`,
+  );
+  return normalized;
+}
+
+function requirePositiveInteger(label, value) {
+  invariant(
+    Number.isSafeInteger(value) && value > 0,
+    "INVALID_POSITIVE_INTEGER",
+    `${label} must be a positive integer`,
+  );
+  return value;
+}
+
+function requireCommitSha(label, value) {
+  invariant(
+    typeof value === "string" && /^[0-9a-f]{40}$/u.test(value),
+    "INVALID_COMMIT_SHA",
+    `${label} must be a full lowercase Git commit SHA`,
+  );
+  return value;
 }
 
 function normalizePositiveInteger(label, value, defaultValue) {

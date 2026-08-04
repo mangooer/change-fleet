@@ -99,6 +99,7 @@ Owns current aggregate state and references to immutable evidence:
 
 - ChangeIntent, RepositorySelection, RepositoryHarnessSelection, and ChangePlan revisions;
 - WorkUnit state;
+- current CandidateCheckpoint and validation-attempt references;
 - scope decisions;
 - active or superseded CandidateBundle revision;
 - bounded current GitHub delivery requests and latest evidence references;
@@ -128,9 +129,11 @@ service exercised through deterministic tests, and its initial Runtime implement
 scripted fake behind the AgentRuntimeAdapter port. Later accepted boundaries below add the real
 Provider and experimental CLI without turning the test Runtime into a product selection.
 
-The combined validation adapter invokes an executable and argument array without a shell. It passes
-one immutable validation manifest by `CHANGEFLEET_VALIDATION_MANIFEST`, binds evidence to the exact
-Candidate set, and repeats Candidate preflight before CandidateBundle assembly.
+The validation adapter accepts only an executable and argument array. It launches native
+executables directly; on Windows only, an exactly resolved `.cmd` or `.bat` may use one reviewed
+argv-preserving adapter. It records the requested and effective invocation, passes one immutable
+validation manifest by `CHANGEFLEET_VALIDATION_MANIFEST`, binds evidence to the exact Candidate
+subject, and repeats preflight before Candidate or CandidateBundle assembly.
 
 ### Planner
 
@@ -142,7 +145,7 @@ It receives:
 - authorized Repository catalog;
 - read-only repository access;
 - exact-base repository-native Harness plus any confirmed frozen overlay;
-- current plan or decision feedback.
+- current plan or bounded current decision feedback.
 
 It returns typed proposals:
 
@@ -164,6 +167,7 @@ from durable ChangeSet and Run state. It includes:
 - current Repository Harness selection identity and bounded discovery references;
 - confirmed intent summary and the relevant current plan slice;
 - capability boundary, blockers, decisions, gates, and typed outcomes;
+- bounded current request-revision feedback when present;
 - required evidence and progressive resource references;
 - initial context-budget components and classification.
 
@@ -302,6 +306,19 @@ It owns one repository operation at a time. It does not own the multi-repository
 human Bundle review. Its initial implementation uses explicit repository id, registered Git root,
 target ref, base SHA, workspace id, and workspace root inputs and must not import Conductor state
 types, workspace names, review lifecycle, or `ProjectRuntime`.
+
+### CandidateFinalizer
+
+After Provider implementation completes, `CandidateFinalizer` removes and verifies frozen Harness
+overlays, publishes the exact Git subject, and persists a CandidateCheckpoint before starting a
+repository check. Each validation attempt appends immutable evidence; passing current evidence
+creates the ordinary Candidate.
+
+Resume is a deterministic application operation with a new caller idempotency key. It rechecks
+current revisions, source Run, workspace ownership, clean exact HEAD, ancestry, changed paths, and
+the unchanged confirmed command before repository or combined validation. It never calls the Agent
+Runtime. A separate human-gated legacy operation may construct only the exact pre-checkpoint shape
+after the same proof and records distinct recovery provenance.
 
 ### BundleAssembler
 
@@ -454,6 +471,11 @@ On restart:
 4. verify workspace ownership and exact Git heads;
 5. never overwrite a completed Candidate or human decision;
 6. resume only from the current ChangeSet and plan revision.
+
+An exact current CandidateCheckpoint may resume repository validation, and an unchanged current
+Candidate set may resume combined validation, without a Runtime call. Failed attempts remain
+immutable evidence. Private pre-checkpoint recovery requires an explicit exact human gate and never
+becomes generic commit or workspace import.
 
 Provider-native context may optimize continuation but is not lifecycle authority.
 The first real adapter abandons an incomplete Provider session after controller loss and starts a

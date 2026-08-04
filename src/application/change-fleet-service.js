@@ -5,13 +5,16 @@ import { sha256 } from "../domain/canonical-json.js";
 import {
   commandFingerprint,
   createCandidate,
+  createCandidateCheckpoint,
   createCandidateBundle,
+  createValidationAttempt,
   createValidationSubject,
   normalizeHumanDecision,
   normalizeId,
   normalizeIntent,
   normalizePlan,
   normalizeRepositorySelectionRequest,
+  normalizeRevisionFeedback,
 } from "../domain/model.js";
 import {
   assessInitialContext,
@@ -342,10 +345,13 @@ export class ChangeFleetService {
       current_plan_revision: null,
       work_units: [],
       run_references: [],
+      candidate_checkpoints: [],
+      validation_attempts: [],
       candidates: [],
       bundles: [],
       delivery_requests: [],
       decisions: [],
+      current_revision_feedback: null,
       blockers: [],
       commands: {
         [idempotency_key]: {
@@ -1137,6 +1143,11 @@ export class ChangeFleetService {
           const plan = structuredClone(normalizedPlan);
           state.plans.push(plan);
           state.current_plan_revision = plan.revision;
+          if (state.current_revision_feedback) {
+            // 当前反馈既驱动本轮规划，也继续约束由该规划产生的执行上下文。
+            state.current_revision_feedback.applies_to_plan_revision =
+              plan.revision;
+          }
           state.work_units.push(
             ...plan.work_units.map((workUnit) => ({
               ...workUnit,
@@ -1144,6 +1155,8 @@ export class ChangeFleetService {
               state: "pending",
               workspace: null,
               run_references: [],
+              candidate_checkpoint_id: null,
+              validation_attempt_ids: [],
               candidate: null,
               last_error: null,
             })),
@@ -1242,9 +1255,8 @@ export class ChangeFleetService {
             );
           }
           invariant(
-            ["ready", "executing", "validating", "candidate_review"].includes(
-              state.state,
-            ),
+            ["ready", "executing", "validating"].includes(state.state) ||
+              (state.state === "failed" && hasResumableValidation(state)),
             "PLAN_CONFIRMATION_REQUIRED",
             `ChangeSet cannot execute from state ${state.state}`,
           );
@@ -1279,7 +1291,9 @@ export class ChangeFleetService {
         if (incomplete.length === 0) break;
         const ready = incomplete.find(
           (unit) =>
-            unit.state === "pending" &&
+            ["pending", "validation_pending", "validation_failed"].includes(
+              unit.state,
+            ) &&
             unit.dependencies.every(
               (dependency) =>
                 currentUnits.find(
@@ -1298,7 +1312,14 @@ export class ChangeFleetService {
             })),
           },
         );
-        await this.executeWorkUnit(change_set_id, ready.work_unit_id);
+        if (ready.state === "pending") {
+          await this.executeWorkUnit(change_set_id, ready.work_unit_id);
+        } else {
+          await this.resumeWorkUnitValidation(
+            change_set_id,
+            ready.work_unit_id,
+          );
+        }
       }
 
       const beforeValidation =
@@ -1326,7 +1347,8 @@ export class ChangeFleetService {
         plan,
         candidates,
       );
-      const combinedEvidence = await this.combinedValidator.validate({
+      const combinedEvidence = await this.validateCombinedCandidates({
+        changeSetId: change_set_id,
         subject,
         candidates,
         repositories,
@@ -1344,6 +1366,11 @@ export class ChangeFleetService {
       await this.controlStore.writeBundle(bundle);
       return this.controlStore.transactChangeSet(change_set_id, (state) => {
         state.bundles.push(bundle);
+        resolveValidationBlockers(state, {
+          validationSubjectHash: subject.validation_subject_hash,
+          resolvedAt: this.now(),
+        });
+        resolveFailedExecutionCommandBlockers(state, this.now());
         state.state = "candidate_review";
         state.updated_at = this.now();
         completeCommand(state, idempotency_key, {
@@ -1368,16 +1395,212 @@ export class ChangeFleetService {
     }
   }
 
+  async recoverLegacyCandidate({
+    idempotency_key,
+    change_set_id,
+    plan_revision,
+    work_unit_id,
+    source_run_id,
+    base_sha,
+    candidate_sha,
+    actor = "human",
+  }) {
+    // 旧私有 schema 只能在精确人工输入下补建 Checkpoint，不能成为通用 commit 导入。
+    for (const [label, value] of Object.entries({
+      idempotency_key,
+      change_set_id,
+      work_unit_id,
+      source_run_id,
+      actor,
+    })) {
+      normalizeId(label, value);
+    }
+    const commandInput = {
+      change_set_id,
+      plan_revision,
+      work_unit_id,
+      source_run_id,
+      base_sha,
+      candidate_sha,
+      actor,
+    };
+    const schedulerLock = await this.controlStore.acquireSchedulerLock(
+      this.instanceId,
+    );
+    try {
+      const initialState = await this.controlStore.readChangeSet(change_set_id);
+      const existing = existingCommand(
+        initialState,
+        idempotency_key,
+        "recoverLegacyCandidate",
+        commandInput,
+      );
+      if (existing?.status === "completed") {
+        return structuredClone(existing.result);
+      }
+      invariant(
+        !existing,
+        "COMMAND_IN_PROGRESS",
+        `Legacy recovery command ${idempotency_key} is not complete`,
+      );
+      const plan = currentPlan(initialState);
+      invariant(
+        plan?.status === "confirmed" && plan.revision === plan_revision,
+        "STALE_PLAN_REVISION",
+        "Legacy recovery must bind the current confirmed plan",
+      );
+      const workUnit = unitsForCurrentPlan(initialState).find(
+        (unit) => unit.work_unit_id === work_unit_id,
+      );
+      invariant(
+        workUnit &&
+          workUnit.candidate_checkpoint_id === null &&
+          workUnit.candidate === null &&
+          workUnit.base_sha === base_sha &&
+          workUnit.repository_selection_revision ===
+            initialState.current_repository_selection_revision &&
+          workUnit.repository_harness_selection_revision ===
+            initialState.current_repository_harness_selection_revision &&
+          workUnit.workspace,
+        "LEGACY_RECOVERY_SUBJECT_MISMATCH",
+        "Legacy recovery does not match one pre-checkpoint WorkUnit",
+      );
+      invariant(
+        workUnit.run_references.some(
+          (reference) =>
+            reference.run_id === source_run_id &&
+            reference.status === "completed",
+        ),
+        "LEGACY_RECOVERY_RUN_MISMATCH",
+        "Legacy recovery source Run is not the completed WorkUnit Run",
+      );
+      const sourceRun = await this.runStore.read(source_run_id);
+      invariant(
+        sourceRun.change_set_id === change_set_id &&
+          sourceRun.work_unit_id === work_unit_id &&
+          sourceRun.status === "completed" &&
+          sourceRun.outcome?.type === "implementation_completed",
+        "LEGACY_RECOVERY_RUN_MISMATCH",
+        "Legacy recovery source Run is not an exact completed implementation",
+      );
+      const catalog = await this.controlStore.readCatalog();
+      const project = requireProject(catalog, initialState.project_id);
+      const repository = project.repositories.find(
+        (item) => item.repository_id === workUnit.repository_id,
+      );
+      const published = await this.repositoryWorker.recoverPublishedCandidate({
+        repository,
+        workspace: workUnit.workspace,
+        baseSha: base_sha,
+        candidateSha: candidate_sha,
+      });
+      const decisionId = this.idFactory("decision");
+      const checkpoint = createCandidateCheckpoint({
+        changeSetId: change_set_id,
+        intentRevision: plan.intent_revision,
+        planRevision: plan.revision,
+        repositorySelectionRevision:
+          initialState.current_repository_selection_revision,
+        repositoryHarnessSelectionRevision:
+          initialState.current_repository_harness_selection_revision,
+        workUnitId: work_unit_id,
+        repositoryId: published.repository_id,
+        targetRef: published.target_ref,
+        baseSha: published.base_sha,
+        candidateSha: published.candidate_sha,
+        workspaceId: published.workspace_id,
+        workspacePath: published.workspace_path,
+        changedPaths: published.changed_paths,
+        sourceRunId: source_run_id,
+        provenance: "legacy_candidate_recovery",
+        recoveryDecisionId: decisionId,
+        createdAt: this.now(),
+      });
+
+      return this.controlStore.transactChangeSet(change_set_id, (state) =>
+        applyIdempotentCommand({
+          record: state,
+          idempotencyKey: idempotency_key,
+          command: "recoverLegacyCandidate",
+          input: commandInput,
+          perform: () => {
+            const currentUnit = unitsForCurrentPlan(state).find(
+              (unit) => unit.work_unit_id === work_unit_id,
+            );
+            invariant(
+              state.current_plan_revision === plan_revision &&
+                currentUnit?.candidate_checkpoint_id === null &&
+                currentUnit.candidate === null &&
+                currentUnit.workspace?.workspace_id === published.workspace_id,
+              "LEGACY_RECOVERY_SUBJECT_MISMATCH",
+              "Legacy recovery subject changed before persistence",
+            );
+            const decision = {
+              decision_id: decisionId,
+              type: "legacy_candidate_recovery",
+              actor,
+              plan_revision,
+              work_unit_id,
+              source_run_id,
+              base_sha,
+              candidate_sha,
+              checkpoint_id: checkpoint.checkpoint_id,
+              decided_at: this.now(),
+            };
+            // 决策和 Checkpoint 在同一控制事务中落盘，避免出现无人工来源的恢复主体。
+            state.decisions.push(decision);
+            state.candidate_checkpoints.push(checkpoint);
+            currentUnit.candidate_checkpoint_id = checkpoint.checkpoint_id;
+            currentUnit.validation_attempt_ids = [];
+            currentUnit.state = "validation_pending";
+            currentUnit.last_error = null;
+            resolveValidationBlockers(state, {
+              workUnitId: work_unit_id,
+              resolvedAt: this.now(),
+              resolvedByDecisionId: decisionId,
+            });
+            resolveFailedExecutionCommandBlockers(
+              state,
+              this.now(),
+              decisionId,
+            );
+            state.state = "ready";
+            state.updated_at = this.now();
+            return {
+              change_set_id,
+              work_unit_id,
+              checkpoint_id: checkpoint.checkpoint_id,
+              candidate_sha,
+              status: "validation_pending",
+            };
+          },
+        }),
+      );
+    } finally {
+      await schedulerLock.release();
+    }
+  }
+
   async recordBundleDecision({
     idempotency_key,
     change_set_id,
     bundle_revision,
     bundle_hash,
     decision,
+    feedback = null,
     actor = "human",
   }) {
     // 人工决策同时绑定 revision 与 hash，Candidate 或证据变化后旧批准立即失效。
     const normalizedDecision = normalizeHumanDecision(decision);
+    const normalizedFeedback =
+      normalizedDecision === "request_revision"
+        ? normalizeRevisionFeedback(feedback)
+        : null;
+    invariant(
+      normalizedDecision === "request_revision" || feedback === null,
+      "INVALID_REVISION_FEEDBACK",
+      "Only request_revision may carry revision feedback",
+    );
     return this.controlStore.transactChangeSet(change_set_id, (state) =>
       applyIdempotentCommand({
         record: state,
@@ -1388,6 +1611,7 @@ export class ChangeFleetService {
           bundle_revision,
           bundle_hash,
           decision: normalizedDecision,
+          feedback: normalizedFeedback,
           actor,
         },
         perform: () => {
@@ -1409,10 +1633,22 @@ export class ChangeFleetService {
             bundle_revision,
             bundle_hash,
             decision: normalizedDecision,
+            feedback: normalizedFeedback,
             actor,
             decided_at: this.now(),
           };
           state.decisions.push(record);
+          state.current_revision_feedback =
+            normalizedDecision === "request_revision"
+              ? {
+                  decision_id: record.decision_id,
+                  bundle_revision,
+                  bundle_hash,
+                  ...structuredClone(normalizedFeedback),
+                  applies_to_plan_revision: null,
+                  decided_at: record.decided_at,
+                }
+              : null;
           state.state =
             normalizedDecision === "accept"
               ? "delivery_ready"
@@ -1888,6 +2124,7 @@ export class ChangeFleetService {
       throw error;
     }
 
+    let checkpointPersisted = false;
     try {
       const requestedPrivateHarnessChanges =
         overlaySnapshot === null
@@ -1919,12 +2156,14 @@ export class ChangeFleetService {
         expectedHead: workUnit.base_sha,
         message: `ChangeFleet ${changeSetId} ${workUnitId}`,
       });
-      const repositoryEvidence = await this.validateRepositoryCandidate({
-        repository,
-        candidate: published,
-        command: workUnit.repository_check,
-      });
-      const candidate = createCandidate({
+      const checkpoint = createCandidateCheckpoint({
+        changeSetId,
+        intentRevision: plan.intent_revision,
+        planRevision: plan.revision,
+        repositorySelectionRevision: repositorySelection.revision,
+        repositoryHarnessSelectionRevision:
+          repositoryHarnessSelection.revision,
+        workUnitId,
         repositoryId: published.repository_id,
         targetRef: published.target_ref,
         baseSha: published.base_sha,
@@ -1932,40 +2171,214 @@ export class ChangeFleetService {
         workspaceId: published.workspace_id,
         workspacePath: published.workspace_path,
         changedPaths: published.changed_paths,
-        repositoryEvidence,
+        sourceRunId: runId,
+        createdAt: this.now(),
       });
       await this.controlStore.transactChangeSet(changeSetId, (current) => {
         const unit = unitsForCurrentPlan(current).find(
           (item) => item.work_unit_id === workUnitId,
         );
-        unit.state = "candidate_ready";
-        unit.candidate = candidate;
-        unit.run_references.at(-1).status = "completed";
-        const runReference = current.run_references.find(
-          (reference) => reference.run_id === runId,
+        invariant(
+          unit.state === "running" &&
+            unit.candidate_checkpoint_id === null &&
+            unit.candidate === null,
+          "CANDIDATE_CHECKPOINT_STATE_MISMATCH",
+          `WorkUnit ${workUnitId} cannot persist its CandidateCheckpoint`,
         );
-        runReference.status = "completed";
-        current.candidates.push(candidate);
+        current.candidate_checkpoints.push(checkpoint);
+        unit.candidate_checkpoint_id = checkpoint.checkpoint_id;
+        unit.state = "validation_pending";
+        unit.last_error = null;
+        current.state = "validating";
         current.updated_at = this.now();
       });
-      return candidate;
+      checkpointPersisted = true;
+      return this.resumeWorkUnitValidation(changeSetId, workUnitId);
     } catch (error) {
-      await this.failWorkUnit(changeSetId, workUnitId, error);
+      if (!checkpointPersisted) {
+        await this.failWorkUnit(changeSetId, workUnitId, error);
+      }
       throw error;
     }
   }
 
-  async validateRepositoryCandidate({ repository, candidate, command }) {
-    // 检查前后锁定 HEAD 与 clean 状态，Evidence 始终对应同一精确 SHA 主体。
-    await this.repositoryWorker.preflightCandidate({ repository, candidate });
-    const commandResult = await runCommand(command, {
-      cwd: candidate.workspace_path,
+  async resumeWorkUnitValidation(changeSetId, workUnitId) {
+    // 恢复只消费持久化 Checkpoint，不创建 Run，也不调用 Runtime。
+    const state = await this.controlStore.readChangeSet(changeSetId);
+    const plan = currentPlan(state);
+    const repositorySelection = currentRepositorySelection(state);
+    const repositoryHarnessSelection = currentRepositoryHarnessSelection(state);
+    const workUnit = unitsForCurrentPlan(state).find(
+      (unit) => unit.work_unit_id === workUnitId,
+    );
+    invariant(
+      workUnit &&
+        ["validation_pending", "validation_failed"].includes(workUnit.state) &&
+        workUnit.candidate_checkpoint_id &&
+        !workUnit.candidate,
+      "CANDIDATE_CHECKPOINT_NOT_RESUMABLE",
+      `WorkUnit ${workUnitId} has no resumable CandidateCheckpoint`,
+    );
+    const checkpoint = state.candidate_checkpoints.find(
+      (item) => item.checkpoint_id === workUnit.candidate_checkpoint_id,
+    );
+    invariant(
+      checkpoint &&
+        checkpoint.change_set_id === changeSetId &&
+        checkpoint.intent_revision === plan.intent_revision &&
+        checkpoint.plan_revision === plan.revision &&
+        checkpoint.repository_selection_revision ===
+          repositorySelection.revision &&
+        checkpoint.repository_harness_selection_revision ===
+          repositoryHarnessSelection.revision &&
+        checkpoint.work_unit_id === workUnitId &&
+        checkpoint.repository_id === workUnit.repository_id &&
+        checkpoint.target_ref === workUnit.target_ref &&
+        checkpoint.base_sha === workUnit.base_sha &&
+        checkpoint.workspace_id === workUnit.workspace?.workspace_id &&
+        checkpoint.workspace_path === workUnit.workspace?.workspace_path,
+      "CANDIDATE_CHECKPOINT_SUBJECT_MISMATCH",
+      "CandidateCheckpoint does not match the current exact WorkUnit authority",
+    );
+    const sourceRun = await this.runStore.read(checkpoint.source_run_id);
+    invariant(
+      sourceRun.change_set_id === changeSetId &&
+        sourceRun.work_unit_id === workUnitId &&
+        sourceRun.status === "completed" &&
+        sourceRun.outcome?.type === "implementation_completed",
+      "CANDIDATE_CHECKPOINT_RUN_MISMATCH",
+      "CandidateCheckpoint source Run is not the exact completed implementation",
+    );
+    const catalog = await this.controlStore.readCatalog();
+    const project = requireProject(catalog, state.project_id);
+    const repository = project.repositories.find(
+      (item) => item.repository_id === checkpoint.repository_id,
+    );
+    const attemptNumber = workUnit.validation_attempt_ids.length + 1;
+
+    let repositoryEvidence;
+    try {
+      repositoryEvidence = await this.validateRepositoryCandidate({
+        repository,
+        candidate: checkpoint,
+        command: workUnit.repository_check,
+      });
+    } catch (error) {
+      const evidence = error.details?.evidence ?? null;
+      const attempt = evidence
+        ? createValidationAttempt({
+            kind: "repository_validation",
+            subjectId: checkpoint.checkpoint_id,
+            attempt: attemptNumber,
+            status: "failed",
+            evidence,
+            errorCode: error.code ?? "UNEXPECTED_ERROR",
+            createdAt: this.now(),
+          })
+        : null;
+      await this.controlStore.transactChangeSet(changeSetId, (current) => {
+        const unit = unitsForCurrentPlan(current).find(
+          (item) => item.work_unit_id === workUnitId,
+        );
+        invariant(
+          unit?.candidate_checkpoint_id === checkpoint.checkpoint_id,
+          "CANDIDATE_CHECKPOINT_SUBJECT_MISMATCH",
+          "CandidateCheckpoint changed while validation was running",
+        );
+        if (attempt) {
+          current.validation_attempts.push(attempt);
+          unit.validation_attempt_ids.push(attempt.validation_attempt_id);
+        }
+        unit.state = "validation_failed";
+        unit.last_error = {
+          code: error.code ?? "UNEXPECTED_ERROR",
+          message: error.message,
+          validation_attempt_id: attempt?.validation_attempt_id ?? null,
+        };
+        current.state = "failed";
+        current.blockers.push({
+          code: error.code ?? "UNEXPECTED_ERROR",
+          work_unit_id: workUnitId,
+          checkpoint_id: checkpoint.checkpoint_id,
+          validation_attempt_id: attempt?.validation_attempt_id ?? null,
+        });
+        current.updated_at = this.now();
+      });
+      throw error;
+    }
+
+    const attempt = createValidationAttempt({
+      kind: "repository_validation",
+      subjectId: checkpoint.checkpoint_id,
+      attempt: attemptNumber,
+      status: "passed",
+      evidence: repositoryEvidence,
+      createdAt: this.now(),
     });
-    let postflightError = null;
+    const candidate = createCandidate({
+      repositoryId: checkpoint.repository_id,
+      targetRef: checkpoint.target_ref,
+      baseSha: checkpoint.base_sha,
+      candidateSha: checkpoint.candidate_sha,
+      workspaceId: checkpoint.workspace_id,
+      workspacePath: checkpoint.workspace_path,
+      changedPaths: checkpoint.changed_paths,
+      repositoryEvidence,
+    });
+    await this.controlStore.transactChangeSet(changeSetId, (current) => {
+      const unit = unitsForCurrentPlan(current).find(
+        (item) => item.work_unit_id === workUnitId,
+      );
+      invariant(
+        unit?.candidate_checkpoint_id === checkpoint.checkpoint_id &&
+          ["validation_pending", "validation_failed"].includes(unit.state) &&
+          unit.candidate === null,
+        "CANDIDATE_CHECKPOINT_STATE_MISMATCH",
+        "CandidateCheckpoint changed before Candidate promotion",
+      );
+      current.validation_attempts.push(attempt);
+      unit.validation_attempt_ids.push(attempt.validation_attempt_id);
+      unit.state = "candidate_ready";
+      unit.candidate = candidate;
+      unit.last_error = null;
+      current.candidates.push(candidate);
+      resolveValidationBlockers(current, {
+        workUnitId,
+        resolvedAt: this.now(),
+      });
+      current.state = "executing";
+      current.updated_at = this.now();
+    });
+    return candidate;
+  }
+
+  async validateRepositoryCandidate({ repository, candidate, command }) {
+    // 包括 spawn 失败在内的每次尝试都先写 Evidence，再把引用附到控制聚合。
+    let preflightError = null;
     try {
       await this.repositoryWorker.preflightCandidate({ repository, candidate });
     } catch (error) {
-      postflightError = error;
+      preflightError = error;
+    }
+    let commandResult = null;
+    let commandError = null;
+    if (!preflightError) {
+      try {
+        commandResult = await runCommand(command, {
+          cwd: candidate.workspace_path,
+        });
+      } catch (error) {
+        commandError = error;
+        commandResult = error.details?.command_result ?? null;
+      }
+    }
+    let postflightError = null;
+    if (commandResult) {
+      try {
+        await this.repositoryWorker.preflightCandidate({ repository, candidate });
+      } catch (error) {
+        postflightError = error;
+      }
     }
     const evidence = await this.evidenceStore.record({
       kind: "repository_validation",
@@ -1976,30 +2389,120 @@ export class ChangeFleetService {
         candidate_sha: candidate.candidate_sha,
       },
       payload: {
-        command: commandResult,
+        preflight: validationErrorProjection(preflightError),
+        command:
+          commandResult ?? {
+            status: "not_run",
+            requested: structuredClone(command),
+          },
+        command_error: commandError
+          ? validationErrorProjection(commandError)
+          : commandResult
+            ? { status: "passed" }
+            : { status: "not_run" },
         postflight: postflightError
           ? {
               status: "failed",
               code: postflightError.code,
               message: postflightError.message,
             }
-          : { status: "passed" },
+          : commandResult
+            ? { status: "passed" }
+            : { status: "not_run" },
       },
       createdAt: this.now(),
     });
     if (
+      preflightError ||
+      commandError ||
       commandResult.exit_code !== 0 ||
       commandResult.timed_out ||
+      commandResult.cancelled ||
       commandResult.output_overflow ||
       postflightError
     ) {
+      const code =
+        preflightError?.code ??
+        commandError?.code ??
+        "REPOSITORY_VALIDATION_FAILED";
       throw new ChangeFleetError(
-        "REPOSITORY_VALIDATION_FAILED",
+        code,
         `Repository check failed for ${candidate.repository_id}`,
-        { evidence, command_result: commandResult },
+        {
+          evidence,
+          command_result: commandResult,
+          preflight_error: preflightError?.code,
+          command_error: commandError?.code,
+          postflight_error: postflightError?.code,
+        },
       );
     }
     return evidence;
+  }
+
+  async validateCombinedCandidates({
+    changeSetId,
+    subject,
+    candidates,
+    repositories,
+    command,
+  }) {
+    const before = await this.controlStore.readChangeSet(changeSetId);
+    const attemptNumber =
+      before.validation_attempts.filter(
+        (attempt) =>
+          attempt.kind === "combined_validation" &&
+          attempt.subject_id === subject.validation_subject_hash,
+      ).length + 1;
+    try {
+      const evidence = await this.combinedValidator.validate({
+        subject,
+        candidates,
+        repositories,
+        command,
+      });
+      const attempt = createValidationAttempt({
+        kind: "combined_validation",
+        subjectId: subject.validation_subject_hash,
+        attempt: attemptNumber,
+        status: "passed",
+        evidence,
+        createdAt: this.now(),
+      });
+      await this.controlStore.transactChangeSet(changeSetId, (state) => {
+        state.validation_attempts.push(attempt);
+        resolveValidationBlockers(state, {
+          validationSubjectHash: subject.validation_subject_hash,
+          resolvedAt: this.now(),
+        });
+        state.updated_at = this.now();
+      });
+      return evidence;
+    } catch (error) {
+      const evidence = error.details?.evidence ?? null;
+      const attempt = evidence
+        ? createValidationAttempt({
+            kind: "combined_validation",
+            subjectId: subject.validation_subject_hash,
+            attempt: attemptNumber,
+            status: "failed",
+            evidence,
+            errorCode: error.code ?? "UNEXPECTED_ERROR",
+            createdAt: this.now(),
+          })
+        : null;
+      await this.controlStore.transactChangeSet(changeSetId, (state) => {
+        if (attempt) state.validation_attempts.push(attempt);
+        state.state = "failed";
+        state.blockers.push({
+          code: error.code ?? "UNEXPECTED_ERROR",
+          validation_subject_hash: subject.validation_subject_hash,
+          validation_attempt_id: attempt?.validation_attempt_id ?? null,
+        });
+        state.updated_at = this.now();
+      });
+      throw error;
+    }
   }
 
   async cleanupPlanningWorkspaces({
@@ -2122,14 +2625,14 @@ export class ChangeFleetService {
         code: error.code ?? "UNEXPECTED_ERROR",
         message: error.message,
       };
-      if (workUnit.run_references.at(-1)?.status === "running") {
-        workUnit.run_references.at(-1).status = "failed";
+      const latestRunReference = workUnit.run_references.at(-1);
+      if (latestRunReference?.status === "running") {
+        latestRunReference.status = "failed";
+        const aggregateReference = state.run_references.find(
+          (reference) => reference.run_id === latestRunReference.run_id,
+        );
+        if (aggregateReference) aggregateReference.status = "failed";
       }
-      const runReference = state.run_references.find(
-        (reference) =>
-          reference.run_id === workUnit.run_references.at(-1)?.run_id,
-      );
-      if (runReference) runReference.status = "failed";
       state.state = "failed";
       state.blockers.push({
         code: error.code ?? "UNEXPECTED_ERROR",
@@ -2171,6 +2674,74 @@ export class ChangeFleetService {
   now() {
     return this.clock().toISOString();
   }
+}
+
+function hasResumableValidation(state) {
+  const units = unitsForCurrentPlan(state);
+  const hasCurrentBundle = state.bundles.some(
+    (bundle) => bundle.plan_revision === state.current_plan_revision,
+  );
+  return (
+    units.some(
+      (unit) =>
+        ["validation_pending", "validation_failed"].includes(unit.state) &&
+        unit.candidate_checkpoint_id,
+    ) ||
+    (!hasCurrentBundle &&
+      units.length > 0 &&
+      units.every((unit) => unit.state === "candidate_ready"))
+  );
+}
+
+function resolveValidationBlockers(
+  state,
+  {
+    workUnitId = null,
+    validationSubjectHash = null,
+    resolvedAt,
+    resolvedByDecisionId = null,
+  },
+) {
+  // 历史 blocker 不删除；标记已解决后不再进入当前 Runtime 投影。
+  for (const blocker of state.blockers) {
+    if (blocker.resolved_at !== undefined) continue;
+    if (
+      (workUnitId && blocker.work_unit_id === workUnitId) ||
+      (validationSubjectHash &&
+        blocker.validation_subject_hash === validationSubjectHash)
+    ) {
+      blocker.resolved_at = resolvedAt;
+      if (resolvedByDecisionId) {
+        blocker.resolved_by_decision_id = resolvedByDecisionId;
+      }
+    }
+  }
+}
+
+function resolveFailedExecutionCommandBlockers(
+  state,
+  resolvedAt,
+  resolvedByDecisionId = null,
+) {
+  for (const blocker of state.blockers) {
+    if (blocker.resolved_at !== undefined || !blocker.command_id) continue;
+    const command = state.commands[blocker.command_id];
+    if (command?.command !== "executeChangeSet") continue;
+    blocker.resolved_at = resolvedAt;
+    if (resolvedByDecisionId) {
+      blocker.resolved_by_decision_id = resolvedByDecisionId;
+    }
+  }
+}
+
+function validationErrorProjection(error) {
+  return error
+    ? {
+        status: "failed",
+        code: error.code ?? "UNEXPECTED_ERROR",
+        message: String(error.message ?? "Validation failed").slice(0, 2_048),
+      }
+    : { status: "passed" };
 }
 
 function applyIdempotentCommand({

@@ -13,6 +13,7 @@ const OPERATION_METHODS = Object.freeze({
     "reviseRepositoryHarnessSelection",
   "changeset.plan": "planChangeSet",
   "changeset.plan.confirm": "confirmPlanRevision",
+  "changeset.candidate.recover_legacy": "recoverLegacyCandidate",
   "changeset.execute": "executeChangeSet",
   "changeset.bundle.decide": "recordBundleDecision",
   "changeset.delivery.publish": "publishDelivery",

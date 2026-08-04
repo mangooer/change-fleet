@@ -4,10 +4,13 @@ import { describe, test } from "node:test";
 import {
   commandFingerprint,
   createCandidate,
+  createCandidateCheckpoint,
   createCandidateBundle,
+  createValidationAttempt,
   createValidationSubject,
   normalizePlan,
   normalizeRepositorySelectionRequest,
+  normalizeRevisionFeedback,
 } from "../../src/domain/model.js";
 
 const command = {
@@ -233,6 +236,62 @@ describe("domain model", () => {
     assert.notEqual(
       commandFingerprint("confirm", { revision: 1 }),
       commandFingerprint("confirm", { revision: 2 }),
+    );
+  });
+
+  test("binds CandidateCheckpoint, validation attempts, and bounded feedback", () => {
+    const checkpoint = createCandidateCheckpoint({
+      changeSetId: "change-1",
+      intentRevision: 1,
+      planRevision: 2,
+      repositorySelectionRevision: 3,
+      repositoryHarnessSelectionRevision: 4,
+      workUnitId: "api-unit",
+      repositoryId: "api",
+      targetRef: "refs/heads/main",
+      baseSha: "a".repeat(40),
+      candidateSha: "b".repeat(40),
+      workspaceId: "workspace-api",
+      workspacePath: "C:/private/workspace",
+      changedPaths: ["z.txt", "a.txt"],
+      sourceRunId: "run-1",
+      createdAt: "2026-08-04T00:00:00.000Z",
+    });
+    assert.deepEqual(checkpoint.changed_paths, ["a.txt", "z.txt"]);
+    assert.equal(checkpoint.provenance, "automatic");
+
+    const attempt = createValidationAttempt({
+      kind: "repository_validation",
+      subjectId: checkpoint.checkpoint_id,
+      attempt: 1,
+      status: "failed",
+      evidence: {
+        evidence_id: "evidence-1",
+        evidence_hash: "c".repeat(64),
+      },
+      errorCode: "COMMAND_SPAWN_FAILED",
+      createdAt: "2026-08-04T00:00:01.000Z",
+    });
+    assert.equal(attempt.subject_id, checkpoint.checkpoint_id);
+    assert.equal(attempt.status, "failed");
+
+    assert.deepEqual(
+      normalizeRevisionFeedback({
+        summary: "Fix the exact review blockers",
+        findings: [
+          { finding_id: "finding-1", text: "Escape bootstrap data" },
+        ],
+      }),
+      {
+        summary: "Fix the exact review blockers",
+        findings: [
+          { finding_id: "finding-1", text: "Escape bootstrap data" },
+        ],
+      },
+    );
+    assert.throws(
+      () => normalizeRevisionFeedback({ summary: "Missing findings", findings: [] }),
+      { code: "INVALID_REVISION_FEEDBACK" },
     );
   });
 

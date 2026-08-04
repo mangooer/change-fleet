@@ -30,13 +30,6 @@ export class CombinedValidator {
       subject.validation_subject_hash,
     );
     await mkdir(validationDirectory, { recursive: true });
-    for (const candidate of candidates) {
-      await this.repositoryWorker.preflightCandidate({
-        repository: repositories[candidate.repository_id],
-        candidate,
-      });
-    }
-
     const manifest = {
       schema_version: 1,
       change_set_id: subject.change_set_id,
@@ -54,15 +47,7 @@ export class CombinedValidator {
     const manifestPath = path.join(validationDirectory, "manifest.json");
     await writeJsonFileAtomic(manifestPath, manifest);
     const manifestBytes = await readFile(manifestPath);
-    const commandResult = await runCommand(command, {
-      cwd: validationDirectory,
-      environment: {
-        CHANGEFLEET_VALIDATION_MANIFEST: manifestPath,
-      },
-    });
-
-    // 即使命令返回成功，也必须复检所有工作区，任何修改都会使整体验证失败。
-    let postflightError = null;
+    let preflightError = null;
     for (const candidate of candidates) {
       try {
         await this.repositoryWorker.preflightCandidate({
@@ -70,7 +55,38 @@ export class CombinedValidator {
           candidate,
         });
       } catch (error) {
-        postflightError ??= error;
+        preflightError ??= error;
+      }
+    }
+
+    let commandResult = null;
+    let commandError = null;
+    if (!preflightError) {
+      try {
+        commandResult = await runCommand(command, {
+          cwd: validationDirectory,
+          environment: {
+            CHANGEFLEET_VALIDATION_MANIFEST: manifestPath,
+          },
+        });
+      } catch (error) {
+        commandError = error;
+        commandResult = error.details?.command_result ?? null;
+      }
+    }
+
+    // 即使命令返回成功，也必须复检所有工作区，任何修改都会使整体验证失败。
+    let postflightError = null;
+    if (commandResult) {
+      for (const candidate of candidates) {
+        try {
+          await this.repositoryWorker.preflightCandidate({
+            repository: repositories[candidate.repository_id],
+            candidate,
+          });
+        } catch (error) {
+          postflightError ??= error;
+        }
       }
     }
 
@@ -82,34 +98,65 @@ export class CombinedValidator {
       payload: {
         manifest_hash: sha256(manifestBytes),
         manifest: canonicalize(manifest),
-        command: commandResult,
+        preflight: errorProjection(preflightError),
+        command:
+          commandResult ?? {
+            status: "not_run",
+            requested: canonicalize(command),
+          },
+        command_error: commandError
+          ? errorProjection(commandError)
+          : commandResult
+            ? { status: "passed" }
+            : { status: "not_run" },
         postflight: postflightError
           ? {
               status: "failed",
               code: postflightError.code,
               message: postflightError.message,
             }
-          : { status: "passed" },
+          : commandResult
+            ? { status: "passed" }
+            : { status: "not_run" },
       },
       createdAt: this.clock().toISOString(),
     });
 
     if (
+      preflightError ||
+      commandError ||
       commandResult.exit_code !== 0 ||
       commandResult.timed_out ||
+      commandResult.cancelled ||
       commandResult.output_overflow ||
       postflightError
     ) {
+      const code =
+        preflightError?.code ??
+        commandError?.code ??
+        "COMBINED_VALIDATION_FAILED";
       throw new ChangeFleetError(
-        "COMBINED_VALIDATION_FAILED",
+        code,
         "Combined validation did not pass for the exact Candidate set",
         {
           evidence,
           command_result: commandResult,
+          preflight_error: preflightError?.code,
+          command_error: commandError?.code,
           postflight_error: postflightError?.code,
         },
       );
     }
     return evidence;
   }
+}
+
+function errorProjection(error) {
+  return error
+    ? {
+        status: "failed",
+        code: error.code ?? "UNEXPECTED_ERROR",
+        message: String(error.message ?? "Validation failed").slice(0, 2_048),
+      }
+    : { status: "passed" };
 }

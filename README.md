@@ -89,7 +89,7 @@ owns the exact-base and immutable local-overlay boundary.
 
 Repository Design Proposals and Development WorkItems govern this repository. They are not
 ChangeFleet Runtime outputs. Runtime coordination uses ChangeSet, ChangePlanRevision, WorkUnit,
-Run, Candidate, and CandidateBundle records.
+Run, CandidateCheckpoint, ValidationAttempt, Candidate, and CandidateBundle records.
 
 ## Product Vocabulary
 
@@ -98,6 +98,7 @@ Run, Candidate, and CandidateBundle records.
 - **ChangeIntent**: the confirmed desired outcome, constraints, and acceptance criteria.
 - **ChangePlan**: a versioned, code-informed proposal for repositories, ordering, and checks.
 - **WorkUnit**: one repository-scoped execution unit within a ChangeSet.
+- **CandidateCheckpoint**: an exact published Git subject awaiting or resuming validation.
 - **Candidate**: one immutable repository result identified by base and candidate SHAs.
 - **CandidateBundle**: the exact set of Candidates reviewed as one coherent change.
 - **DeliveryTarget**: the repository branch or integration destination for one Candidate.
@@ -113,7 +114,9 @@ implement the deterministic control kernel. The accepted WI-0003 implementation 
 Codex SDK production adapter; scripted Runtime behavior remains test support only.
 WI-0004 adds the accepted Codex local Harness overlay path without adding a general workspace seed
 framework or a second Provider. WI-0007 adds one experimental local CLI over the existing typed
-application operations and retains exact-id audit as a bounded debug command.
+application operations and retains exact-id audit as a bounded debug command. Active WI-0010 pins
+`cross-spawn@7.0.6` only for structured cross-platform process launch and the reviewed Windows
+batch-shim boundary; callers still cannot submit shell strings.
 
 The accepted package exposes:
 
@@ -175,6 +178,7 @@ node ./bin/changefleet.js changeset repository-selection revise --config changef
 node ./bin/changefleet.js changeset harness-selection revise --config changefleet.json --request harness.json
 node ./bin/changefleet.js changeset plan --config changefleet.json --request plan.json
 node ./bin/changefleet.js changeset plan confirm --config changefleet.json --request confirm.json
+node ./bin/changefleet.js changeset candidate recover-legacy --config changefleet.json --request recovery.json
 node ./bin/changefleet.js changeset execute --config changefleet.json --request execute.json
 node ./bin/changefleet.js changeset bundle decide --config changefleet.json --request decision.json
 node ./bin/changefleet.js changeset delivery publish --config changefleet.json --request publish.json
@@ -182,6 +186,11 @@ node ./bin/changefleet.js changeset delivery refresh --config changefleet.json -
 node ./bin/changefleet.js changeset delivery show <change_set_id> --config changefleet.json
 node ./bin/changefleet.js changeset show <change_set_id> --config changefleet.json
 ```
+
+A `request_revision` Bundle decision also requires `feedback.summary` and 1-20 bounded
+`feedback.findings`, each with a stable `finding_id` and concise `text`. Only that current bounded
+feedback is projected to the next planning and execution calls; prior review artifacts stay linked
+outside Runtime context.
 
 Debug audit preserves the exact-id, read-only, zero-initialization boundary without loading the
 lifecycle or Runtime adapter:
@@ -194,7 +203,8 @@ node ./bin/changefleet.js debug audit changeset <change_set_id> --control-root <
 
 Success writes one bounded JSON result to stdout. Failure writes one typed localized JSON diagnostic
 to stderr. The CLI cannot discover roots or subjects, select a fake Runtime, or expose internal
-recovery helpers. Its current grammar is experimental rather than a released compatibility
-contract.
+recovery helpers. `candidate recover-legacy` is the sole explicit human-gated private-schema
+recovery operation; it requires the exact current plan, WorkUnit, completed Run, base, candidate,
+and actor. Its current grammar is experimental rather than a released compatibility contract.
 
 Report every command actually executed and never claim an unexecuted check passed.

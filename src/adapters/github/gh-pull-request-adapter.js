@@ -142,6 +142,7 @@ export class GhPullRequestAdapter {
       result.exit_code !== 0 ||
       result.signal !== null ||
       result.timed_out ||
+      result.cancelled ||
       result.output_overflow
     ) {
       throw new ChangeFleetError(
@@ -152,6 +153,7 @@ export class GhPullRequestAdapter {
           exit_code: result.exit_code,
           signal: result.signal,
           timed_out: result.timed_out,
+          cancelled: result.cancelled,
           output_overflow: result.output_overflow,
           // gh 错误可能包含宿主细节；稳定摘要足够审计，正文不进入状态或 CLI 输出。
           stderr_sha256: sha256(String(result.stderr ?? "")),

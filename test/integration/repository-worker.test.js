@@ -113,6 +113,13 @@ describe("RepositoryWorker", () => {
       }),
       { code: "CANDIDATE_HEAD_MISMATCH" },
     );
+    await assert.rejects(
+      worker.preflightCandidate({
+        repository,
+        candidate: { ...candidate, changed_paths: [] },
+      }),
+      { code: "CANDIDATE_CHANGED_PATHS_MISMATCH" },
+    );
 
     await writeFile(
       path.join(workspace.workspace_path, "after.txt"),

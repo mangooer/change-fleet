@@ -25,6 +25,7 @@ Status: Active policy; Node.js 24 deterministic commands and the WI-0005 opt-in 
 | Pure model or state decision | affected unit tests |
 | Store, lock, restart, or recovery | affected deterministic integration tests |
 | Git workspace or Candidate | affected real-Git integration tests |
+| Candidate checkpoint or validation resume | domain and schema tests plus store restart, real-Git preflight, immutable-attempt, zero-Runtime resume, and tamper integration tests |
 | Repository Harness overlay | selector and identity unit tests plus real-Git containment, restart, mutation, cleanup, and Candidate-exclusion integration tests |
 | Runtime adapter | deterministic protocol tests |
 | Runtime audit projection | canonical usage and unknown semantics, required-reference integrity, restart reproduction, zero writes, and context exclusion |
@@ -143,6 +144,19 @@ HTTP behavior, or local-browser security change. Documentation-only and unrelate
 do not launch or download a browser. Missing browser infrastructure is reported as unavailable,
 not passed, and generated screenshots, traces, reports, and browser binaries stay outside Git and
 control state.
+
+Decision 0017 requires deterministic tests for CandidateCheckpoint identity and persistence,
+immutable failed validation evidence, restart and zero-Runtime repository or combined resume,
+human-gated exact legacy recovery, and tampered-subject rejection. Native Windows integration must
+prove `npm.cmd` resolution, metacharacter argv preservation, effective-invocation evidence, timeout,
+and cancellation without exposing a caller-provided shell command.
+
+Context regression must prove that only bounded current `request_revision` feedback enters later
+planning and execution while checkpoint details, host locators, output, complete review artifacts,
+and older decisions remain excluded. WI-0010 changes shared domain contracts, persisted schema,
+stores, Git workspaces, command launch, context, and CLI behavior, so its final stable subject must
+run `npm run check` under Node.js 24. Another real Provider call is excluded; actual WI-0009 legacy
+recovery is an operational continuation only after WI-0010 is accepted and landed.
 
 The recommended first real GitHub gate is the accepted UI WorkItem's exact Candidate rather than a
 disposable smoke change. It remains separately authorized under the repository, branch, PR, merge,

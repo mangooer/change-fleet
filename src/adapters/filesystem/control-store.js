@@ -6,9 +6,9 @@ import { ChangeFleetError, invariant } from "../../domain/errors.js";
 import { readJsonFile, writeJsonFileAtomic } from "./atomic-json-file.js";
 import { DirectoryLock } from "./directory-lock.js";
 
-// v4 只增加 GitHub 绑定和有界交付请求；v3 私有快照可原地、可重入地迁移。
-export const CONTROL_SCHEMA_VERSION = 4;
-const PREVIOUS_CONTROL_SCHEMA_VERSION = 3;
+// v5 增加发布后 Checkpoint、验证尝试索引和当前修订反馈；现有 v4 私有快照原地迁移。
+export const CONTROL_SCHEMA_VERSION = 5;
+const PREVIOUS_CONTROL_SCHEMA_VERSION = 4;
 
 export class ControlStore {
   constructor(controlRoot, { clock = () => new Date() } = {}) {
@@ -38,7 +38,7 @@ export class ControlStore {
           idempotency: {},
         });
       } else if (existing.schema_version === PREVIOUS_CONTROL_SCHEMA_VERSION) {
-        await writeJsonFileAtomic(this.catalogPath, migrateCatalogV3(existing));
+        await writeJsonFileAtomic(this.catalogPath, migrateCatalogV4(existing));
       } else {
         assertSchema(existing, "catalog");
       }
@@ -188,7 +188,7 @@ export class ControlStore {
         const existing = await readJsonFile(filePath, { allowMissing: true });
         if (!existing) continue;
         if (existing.schema_version === PREVIOUS_CONTROL_SCHEMA_VERSION) {
-          await writeJsonFileAtomic(filePath, migrateChangeSetV3(existing));
+          await writeJsonFileAtomic(filePath, migrateChangeSetV4(existing));
         } else {
           assertSchema(existing, `ChangeSet ${entry.name}`);
         }
@@ -207,21 +207,21 @@ function assertSchema(record, label) {
   );
 }
 
-function migrateCatalogV3(record) {
+function migrateCatalogV4(record) {
   const migrated = structuredClone(record);
-  for (const project of Object.values(migrated.projects ?? {})) {
-    for (const repository of project.repositories ?? []) {
-      repository.delivery_binding_revisions ??= [];
-      repository.current_delivery_binding_revision ??= null;
-    }
-  }
   migrated.schema_version = CONTROL_SCHEMA_VERSION;
   return migrated;
 }
 
-function migrateChangeSetV3(record) {
+function migrateChangeSetV4(record) {
   const migrated = structuredClone(record);
-  migrated.delivery_requests ??= [];
+  migrated.candidate_checkpoints ??= [];
+  migrated.validation_attempts ??= [];
+  migrated.current_revision_feedback ??= null;
+  for (const workUnit of migrated.work_units ?? []) {
+    workUnit.candidate_checkpoint_id ??= null;
+    workUnit.validation_attempt_ids ??= [];
+  }
   migrated.schema_version = CONTROL_SCHEMA_VERSION;
   return migrated;
 }

@@ -1,6 +1,6 @@
 # Repository Design Proposal Index
 
-Updated: 2026-08-03
+Updated: 2026-08-04
 
 These proposals govern development of the ChangeFleet repository itself. They are repository
 Harness artifacts, not ChangeFleet Runtime outputs and not artifacts written into registered user
@@ -25,6 +25,7 @@ preserve chronological reasoning and are not current truth merely because they e
 | [0012](0012-shared-application-commands-and-unified-local-cli.md) | Shared application commands and a unified local CLI | `accepted` | Recorded by Decision 0014; accepts an experimental product CLI, debug namespace, and temporary-script retirement policy | [WI-0007](../work-items/WI-0007-shared-application-commands-and-unified-local-cli.md), `done` |
 | [0013](0013-exact-github-pull-request-delivery.md) | Exact GitHub pull-request delivery and human-controlled integration | `accepted` | Recorded by Decision 0015; GitHub-first publication and reconciliation over accepted Bundle, Repository selection, delivery serialization, and shared application-operation boundaries | [WI-0008](../work-items/WI-0008-exact-github-pull-request-delivery.md), `done` |
 | [0014](0014-local-review-and-delivery-console.md) | Foreground local review and delivery console | `accepted` | Recorded by Decision 0016; bounded loopback UI and HTTP adapter over shared Bundle, audit, and delivery semantics | [WI-0009](../work-items/WI-0009-local-review-and-delivery-console.md), `in_progress` |
+| [0015](0015-post-provider-candidate-finalization-and-recovery.md) | Post-Provider Candidate finalization and recovery | `accepted` | Recorded by Decision 0017; exact Candidate checkpoints, validation resume, narrow Windows argv shims, and bounded revision feedback | [WI-0010](../work-items/WI-0010-post-provider-candidate-finalization-and-recovery.md), `done` |
 
 ## Status Rules
 

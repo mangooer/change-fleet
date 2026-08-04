@@ -67,3 +67,14 @@ test("Runtime audit diagnostics keep unknown and overlap failures explicit", () 
     "Audit source identity or content digest does not match.",
   );
 });
+
+test("Candidate recovery and revision feedback diagnostics remain localized", () => {
+  assert.equal(
+    diagnosticMessage("CANDIDATE_CHECKPOINT_NOT_RESUMABLE"),
+    "候选检查点当前不可恢复验证。",
+  );
+  assert.equal(
+    diagnosticMessage("INVALID_REVISION_FEEDBACK", { locale: "en" }),
+    "Revision feedback is missing, duplicated, or outside its bounds.",
+  );
+});

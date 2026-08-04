@@ -1,7 +1,7 @@
 ---
 artifact_type: development_work_item
 id: WI-0009
-status: in_progress
+status: blocked
 title: Implement the local review and delivery console
 source: 'User request: "创建并确认WI-0009。"'
 confirmed_by: user
@@ -137,18 +137,20 @@ authority is reported as unverified, never passed.
 
 ## Current Projection
 
-- Current subject: WI-0009 is started as the sole implementation WorkItem for accepted Proposal
-  0014; its dogfood ChangeSet is `changefleet-wi-0009` at exact base `a2d6c84`.
-- Last verified state: an explicit Windows administrator refresh regenerated the elevated-sandbox
-  marker after one UAC prompt, and a subsequent ordinary-user elevated probe passed without another
-  prompt. Planning attempt 1 was abandoned after the broken sandbox stalled; attempt 2 reached a
-  terminal Provider response but failed deterministic validation with
-  `DUPLICATE_REPOSITORY_WORK_UNIT`. Both confirmed planning blocker corrections now have direct
-  deterministic coverage and are ready to become the next exact base.
-- Next step: commit the two corrections, revise the same ChangeSet to that exact base, and retry
-  planning once.
-- Active blocker or decision: no known local planning blocker remains after the direct regression
-  gates; real GitHub delivery still requires separate external-write authority.
+- Current subject: WI-0009 remains the started implementation WorkItem for accepted Proposal 0014,
+  but is blocked by the sole confirmed `todo` prerequisite WI-0010. Its dogfood ChangeSet is
+  `changefleet-wi-0009` at exact base `5f2ad1d`.
+- Planning attempt 3 produced and confirmed one WorkUnit. Execution Run
+  `run-f7d39a4b-2469-46d2-afa7-204cb7328fba` completed Provider implementation and the owned
+  workspace contains clean commit `12a7036`, but repository validation failed to spawn `npm` on
+  Windows before a Candidate was persisted.
+- Read-only review found a partial but reusable implementation with blockers: incomplete Playwright
+  lock data, false-success browser skips, inline-bootstrap XSS, non-strict HTTP fields/media types,
+  unsafe error details, and missing required browser scenarios.
+- Next step: implement, review, accept, and land WI-0010. Then use its shared legacy-recovery
+  operation on this unchanged exact subject and record the reviewed findings as revision feedback.
+- Active blockers: no exact CandidateBundle exists; UAC recurrence is unresolved; real Chromium and
+  GitHub external-write gates remain unverified.
 
 ## Implementation Evidence
 
@@ -166,6 +168,17 @@ authority is reported as unverified, never passed.
   `0`: 4 tests passed, preserving bounded audit, unknown, cancellation, and restart semantics.
 - `git diff --check` returned exit code `0`. The full deterministic suite, real planning retry,
   UI implementation, Chromium, and GitHub external-write gate remain unverified at this checkpoint.
+- Planning attempt 3 completed in 125132 ms with 266142 total tokens and produced one confirmed
+  WorkUnit at exact base `5f2ad1d`.
+- Execution Run `run-f7d39a4b-2469-46d2-afa7-204cb7328fba` completed in 1873247 ms with
+  7111129 total tokens, including 6904320 cached input tokens. Provider outcome was
+  `implementation_completed`; later control failure was `COMMAND_SPAWN_FAILED` for `npm`.
+- On clean commit `12a7036`, Node.js `v24.14.0` running `node scripts/run-checks.mjs` returned
+  exit code `0` after 331.2 seconds. Unit, integration, and acceptance suites passed; SDK cases
+  skipped because that isolated workspace had no installed dependency tree.
+- Review proved `test:ui` can exit zero without Playwright or Chromium, package-lock lacks the
+  pinned package records, and an injected `change_set_id` can terminate the inline bootstrap
+  script. The Candidate is therefore not review-ready despite the deterministic suite result.
 
 ## Acceptance Review
 
@@ -173,5 +186,5 @@ Pending implementation, selected validation, and user review.
 
 ## Project Memory Impact
 
-WI-0009 is accepted unfinished work. It does not change the landed WI-0001 through WI-0008 baseline
-until its implementation is reviewed, accepted, and committed.
+WI-0009 is accepted unfinished work blocked by WI-0010. It does not change the landed WI-0001
+through WI-0008 baseline until its implementation is reviewed, accepted, and committed.

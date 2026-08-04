@@ -10,6 +10,12 @@ reasoning, capability, and optional Skill settings. It is not a universal model 
 An immutable result in one repository, identified by Repository id, target ref, base SHA, and
 candidate SHA.
 
+## CandidateCheckpoint
+
+The durable exact Git subject persisted after Provider completion and before repository validation.
+It may resume exact validation but is not a Candidate, Bundle, review, delivery, or acceptance
+authority.
+
 ## CandidateBundle
 
 An immutable manifest of the exact repository Candidates, validation evidence, missing boundaries,
@@ -123,3 +129,9 @@ current ChangePlan.
 ## WorkUnit
 
 One repository-scoped execution unit within a ChangeSet.
+
+## ValidationAttempt
+
+A bounded immutable reference to one repository or combined validation execution and its exact
+subject, outcome, and EvidenceStore record. Failed attempts remain history when a later attempt
+passes.

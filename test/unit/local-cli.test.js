@@ -40,6 +40,10 @@ describe("unified local CLI grammar", () => {
       ],
       [["changeset", "plan"], "changeset.plan"],
       [["changeset", "plan", "confirm"], "changeset.plan.confirm"],
+      [
+        ["changeset", "candidate", "recover-legacy"],
+        "changeset.candidate.recover_legacy",
+      ],
       [["changeset", "execute"], "changeset.execute"],
       [["changeset", "bundle", "decide"], "changeset.bundle.decide"],
       [["changeset", "delivery", "publish"], "changeset.delivery.publish"],

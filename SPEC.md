@@ -289,6 +289,7 @@ A ChangeSet is the aggregate root for one confirmed intent. It owns:
 - ChangePlan revisions;
 - WorkUnits and their dependencies;
 - execution attempts;
+- post-Provider Candidate checkpoints and validation attempts;
 - repository Candidates;
 - CandidateBundle revisions;
 - validation evidence;
@@ -309,7 +310,7 @@ A WorkUnit is one repository-scoped unit of execution. It records:
 - dependency WorkUnits;
 - Agent assignment and Run references;
 - current state;
-- resulting Candidate, blocker, or supersession.
+- resulting CandidateCheckpoint, Candidate, blocker, or supersession.
 
 One Agent Run may use native subagents internally. ChangeFleet does not model those subagents as
 WorkUnits unless they correspond to independently controlled repository execution.
@@ -331,6 +332,17 @@ Candidate-bound verification observations
 Changing the commit, rebasing, merging, or applying the patch to another base creates a new
 Candidate identity.
 
+### CandidateCheckpoint
+
+A `CandidateCheckpoint` is the durable exact Git subject published after Provider completion and
+before repository validation. It binds the current ChangeSet, revisions, WorkUnit, Repository,
+target, base and candidate SHAs, workspace ownership, changed paths, source Run, and creation time.
+
+A checkpoint is not a Candidate or review and delivery authority. Each validation attempt appends
+bounded immutable evidence. A passing current attempt creates the ordinary Candidate; a failed or
+interrupted attempt leaves the checkpoint available for exact preflight and resume without another
+Runtime invocation.
+
 ### CandidateBundle
 
 A CandidateBundle is an immutable, versioned manifest containing the exact Candidates reviewed as
@@ -351,9 +363,10 @@ Human review and acceptance bind to the complete bundle manifest, not merely one
 ### Initial Combined Validation Invocation
 
 In the first slice, a confirmed ChangePlan defines one combined validation command using a stable
-command id, executable, argument array, and timeout. ChangeFleet invokes it directly without a
-shell from a control-owned validation directory and supplies one immutable JSON manifest through
-`CHANGEFLEET_VALIDATION_MANIFEST`.
+command id, executable, argument array, and timeout. Native executables are invoked directly from a
+control-owned validation directory. On Windows only, an exactly resolved `.cmd` or `.bat` may use
+the accepted argv-preserving adapter; callers never supply a command string or generic shell mode.
+ChangeFleet supplies one immutable JSON manifest through `CHANGEFLEET_VALIDATION_MANIFEST`.
 
 The manifest contains the ChangeSet and plan revision, exact Candidate identities, host workspace
 locators, and a canonical validation-subject hash. The subject hash excludes host paths and binds
@@ -564,6 +577,11 @@ Core records structure, identity, command, exit status, evidence reference, and 
 boundaries. Agent Runtimes and repository Harness select semantically appropriate checks.
 
 A successful command is evidence only for the exact subject and behavior it exercised.
+Spawn failure, timeout, nonzero exit, output overflow, cancellation, and postflight mutation also
+produce bounded immutable attempt evidence. Repository validation may resume only from a matching
+current CandidateCheckpoint after ownership, HEAD, cleanliness, ancestry, changed-path, revision,
+Harness, and source-Run preflight. Combined validation may resume over the unchanged current
+Candidate set. Neither resume path invokes an Agent Runtime or changes the confirmed command.
 
 Review receives:
 
@@ -578,6 +596,10 @@ Review receives:
 
 Review does not inherit private execute reasoning as authority.
 
+A `request_revision` decision binds the exact Bundle and carries a concise bounded summary plus
+bounded actionable findings. Only the current feedback enters later planning and execution
+projections; full review artifacts and superseded decisions remain linked history.
+
 ## 12. Recovery, Audit, And Rollback
 
 ChangeFleet persists enough control state to recover after controller or Runtime process loss:
@@ -585,7 +607,7 @@ ChangeFleet persists enough control state to recover after controller or Runtime
 - current ChangeSet and plan revision;
 - current WorkUnits and dependencies;
 - workspace ownership;
-- exact Runs, Candidates, and Bundle revisions;
+- exact Runs, Candidate checkpoints, validation attempts, Candidates, and Bundle revisions;
 - pending human decisions;
 - durable blockers and dispatch holds.
 
@@ -812,3 +834,26 @@ boundaries change rather than for unrelated work.
 The recommended first real GitHub gate is the console implementation Candidate itself. Acceptance
 of this contract does not authorize that write; repository, target, branch namespace, PR behavior,
 human merge, and cleanup authority must be confirmed separately.
+
+## 18. Post-Provider Candidate Finalization And Recovery Stage
+
+After a Provider completes semantic implementation, ChangeFleet publishes the exact Git subject
+and persists a CandidateCheckpoint before repository validation starts. Validation attempts are
+immutable evidence even when process creation fails. A new idempotent execution attempt may resume
+repository validation from the unchanged checkpoint, or combined validation from unchanged current
+Candidates, after exact deterministic preflight and without invoking the Runtime.
+
+For private records created before this checkpoint contract, one explicit human-gated recovery
+operation may bind an exact completed Run and owned clean workspace to an exact base and candidate
+SHA. It records distinct provenance and cannot guess, reset, adopt dirty state, change a confirmed
+plan, or import arbitrary commits.
+
+Commands remain structured executable-plus-argv data. Native executables use direct process launch;
+on Windows only, a resolved `.cmd` or `.bat` may use one reviewed argv-preserving adapter with the
+requested executable, resolved locator, adapter, and effective invocation recorded as evidence.
+Shell strings, operators, redirection, substitution, and implicit command parsing remain rejected.
+
+Bundle `request_revision` decisions carry bounded current feedback for the next planning and
+execution projection. Checkpoints, host locators, validation output, full review artifacts, and
+superseded feedback remain outside default Runtime context. This stage does not add UI recovery,
+Provider-session resume, generic import, automatic retry policy, or GitHub write authority.

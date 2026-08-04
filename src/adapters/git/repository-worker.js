@@ -665,8 +665,45 @@ export class RepositoryWorker {
     return candidate;
   }
 
+  async recoverPublishedCandidate({
+    repository,
+    workspace,
+    baseSha,
+    candidateSha,
+  }) {
+    // 旧记录恢复只重建已存在的精确 Git 主体，不提交、reset 或采用脏文件。
+    invariant(
+      workspace?.repository_id === repository.repository_id &&
+        workspace.base_sha === baseSha,
+      "LEGACY_RECOVERY_SUBJECT_MISMATCH",
+      "Legacy recovery workspace does not match the exact Repository and base",
+    );
+    const changedPaths = await changedPathsBetween(
+      workspace.workspace_path,
+      baseSha,
+      candidateSha,
+    );
+    const candidate = {
+      repository_id: repository.repository_id,
+      target_ref: workspace.target_ref,
+      base_sha: baseSha,
+      candidate_sha: candidateSha,
+      workspace_id: workspace.workspace_id,
+      workspace_path: workspace.workspace_path,
+      changed_paths: changedPaths,
+      no_change: candidateSha === baseSha,
+    };
+    await this.preflightCandidate({ repository, candidate });
+    return candidate;
+  }
+
   async preflightCandidate({ repository, candidate }) {
     // 验证前后复用此检查，防止命令成功但同时篡改 Candidate 工作区。
+    invariant(
+      candidate.repository_id === repository.repository_id,
+      "CANDIDATE_REPOSITORY_MISMATCH",
+      "Candidate repository identity does not match its registered Repository",
+    );
     await this.assertWorkspaceOwnership(repository, candidate.workspace_path);
     const currentHead = await resolveCommit(candidate.workspace_path, "HEAD");
     invariant(
@@ -701,12 +738,27 @@ export class RepositoryWorker {
         `Candidate ${candidate.candidate_sha} does not descend from ${candidate.base_sha}`,
       );
     }
+    const computedChangedPaths = await changedPathsBetween(
+      candidate.workspace_path,
+      candidate.base_sha,
+      candidate.candidate_sha,
+    );
+    invariant(
+      JSON.stringify([...candidate.changed_paths].sort()) ===
+        JSON.stringify(computedChangedPaths),
+      "CANDIDATE_CHANGED_PATHS_MISMATCH",
+      "Candidate changed paths do not match the exact Git subject",
+      {
+        recorded_changed_paths: [...candidate.changed_paths].sort(),
+        computed_changed_paths: computedChangedPaths,
+      },
+    );
     return {
       repository_id: candidate.repository_id,
       base_sha: candidate.base_sha,
       candidate_sha: candidate.candidate_sha,
       clean: true,
-      changed_paths: [...candidate.changed_paths],
+      changed_paths: computedChangedPaths,
     };
   }
 
@@ -775,6 +827,17 @@ export class RepositoryWorker {
       { workspace_path: resolved },
     );
   }
+}
+
+async function changedPathsBetween(repositoryRoot, baseSha, candidateSha) {
+  if (baseSha === candidateSha) return [];
+  return splitLines(
+    await git(repositoryRoot, [
+      "diff",
+      "--name-only",
+      `${baseSha}..${candidateSha}`,
+    ]),
+  ).sort();
 }
 
 async function discoverCurrentRef(repositoryRoot) {

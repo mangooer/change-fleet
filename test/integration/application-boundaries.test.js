@@ -72,6 +72,11 @@ describe("application failure and revision boundaries", () => {
     assert.equal(state.state, "failed");
     assert.equal(state.candidates.length, 2);
     assert.equal(state.bundles.length, 0);
+    const attempt = state.validation_attempts.at(-1);
+    assert.equal(attempt.kind, "combined_validation");
+    assert.equal(attempt.status, "failed");
+    const evidence = await service.evidenceStore.read(attempt.evidence.evidence_id);
+    assert.equal(evidence.payload.postflight.status, "failed");
   });
 
   test("replanning continues one ChangeSet and preserves superseded work", async (t) => {
@@ -107,6 +112,77 @@ describe("application failure and revision boundaries", () => {
         .map((unit) => unit.state),
       ["superseded", "superseded"],
     );
+  });
+
+  test("requires bounded request-revision feedback in only the current Runtime projection", async (t) => {
+    const fixture = await createApplicationFixture(t, "revision-feedback");
+    const runtime = new ScriptedRuntime({ plan: fixture.plan });
+    const service = await openBootstrappedService(fixture, runtime);
+    const first = await service.executeChangeSet({
+      idempotency_key: "execute-1",
+      change_set_id: "change-1",
+    });
+    await assert.rejects(
+      service.recordBundleDecision({
+        idempotency_key: "revision-without-feedback",
+        change_set_id: "change-1",
+        bundle_revision: first.bundle_revision,
+        bundle_hash: first.bundle_hash,
+        decision: "request_revision",
+      }),
+      { code: "INVALID_REVISION_FEEDBACK" },
+    );
+    const feedback = {
+      summary: "Fix only the current reviewed blockers",
+      findings: [
+        { finding_id: "finding-1", text: "Harden exact bootstrap encoding" },
+      ],
+    };
+    await service.recordBundleDecision({
+      idempotency_key: "revision-with-feedback",
+      change_set_id: "change-1",
+      bundle_revision: first.bundle_revision,
+      bundle_hash: first.bundle_hash,
+      decision: "request_revision",
+      feedback,
+    });
+    const secondPlan = await service.planChangeSet({
+      idempotency_key: "plan-2",
+      change_set_id: "change-1",
+    });
+    const planningProjection = runtime.invocations
+      .filter((invocation) => invocation.operation === "planning")
+      .at(-1).context_projection;
+    assert.deepEqual(planningProjection.revision_feedback, {
+      bundle_revision: first.bundle_revision,
+      bundle_hash: first.bundle_hash,
+      ...feedback,
+    });
+    assert.equal(
+      planningProjection.decisions.some(
+        (decision) => decision.type === "bundle_review",
+      ),
+      false,
+    );
+
+    await service.confirmPlanRevision({
+      idempotency_key: "confirm-2",
+      change_set_id: "change-1",
+      plan_revision: secondPlan.plan_revision,
+    });
+    await service.executeChangeSet({
+      idempotency_key: "execute-2",
+      change_set_id: "change-1",
+    });
+    const executionProjection = runtime.invocations
+      .filter(
+        (invocation) =>
+          invocation.operation === "execution" &&
+          invocation.context_projection.current_plan.revision === 2,
+      )[0].context_projection;
+    assert.deepEqual(executionProjection.revision_feedback.findings, feedback.findings);
+    assert.equal("candidate_checkpoint_id" in executionProjection.work_unit, false);
+    assert.equal("workspace" in executionProjection.work_unit, false);
   });
 });
 

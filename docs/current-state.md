@@ -1,13 +1,14 @@
 # Current State
 
-Updated: 2026-08-03
+Updated: 2026-08-04
 
 This projects accepted direction, implementation, active gaps, and the next task. `SPEC.md` owns
 the contract; Decisions own rationale; WorkItems and Git own implementation evidence.
 
 ## Current Baseline
 
-- WI-0001 through WI-0008 are accepted and landed.
+- WI-0001 through WI-0008 and WI-0010 are accepted and landed. WI-0009 remains the active
+  unfinished implementation WorkItem.
 - The private Node.js 24 ESM package has a versioned filesystem store, `node:test`, pinned
   `@openai/codex-sdk@0.146.0`, one real Codex adapter, test-only scripted Runtime, and one
   experimental CLI; no released package, stable CLI, API, or UI exists.
@@ -28,8 +29,9 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
   replace them and dirty checkout files are excluded.
 - Optional confirmed Repository Harness policies may freeze contained Git-ignored Codex resources
   as immutable ChangeSet input; they are never reread live, written back, or delivered.
-- Replanning continues the same ChangeSet with superseded attempts preserved. Execution produces
-  exact Candidates, immutable Bundle review subjects, and exact-subject validation evidence.
+- Replanning continues the same ChangeSet with superseded attempts preserved. Post-Provider
+  checkpoints preserve exact Git subjects before validation; exact resume never repeats Runtime
+  work, and bounded revision feedback is current context.
 - WorkUnits may run in parallel; delivery to one `repository_id + target_ref` is serialized, and
   cross-repository compensation never promises universal atomic rollback.
 - Accepted GitHub-first delivery publishes exact Candidates to PRs, leaves merge to humans, and
@@ -60,24 +62,18 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 - [0013](decisions/0013-local-read-only-audit-entry-point.md) exposes exact audit reads;
   [0014](decisions/0014-shared-application-commands-and-unified-local-cli.md) shared operations;
   [0015](decisions/0015-exact-github-pull-request-delivery.md) GitHub delivery; and
-  [0016](decisions/0016-local-review-and-delivery-console.md) the local review console.
+  [0016](decisions/0016-local-review-and-delivery-console.md) the local review console; and
+  [0017](decisions/0017-post-provider-candidate-finalization-and-recovery.md) finalization recovery.
 
 ## Repository Design Proposals
 
-- Proposals [0001](proposals/0001-local-two-repository-vertical-slice.md),
-  [0004](proposals/0004-variable-scope-and-localized-diagnostics.md), and
-  [0006](proposals/0006-change-set-base-selection-and-revision.md) landed through WI-0001/2;
-  [0007](proposals/0007-first-real-codex-sdk-provider.md) and
-  [0009](proposals/0009-exact-repository-harness-snapshots-and-local-overlays.md) through WI-0003/4.
-- [0005](proposals/0005-runtime-cost-and-effectiveness-observability.md) accepts raw audit evidence;
-  [0010](proposals/0010-read-only-runtime-audit-projections.md) accepts read-only projections by
-  Decision 0012 and is implemented by landed WI-0005; comparison is deferred.
-- [0011](proposals/0011-local-read-only-audit-entry-point.md) is landed through WI-0006;
-  [0012](proposals/0012-shared-application-commands-and-unified-local-cli.md) through WI-0007;
-  [0013](proposals/0013-exact-github-pull-request-delivery.md) through WI-0008.
-- [0014](proposals/0014-local-review-and-delivery-console.md) is accepted; WI-0009 is started. Two
-  dogfood planning corrections have direct deterministic coverage and await the next exact-base
-  selection before UI execution.
+- The [Proposal Index](proposals/INDEX.md) owns chronology. Accepted implementation through Proposal
+  0013 is represented by landed WI-0001 through WI-0008; superseded, rejected, and deferred
+  boundaries remain explicit there and in their Decisions.
+- [0014](proposals/0014-local-review-and-delivery-console.md) is accepted; WI-0009 was blocked after
+  its completed Provider Run could not spawn the Windows `npm` shim before Candidate persistence.
+  Accepted [0015](proposals/0015-post-provider-candidate-finalization-and-recovery.md) and landed
+  WI-0010 now provide the checkpoint, exact resume, bounded feedback, and narrow shim prerequisite.
 
 ## Open Questions
 
@@ -86,16 +82,17 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 
 ## Known Limitations
 
-- Private schema v4 has no compatibility promise. Deterministic GitHub PR delivery is landed, but
-  a real GitHub external-write gate remains unverified.
+- Landed private schema v5 has no compatibility promise. Deterministic GitHub PR delivery is
+  landed, while its real gate is open.
 - Git URLs, remote workers, automatic merge, deployment, service graph, and stacked ChangeSets
-  remain deferred; the accepted local console is not implemented.
+  remain deferred. The console exists only as unaccepted dogfood commit `12a7036`; review found
+  security, strict-transport, reproducible-lockfile, and real-Chromium gate blockers.
 - WI-0003 proved native-Windows local-ChatGPT single-Repository use. Other auth/hosts, hostile
   access, hard interruption, and paid multi-Repository work remain unverified.
 - Codex SDK usage is aggregate-only; effective model and universal host read-denial remain unknown.
-- Native Windows needs a pre-provisioned elevated sandbox. An explicit 2026-08-03 administrator
-  refresh produced the expected one-time UAC prompt and restored ordinary-user sandbox execution;
-  a recurring prompt during managed Runs remains an operational defect, not an authority grant.
+- Native Windows needs a pre-provisioned elevated sandbox. The explicit administrator refresh
+  necessarily raised UAC; the user still observed a consent prompt afterward, but its exact trigger
+  was not captured. Recurring managed-Run prompts remain unresolved and grant no product authority.
 - Local workspaces use the registered Git object database; Git URL and remote-worker work need new
   authority.
 - Local ignored Codex Harness is proven; hosted retention, encryption, and actual-load evidence are
@@ -105,9 +102,9 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 
 ## Next Recommended Task
 
-Land WI-0009's two validated dogfood planning corrections, revise `changefleet-wi-0009` to that
-exact base, and retry planning once. GitHub publication remains a separate exact external-write
-gate.
+Resume the exact WI-0009 legacy subject through WI-0010 recovery, prove repository and combined
+validation with zero Runtime calls, and stop at the exact Bundle human-review gate. GitHub
+publication remains a separate gate.
 
 ## Maintenance Contract
 

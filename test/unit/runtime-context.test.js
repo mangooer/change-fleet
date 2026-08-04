@@ -12,6 +12,7 @@ const changeSet = {
   intents: [{ revision: 1, objective: "Change two repositories" }],
   blockers: [],
   decisions: [],
+  current_revision_feedback: null,
 };
 
 const controlContract = createControlContract({
@@ -58,7 +59,7 @@ describe("Runtime context admission", () => {
       enabled: false,
       skills: [],
     });
-    assert.equal(projection.schema_version, 3);
+    assert.equal(projection.schema_version, 4);
     assert.equal(controlContract.repository_selection_revision, 1);
     assert.equal(
       controlContract.repository_harness_selection_revision,
@@ -66,6 +67,71 @@ describe("Runtime context admission", () => {
     );
     assert.equal(projection.repository_selection.revision, 1);
     assert.equal(projection.repository_harness_selection.revision, 1);
+  });
+
+  test("projects only bounded current feedback and excludes finalization internals", () => {
+    const sensitiveChangeSet = {
+      ...changeSet,
+      blockers: [
+        {
+          code: "COMMAND_SPAWN_FAILED",
+          work_unit_id: "api-unit",
+          checkpoint_id: "candidate-checkpoint-secret",
+          validation_attempt_id: "validation-attempt-secret",
+        },
+      ],
+      decisions: [
+        {
+          decision_id: "decision-old",
+          type: "bundle_review",
+          feedback: { summary: "old full feedback" },
+        },
+        {
+          decision_id: "decision-recovery",
+          type: "legacy_candidate_recovery",
+          checkpoint_id: "candidate-checkpoint-secret",
+        },
+      ],
+      current_revision_feedback: {
+        decision_id: "decision-current",
+        bundle_revision: 2,
+        bundle_hash: "a".repeat(64),
+        summary: "Fix the current blocker",
+        findings: [{ finding_id: "finding-1", text: "Escape bootstrap data" }],
+      },
+    };
+    const result = createContextProjection({
+      operation: "execution",
+      changeSet: sensitiveChangeSet,
+      plan: { revision: 3 },
+      workUnit: {
+        work_unit_id: "api-unit",
+        repository_id: "api",
+        state: "validation_failed",
+        workspace: { workspace_path: "C:/secret/workspace" },
+        candidate_checkpoint_id: "candidate-checkpoint-secret",
+        validation_attempt_ids: ["validation-attempt-secret"],
+      },
+      repositorySelection: projection.repository_selection,
+      repositoryHarnessSelection: projection.repository_harness_selection,
+      repositories: projection.repositories,
+      capability: { mode: "read_write", paths: ["C:/allowed/workspace"] },
+      requiredEvidence: ["candidate"],
+    });
+
+    assert.deepEqual(result.revision_feedback.findings, [
+      { finding_id: "finding-1", text: "Escape bootstrap data" },
+    ]);
+    assert.deepEqual(result.decisions, []);
+    assert.deepEqual(result.blockers, [
+      { code: "COMMAND_SPAWN_FAILED", work_unit_id: "api-unit" },
+    ]);
+    assert.equal("workspace" in result.work_unit, false);
+    assert.equal("candidate_checkpoint_id" in result.work_unit, false);
+    assert.equal(
+      JSON.stringify(result).includes("candidate-checkpoint-secret"),
+      false,
+    );
   });
 
   test("records unknown evidence without inventing a denominator", () => {

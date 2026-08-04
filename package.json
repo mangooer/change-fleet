@@ -17,6 +17,7 @@
     "check": "node scripts/run-checks.mjs"
   },
   "dependencies": {
-    "@openai/codex-sdk": "0.146.0"
+    "@openai/codex-sdk": "0.146.0",
+    "cross-spawn": "7.0.6"
   }
 }

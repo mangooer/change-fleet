@@ -78,6 +78,15 @@ describe("local two-repository vertical slice", () => {
       bundle_revision: execution.bundle_revision,
       bundle_hash: execution.bundle_hash,
       decision: "request_revision",
+      feedback: {
+        summary: "Move this ChangeSet to the newly selected base",
+        findings: [
+          {
+            finding_id: "base-selection",
+            text: "Replan against the current main branch",
+          },
+        ],
+      },
     });
     await service.reviseRepositorySelection({
       idempotency_key: "selection-3",
