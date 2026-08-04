@@ -151,8 +151,8 @@ authority is reported as unverified, never passed.
 - Read-only review found a partial but reusable implementation with blockers: incomplete Playwright
   lock data, false-success browser skips, inline-bootstrap XSS, non-strict HTTP fields/media types,
   unsafe error details, and missing required browser scenarios.
-- The new ChangeSet is `analyzing` with no Plan or Run. Its selected base will be revised once after
-  this authority-maintenance commit so planning observes the latest accepted `main`.
+- The new ChangeSet is `analyzing` with no Plan or Run. Its current Repository selection explicitly
+  freezes the latest accepted maintenance baseline on `main`.
 - Next step: plan and confirm `changefleet-wi-0009-v2`; do not import the abandoned Candidate as
   current work or aggregate its cost into the new task.
 - Active blockers: UAC recurrence is unresolved; real Chromium and GitHub external-write gates
