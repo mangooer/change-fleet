@@ -884,7 +884,9 @@ copies, repairs, migrates, resets, or deletes that state. Local configuration ex
 already prepared Codex environment through a host-only locator. The locator and selected Home
 contents remain outside ChangeSet state, Runtime context, evidence payloads, registered
 repositories, and Candidates. Provider-native configuration cannot expand Repository authority,
-confirmed plans, exact Git subjects, Candidates, or human gates.
+confirmed plans, exact Git subjects, Candidates, or human gates. ChangeFleet selects the
+operation-scoped `read-only` or `workspace-write` session permission but never overrides the native
+Windows Sandbox implementation selected by that Provider environment.
 
 Execution may return strict `implementation_blocked` when semantic work cannot proceed. A Provider
 turn completion does not make the WorkUnit successful. `implementation_completed` also fails
@@ -898,6 +900,6 @@ preserving prior Runs, usage, commands, blockers, validation attempts, and histo
 checkpoints. It does not reset, stash, delete, merge, or adopt partial work and never replaces a
 non-empty CandidateCheckpoint validation resume.
 
-Provider setup is never launched implicitly during a Run. Automatic retry policy, dirty-workspace
-recovery, Provider-session continuation, general rewind, silent Sandbox fallback, managed Provider
-environments, and universal repository toolchain selection remain deferred.
+Provider setup is never requested or launched implicitly during a Run. Automatic retry policy,
+dirty-workspace recovery, Provider-session continuation, general rewind, silent Sandbox fallback,
+managed Provider environments, and universal repository toolchain selection remain deferred.

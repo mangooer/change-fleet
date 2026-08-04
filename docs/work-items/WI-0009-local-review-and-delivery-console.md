@@ -218,6 +218,14 @@ authority is reported as unverified, never passed.
 - V3 planning Run `run-d975b388-f328-4ee7-80e5-3e6aad225d37` displayed native Windows UAC. Its
   exact Provider process tree was stopped without touching the Codex desktop process; the Run is
   durably `failed/CODEX_PROVIDER_FAILED` with unavailable usage, and no planning process remains.
+- The captured Provider argv proved that ChangeFleet still forced
+  `windows.sandbox="elevated"`; official Codex documentation identifies it as the stronger mode
+  requiring administrator-approved setup. A maintenance correction removes that override under
+  Decision 0020. The selected Codex Home independently configures `elevated`, so Provider
+  readiness remains external and no real retry is claimed by the correction.
+- Node.js 24 direct adapter validation exited `0` with 5 passing tests after the correction; no
+  real Provider ran. Static inspection found no native Sandbox implementation override in
+  production or test code.
 
 ## Acceptance Review
 

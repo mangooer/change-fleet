@@ -122,7 +122,22 @@ work.
 Accepted by the user on 2026-08-04. Every selected deterministic and static gate passed. Real
 Windows execution remains outside WI-0012 acceptance under Decision 0020.
 
+## Post-Acceptance Maintenance Correction
+
+WI-0009-v3 process evidence showed that the accepted implementation still passed
+`windows.sandbox="elevated"` as an SDK config override. That contradicted Decision 0020 and could
+enter Codex's administrator-approved setup path even though ChangeFleet did not copy Provider Home
+files. The maintenance correction removes the native Windows implementation override and retains
+only operation-scoped `read-only` or `workspace-write`, no-network, and no-approval session
+settings. The selected Provider environment remains responsible for choosing and provisioning its
+own native Sandbox.
+
+Node.js 24 running `node --test --test-concurrency=1
+test/integration/codex-sdk-runtime.test.js` exited `0`: all 5 direct adapter protocol tests passed,
+including the regression assertion that no `windows` implementation override reaches the SDK
+factory. No real Provider or setup process ran.
+
 ## Project Memory Impact
 
-WI-0012 is accepted and complete under Decision 0020. WI-0009 and `changefleet-wi-0009-v2` remain
-blocked and unchanged until the explicitly selected Codex environment is healthy.
+WI-0012 remains accepted and complete under Decision 0020 with the post-acceptance native Sandbox
+override correction. WI-0009-v3 remains blocked until its selected Provider environment is healthy.

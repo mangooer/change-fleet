@@ -53,10 +53,11 @@ allowed only through this explicit configuration; it is not a silent fallback.
 
 The pinned adapter continues to control the operation-scoped SDK settings it already owns: fresh
 threads, model and reasoning selection, history persistence, native subagents, working paths,
-network, approval policy, and requested sandbox mode. Provider-native settings or instructions in
-the explicitly selected environment are Agent Runtime behavior, not ChangeFleet control authority.
-They cannot expand Repository selection, exact Git subjects, confirmed plans, Candidates, or human
-gates.
+network, approval policy, and the requested `read-only` or `workspace-write` session scope. It does
+not select or override the native Windows Sandbox implementation. Provider-native settings or
+instructions in the explicitly selected environment are Agent Runtime behavior, not ChangeFleet
+control authority. They cannot expand Repository selection, exact Git subjects, confirmed plans,
+Candidates, or human gates.
 
 ChangeFleet does not launch a setup command as part of execution and does not claim to suppress
 Provider or operating-system prompts. Authentication, Sandbox, or UAC failures are Provider

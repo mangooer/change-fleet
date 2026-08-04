@@ -44,8 +44,8 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 - Closing an unfinished quiescent pre-delivery task and ordinarily creating a later exact-base task
   are separate actions; generic resume, rewind, restart, and fork remain deferred.
 - Decision 0020 supersedes ChangeFleet-owned Provider Home copying. Local configuration explicitly
-  selects an operator-prepared Codex environment; ChangeFleet never manages its files. Clean
-  exact-base pre-Candidate retry remains accepted.
+  selects an operator-prepared Codex environment; ChangeFleet neither manages its files nor
+  overrides its native Windows Sandbox implementation. Clean exact-base retry remains accepted.
 - Execution may report a strict blocked result. Base-equal or empty implementation output is not a
   CandidateCheckpoint and cannot enter validation or review.
 
@@ -103,15 +103,16 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 - Codex SDK usage is aggregate-only; effective model and universal host read-denial remain unknown.
 - The old WI-0009 attempt has no Bundle; its invalid command and review remain history. V2 closed
   with a clean base-equal workspace and no Candidate or Bundle.
-- V3 planning against the explicitly selected Codex environment again triggered native Windows
-  UAC and failed before producing a Plan. Provider host repair remains external under Decision 0020.
+- V3 planning triggered UAC and failed before producing a Plan. Process evidence found a retained
+  ChangeFleet `elevated` override; its correction restores Decision 0020. The selected Home itself
+  still chooses `elevated`, so Provider readiness remains external.
 - Runtime Kit, Codex App Server, another Provider, Linear, pricing, dashboards, and continuous
   context enforcement are deferred.
 
 ## Next Recommended Task
 
-Repair and verify the selected Provider environment outside ChangeFleet. Then revise unplanned v3
-to current main and retry planning once; do not invoke Codex automatically while UAC remains.
+Choose and prepare a UAC-free Sandbox mode in the selected Provider environment. Then revise
+unplanned v3 to current main and retry planning once; do not invoke Codex while UAC remains.
 
 ## Maintenance Contract
 

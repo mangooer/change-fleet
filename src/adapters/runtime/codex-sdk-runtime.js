@@ -108,10 +108,7 @@ export class CodexSdkRuntime {
           // Provider 会话只服务本次 Run；本地历史和原生多 Agent 在首个切片中关闭。
           history: { persistence: "none" },
           features: { multi_agent: false },
-          // 原生 Windows 必须显式选择已安装的 elevated sandbox；不可用时由 Provider 失败，不降级到全权限。
-          ...(this.platform === "win32"
-            ? { windows: { sandbox: "elevated" } }
-            : {}),
+          // Windows Sandbox 的具体实现属于显式选择的 Provider 环境；这里不覆盖配置或触发安装路径。
         },
       });
       const paths = invocation.capabilities.paths.map((item) =>

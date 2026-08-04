@@ -169,7 +169,9 @@ configuration; relative control and workspace roots resolve from that file:
 `credential_source` accepts `local_codex_home` or `openai_api_key`; the configuration never stores
 the credential value. `codex_home` explicitly selects an already prepared Provider environment.
 ChangeFleet passes that host locator to Codex but never copies, scans, repairs, or deletes the
-directory. Mutations read one exact application request from a JSON file or `--request -` stdin:
+directory. It also does not override the selected environment's native Windows Sandbox
+implementation; `read-only` and `workspace-write` remain operation-scoped session permissions.
+Mutations read one exact application request from a JSON file or `--request -` stdin:
 
 ```sh
 node ./bin/changefleet.js project register --config changefleet.json --request register.json

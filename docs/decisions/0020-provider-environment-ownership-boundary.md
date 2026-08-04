@@ -46,3 +46,11 @@ workspace orchestration and Harness execution.
   guarantee, and real execution remains blocked until the selected host environment is healthy.
 - Managed installation, WSL, containers, remote workers, hosted credentials, and environment-health
   monitoring require later accepted authority.
+
+## Post-Acceptance Implementation Clarification
+
+The accepted operation-scoped Sandbox setting means the SDK thread's `read-only` or
+`workspace-write` permission. It does not authorize ChangeFleet to pass a native
+`windows.sandbox` implementation override. WI-0009-v3 process evidence proved that the retained
+unconditional `elevated` override entered Codex's administrator-approved setup path. The adapter
+must omit that override and honor the explicitly selected Provider environment instead.

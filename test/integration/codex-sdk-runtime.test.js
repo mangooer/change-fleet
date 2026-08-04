@@ -108,9 +108,7 @@ describe("Codex SDK Runtime protocol", () => {
     assert.equal(factoryCalls[0].env.SECRET_SHOULD_NOT_PASS, undefined);
     assert.equal(factoryCalls[0].config.history.persistence, "none");
     assert.equal(factoryCalls[0].config.features.multi_agent, false);
-    if (process.platform === "win32") {
-      assert.equal(factoryCalls[0].config.windows.sandbox, "elevated");
-    }
+    assert.equal(Object.hasOwn(factoryCalls[0].config, "windows"), false);
     assert.equal(threadOptions[0].sandboxMode, "read-only");
     assert.equal(threadOptions[0].networkAccessEnabled, false);
     assert.equal(threadOptions[0].approvalPolicy, "never");
