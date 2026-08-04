@@ -156,11 +156,12 @@ authority is reported as unverified, never passed.
   instead of retrying its overlapping pre-WI-0012 base; its Runs and cost remain audit history.
 - `changefleet-wi-0009-v3` was independently created at exact base `f0dbe4f`. Its first planning
   Run triggered native Windows UAC and ended as `CODEX_PROVIDER_FAILED`. V3 remains `analyzing`
-  with no Plan, Candidate, or Bundle, so human environment repair may continue the same ChangeSet.
-- Next step: explicitly select WI-0013's trusted-local profile, revise v3's unplanned Repository
-  selection to current main, and plan once with a fresh idempotency key.
-- Active blockers: explicit profile and exact-base revision; real Chromium and GitHub
-  external-write gates also remain unverified.
+  with no Plan, Candidate, or Bundle. External configuration now selects revision 2 `host_user`;
+  its historical revision 1 Run remains immutable.
+- Next step: revise v3's unplanned Repository selection to current main, then plan once with a
+  fresh idempotency key.
+- Active blockers: exact-base revision; real Chromium and GitHub external-write gates remain
+  unverified.
 
 ## Implementation Evidence
 
@@ -227,8 +228,11 @@ authority is reported as unverified, never passed.
   real Provider ran. Static inspection found no native Sandbox implementation override in
   production or test code.
 - Accepted Decision 0021 now separates worktree development isolation from OS confinement.
-  Deterministic WI-0013 implementation is review-ready; v3 stays paused and its persisted
-  operation-scoped profile is unchanged until that WorkItem is accepted and landed.
+  Deterministic WI-0013 implementation landed in commit `85c9062`.
+- The external `changefleet.json` then advanced the same logical profile from revision 1 to
+  revision 2 with `permissions: host_user` and `network_access: true`. Node.js 24 loaded it through
+  `loadLocalCliConfig` with exit code `0`. No Runtime was invoked; prior Run and evidence snapshots
+  remain revision 1 `operation_scoped` history.
 
 ## Acceptance Review
 

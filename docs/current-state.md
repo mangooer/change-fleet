@@ -7,8 +7,8 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 
 ## Current Baseline
 
-- WI-0001 through WI-0008 and WI-0010 through WI-0013 are landed. Unfinished WI-0009-v3 remains
-  unplanned and paused.
+- WI-0001 through WI-0008 and WI-0010 through WI-0013 are landed. WI-0009-v3 remains unplanned and
+  paused with external AgentProfile revision 2 `host_user` selected.
 - Agent Runtimes own semantic work. ChangeFleet owns cross-repository authorization, revisions,
   scheduling, exact Git and Bundle subjects, evidence, recovery, and human gates.
 
@@ -101,16 +101,15 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 - Codex SDK usage is aggregate-only; effective model and universal host read-denial remain unknown.
 - The old WI-0009 attempt has no Bundle; its invalid command and review remain history. V2 closed
   with a clean base-equal workspace and no Candidate or Bundle.
-- V3 planning triggered UAC and failed before producing a Plan. Process evidence found a retained
-  ChangeFleet `elevated` override; its correction restores Decision 0020. The selected Home itself
-  still chooses `elevated`, so Provider readiness remains external.
+- V3 planning failed under historical revision 1 `operation_scoped` before producing a Plan.
+  Revision 2 `host_user` is selected, but no real retry has verified UAC absence.
 - Runtime Kit, Codex App Server, another Provider, Linear, pricing, dashboards, and continuous
   context enforcement are deferred.
 
 ## Next Recommended Task
 
-Update WI-0009-v3 to the explicit trusted-local profile without invoking Codex. Then revise its
-unplanned Repository selection to the latest accepted baseline before one planning retry.
+Revise WI-0009-v3's unplanned Repository selection to the latest accepted baseline before one
+planning retry. Do not reuse its obsolete `f0dbe4f` base.
 
 ## Maintenance Contract
 
