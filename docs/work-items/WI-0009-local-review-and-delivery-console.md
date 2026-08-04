@@ -151,17 +151,16 @@ authority is reported as unverified, never passed.
 - Read-only review found a partial but reusable implementation with blockers: incomplete Playwright
   lock data, false-success browser skips, inline-bootstrap XSS, non-strict HTTP fields/media types,
   unsafe error details, and missing required browser scenarios.
-- `changefleet-wi-0009-v2` froze exact base `54c42b4`, confirmed Plan revision 1, and ran once. The
-  Provider produced no changed path; the historical base-equal checkpoint failed repository
-  validation before WI-0012 corrected empty-result and clean pre-Candidate retry handling. The
-  workspace remains clean, with no Candidate or Bundle.
-- Current `main` moved to accepted WI-0012 and changed application, CLI, and test surfaces that the
-  console is expected to touch. The user selected explicit closure of v2 and ordinary creation of
-  `changefleet-wi-0009-v3` from the latest exact baseline instead of retrying obsolete source.
-- Next step: close v2, create v3, then plan, confirm, and execute the same WI-0009 intent. Preserve
-  old and v2 Runs and cost as separate immutable ChangeSet audit history.
-- Active blockers: the selected Provider environment remains unverified after host restart; real
-  Chromium and GitHub external-write gates also remain unverified.
+- `changefleet-wi-0009-v2` froze exact base `54c42b4`, confirmed Plan revision 1, and ran once. Its
+  base-equal checkpoint had no changed path, Candidate, or Bundle. The user explicitly closed v2
+  instead of retrying its overlapping pre-WI-0012 base; its Runs and cost remain audit history.
+- `changefleet-wi-0009-v3` was independently created at exact base `f0dbe4f`. Its first planning
+  Run triggered native Windows UAC and ended as `CODEX_PROVIDER_FAILED`. V3 remains `analyzing`
+  with no Plan, Candidate, or Bundle, so human environment repair may continue the same ChangeSet.
+- Next step: outside ChangeFleet, repair and verify the selected Provider environment. Then revise
+  v3's unplanned Repository selection to current main and plan once with a fresh idempotency key.
+- Active blockers: Provider readiness and UAC recurrence; real Chromium and GitHub external-write
+  gates also remain unverified.
 
 ## Implementation Evidence
 
@@ -213,6 +212,12 @@ authority is reported as unverified, never passed.
   changed paths, zero Candidates, zero Bundles, and a clean owned workspace. Current `main` is one
   overlapping WI-0012 commit ahead, so the user chose ordinary successor creation instead of an
   exact-base retry.
+- `changeset close` exited `0` and abandoned v2 with closure decision
+  `decision-9114a2a8-45ce-4117-9421-53d88611233c`. Ordinary `changeset create` exited `0` and
+  froze v3 at `f0dbe4f` with Repository and Harness selection revision 1.
+- V3 planning Run `run-d975b388-f328-4ee7-80e5-3e6aad225d37` displayed native Windows UAC. Its
+  exact Provider process tree was stopped without touching the Codex desktop process; the Run is
+  durably `failed/CODEX_PROVIDER_FAILED` with unavailable usage, and no planning process remains.
 
 ## Acceptance Review
 
@@ -220,6 +225,6 @@ Pending implementation, selected validation, and user review.
 
 ## Project Memory Impact
 
-WI-0009 is accepted unfinished work. The old ChangeSet and its recovered Candidate remain abandoned
-audit history. V2 will close without a Candidate; v3 starts independently from current accepted
-source and does not change the landed baseline until a new exact Bundle is reviewed and accepted.
+WI-0009 is accepted unfinished work. The old ChangeSet and v2 are abandoned audit history. V3 is
+the current unplanned ChangeSet and does not change the landed baseline until an exact Bundle is
+reviewed and accepted.
