@@ -99,6 +99,13 @@ describe("Runtime context admission", () => {
             summary: "closure-summary-must-stay-outside-runtime",
           },
         },
+        {
+          decision_id: "decision-provider-retry",
+          type: "provider_retry",
+          source_run_id: "run-cost-history",
+          retired_candidate_checkpoint_id: "candidate-checkpoint-secret",
+          provider_environment_path: "C:/secret/provider-environment",
+        },
       ],
       current_revision_feedback: {
         decision_id: "decision-current",
@@ -144,6 +151,11 @@ describe("Runtime context admission", () => {
       JSON.stringify(result).includes("closure-summary-must-stay-outside-runtime"),
       false,
     );
+    assert.equal(
+      JSON.stringify(result).includes("C:/secret/provider-environment"),
+      false,
+    );
+    assert.equal(JSON.stringify(result).includes("run-cost-history"), false);
   });
 
   test("records unknown evidence without inventing a denominator", () => {

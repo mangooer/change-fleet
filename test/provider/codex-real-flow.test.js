@@ -41,7 +41,7 @@ test(
       await git(repository.path, ["rev-parse", "HEAD"])
     ).trim();
 
-    const credentialSource =
+    const codexHome =
       process.env.CHANGEFLEET_CODEX_CREDENTIAL_HOME ??
       path.join(os.homedir(), ".codex");
     const agentProfile = {
@@ -62,7 +62,8 @@ test(
       workspaceRoot: path.join(root, "workspaces"),
       runtime: new CodexSdkRuntime({
         apiKey: process.env.OPENAI_API_KEY ?? null,
-        credentialSourceCodexHome: credentialSource,
+        codexHome,
+        credentialProfileId: agentProfile.credential_profile_id,
       }),
       agentProfile,
     });

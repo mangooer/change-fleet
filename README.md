@@ -148,7 +148,8 @@ configuration; relative control and workspace roots resolve from that file:
   "locale": "zh-CN",
   "runtime": {
     "adapter": "codex-sdk",
-    "credential_source": "local_codex_home"
+    "credential_source": "local_codex_home",
+    "codex_home": "C:/Users/example/.codex"
   },
   "agent_profile": {
     "profile_id": "local-codex-profile",
@@ -166,8 +167,9 @@ configuration; relative control and workspace roots resolve from that file:
 ```
 
 `credential_source` accepts `local_codex_home` or `openai_api_key`; the configuration never stores
-the credential value or a credential path. Mutations read one exact application request from a
-JSON file or `--request -` stdin:
+the credential value. `codex_home` explicitly selects an already prepared Provider environment.
+ChangeFleet passes that host locator to Codex but never copies, scans, repairs, or deletes the
+directory. Mutations read one exact application request from a JSON file or `--request -` stdin:
 
 ```sh
 node ./bin/changefleet.js project register --config changefleet.json --request register.json

@@ -1367,7 +1367,9 @@ export class ChangeFleetService {
           }
           invariant(
             ["ready", "executing", "validating"].includes(state.state) ||
-              (state.state === "failed" && hasResumableValidation(state)),
+              (state.state === "failed" &&
+                (hasResumableValidation(state) ||
+                  hasRetryableExecution(state))),
             "PLAN_CONFIRMATION_REQUIRED",
             `ChangeSet cannot execute from state ${state.state}`,
           );
@@ -1386,6 +1388,11 @@ export class ChangeFleetService {
         },
       );
       if (commandState.completed) return commandState.result;
+
+      await this.prepareRetryableExecutions(
+        change_set_id,
+        idempotency_key,
+      );
 
       while (true) {
         const state = await this.controlStore.readChangeSet(change_set_id);
@@ -1974,6 +1981,141 @@ export class ChangeFleetService {
     });
   }
 
+  async prepareRetryableExecutions(changeSetId, commandId) {
+    // 新 execute 命令是唯一人工触发点；只有无真实 Candidate 的干净 base 工作区才会再次调用 Provider。
+    const state = await this.controlStore.readChangeSet(changeSetId);
+    const retryable = retryableExecutionUnits(state);
+    if (retryable.length === 0) return;
+    const catalog = await this.controlStore.readCatalog();
+    const project = requireProject(catalog, state.project_id);
+    const planRevision = state.current_plan_revision;
+    const plan = currentPlan(state);
+    const repositorySelection = currentRepositorySelection(state);
+    const repositoryHarnessSelection =
+      currentRepositoryHarnessSelection(state);
+    invariant(
+      plan?.status === "confirmed" && plan.revision === planRevision,
+      "STALE_PLAN_REVISION",
+      "Provider retry requires the current confirmed plan",
+    );
+
+    for (const snapshotUnit of retryable) {
+      const repository = requireRepository(
+        project,
+        snapshotUnit.repository_id,
+      );
+      const selectedRepository = repositorySelection.repositories.find(
+        (candidate) =>
+          candidate.repository_id === snapshotUnit.repository_id,
+      );
+      const selectedHarness =
+        repositoryHarnessSelection.repositories.find(
+          (candidate) =>
+            candidate.repository_id === snapshotUnit.repository_id,
+        );
+      invariant(
+        snapshotUnit.plan_revision === planRevision &&
+          snapshotUnit.repository_selection_revision ===
+            repositorySelection.revision &&
+          snapshotUnit.repository_harness_selection_revision ===
+            repositoryHarnessSelection.revision &&
+          selectedRepository?.resolved_base_sha === snapshotUnit.base_sha &&
+          selectedRepository?.target_ref === snapshotUnit.target_ref &&
+          selectedHarness?.resolved_base_sha === snapshotUnit.base_sha,
+        "EXECUTION_RETRY_SUBJECT_MISMATCH",
+        "Execution retry no longer matches current plan, Repository, and Harness authority",
+      );
+      await this.repositoryWorker.preflightExecutionRetry({
+        repository,
+        workspace: snapshotUnit.workspace,
+        baseSha: snapshotUnit.base_sha,
+        targetRef: snapshotUnit.target_ref,
+      });
+      if (
+        selectedHarness.mode ===
+        HARNESS_SELECTION_MODES.EXACT_BASE_PLUS_OVERLAY
+      ) {
+        const overlaySnapshot = await this.harnessSnapshotStore.read(
+          selectedHarness.artifact_reference,
+        );
+        await this.repositoryWorker.verifyHarnessOverlay({
+          repository,
+          workspace: snapshotUnit.workspace,
+          snapshot: overlaySnapshot,
+        });
+      }
+    }
+
+    // 所有主体都先完成只读预检，再用一次控制事务共同切换为 pending，避免多 WorkUnit 半重试。
+    await this.controlStore.transactChangeSet(changeSetId, (current) => {
+      invariant(
+        current.current_plan_revision === planRevision &&
+          current.current_repository_selection_revision ===
+            repositorySelection.revision &&
+          current.current_repository_harness_selection_revision ===
+            repositoryHarnessSelection.revision,
+        "EXECUTION_RETRY_SUBJECT_MISMATCH",
+        "Current retry authority changed before dispatch",
+      );
+      for (const snapshotUnit of retryable) {
+        const unit = unitsForCurrentPlan(current).find(
+          (candidate) =>
+            candidate.work_unit_id === snapshotUnit.work_unit_id,
+        );
+        const reason = retryableExecutionReason(current, unit);
+        invariant(
+          reason &&
+            unit.plan_revision === snapshotUnit.plan_revision &&
+            unit.base_sha === snapshotUnit.base_sha &&
+            unit.target_ref === snapshotUnit.target_ref &&
+            unit.repository_selection_revision ===
+              snapshotUnit.repository_selection_revision &&
+            unit.repository_harness_selection_revision ===
+              snapshotUnit.repository_harness_selection_revision &&
+            unit.workspace?.workspace_id === snapshotUnit.workspace?.workspace_id &&
+            unit.workspace?.workspace_path === snapshotUnit.workspace?.workspace_path,
+          "EXECUTION_RETRY_SUBJECT_MISMATCH",
+          "WorkUnit retry subject changed before dispatch",
+        );
+        const decision = {
+          decision_id: this.idFactory("decision"),
+          type: "provider_retry",
+          work_unit_id: unit.work_unit_id,
+          source_run_id: reason.source_run_id,
+          retired_candidate_checkpoint_id: reason.checkpoint_id,
+          reason_code: reason.reason_code,
+          command_id: commandId,
+          actor: "human",
+          decided_at: this.now(),
+        };
+        current.decisions.push(decision);
+        for (const blocker of current.blockers) {
+          if (blocker.resolved_at !== undefined) continue;
+          const failedCommand = blocker.command_id
+            ? current.commands[blocker.command_id]
+            : null;
+          if (
+            blocker.work_unit_id === unit.work_unit_id ||
+            failedCommand?.command === "executeChangeSet"
+          ) {
+            blocker.resolved_at = decision.decided_at;
+            blocker.resolved_by_decision_id = decision.decision_id;
+          }
+        }
+        unit.state = "pending";
+        unit.candidate_checkpoint_id = null;
+        unit.last_error = {
+          code: "PROVIDER_RETRY_SCHEDULED",
+          previous_code: reason.reason_code,
+          source_run_id: reason.source_run_id,
+          decision_id: decision.decision_id,
+        };
+      }
+      current.state = "executing";
+      current.updated_at = this.now();
+    });
+  }
+
   async executeWorkUnit(changeSetId, workUnitId) {
     // 先创建 Run 再标记 running，崩溃最多留下孤立记录，不留下无来源派发。
     const state = await this.controlStore.readChangeSet(changeSetId);
@@ -2114,10 +2256,7 @@ export class ChangeFleetService {
       authorizedRepositories: [workUnit.repository_id],
       allowedOutcomes: [
         "implementation_completed",
-        "plan_revision",
-        "scope_expansion",
-        "decision_request",
-        "blocked",
+        "implementation_blocked",
       ],
       humanGates: [],
     });
@@ -2181,9 +2320,11 @@ export class ChangeFleetService {
       outcome = result.outcome;
       providerEvidence = result.provider_evidence;
       invariant(
-        outcome.type === "implementation_completed",
+        ["implementation_completed", "implementation_blocked"].includes(
+          outcome.type,
+        ),
         "UNEXPECTED_RUNTIME_OUTCOME",
-        `Execution returned ${outcome.type}, expected implementation_completed`,
+        `Execution returned unsupported outcome ${outcome.type}`,
       );
       await this.runStore.appendEvent(runId, {
         event_id: this.idFactory("event"),
@@ -2238,6 +2379,16 @@ export class ChangeFleetService {
       throw error;
     }
 
+    if (outcome.type === "implementation_blocked") {
+      const error = new ChangeFleetError(
+        "RUNTIME_IMPLEMENTATION_BLOCKED",
+        outcome.summary || outcome.blocker.message,
+        { blocker_code: outcome.blocker.code },
+      );
+      await this.blockWorkUnit(changeSetId, workUnitId, error);
+      throw error;
+    }
+
     let checkpointPersisted = false;
     try {
       const requestedPrivateHarnessChanges =
@@ -2270,6 +2421,12 @@ export class ChangeFleetService {
         expectedHead: workUnit.base_sha,
         message: `ChangeFleet ${changeSetId} ${workUnitId}`,
       });
+      invariant(
+        !published.no_change && published.changed_paths.length > 0,
+        "EMPTY_IMPLEMENTATION_RESULT",
+        "Runtime implementation produced no Git change for the WorkUnit",
+        { source_run_id: runId },
+      );
       const checkpoint = createCandidateCheckpoint({
         changeSetId,
         intentRevision: plan.intent_revision,
@@ -2756,6 +2913,28 @@ export class ChangeFleetService {
     });
   }
 
+  async blockWorkUnit(changeSetId, workUnitId, error) {
+    // Provider 正常结束但无法完成语义工作时保留 completed Run，WorkUnit 单独进入可审计阻塞态。
+    await this.controlStore.transactChangeSet(changeSetId, (state) => {
+      const workUnit = unitsForCurrentPlan(state).find(
+        (candidate) => candidate.work_unit_id === workUnitId,
+      );
+      workUnit.state = "blocked";
+      workUnit.last_error = {
+        code: error.code,
+        message: error.message,
+        blocker_code: error.details?.blocker_code ?? null,
+      };
+      state.state = "failed";
+      state.blockers.push({
+        code: error.code,
+        work_unit_id: workUnitId,
+        blocker_code: error.details?.blocker_code ?? null,
+      });
+      state.updated_at = this.now();
+    });
+  }
+
   async markCommandFailed(changeSetId, idempotencyKey, error) {
     await this.controlStore.transactChangeSet(changeSetId, (state) => {
       const command = state.commands[idempotencyKey];
@@ -2799,11 +2978,77 @@ function hasResumableValidation(state) {
     units.some(
       (unit) =>
         ["validation_pending", "validation_failed"].includes(unit.state) &&
-        unit.candidate_checkpoint_id,
+        isNonEmptyCheckpoint(
+          state.candidate_checkpoints.find(
+            (checkpoint) =>
+              checkpoint.checkpoint_id === unit.candidate_checkpoint_id,
+          ),
+        ),
     ) ||
     (!hasCurrentBundle &&
       units.length > 0 &&
       units.every((unit) => unit.state === "candidate_ready"))
+  );
+}
+
+const RETRYABLE_PRE_CANDIDATE_CODES = new Set([
+  "CODEX_CREDENTIALS_UNAVAILABLE",
+  "CODEX_PROVIDER_FAILED",
+  "CODEX_RUNTIME_OUTPUT_INVALID",
+  "RUNTIME_CANCELLED",
+  "RUNTIME_IMPLEMENTATION_BLOCKED",
+  "UNEXPECTED_RUNTIME_OUTCOME",
+  "EMPTY_IMPLEMENTATION_RESULT",
+]);
+
+function hasRetryableExecution(state) {
+  return retryableExecutionUnits(state).length > 0;
+}
+
+function retryableExecutionUnits(state) {
+  return unitsForCurrentPlan(state).filter(
+    (unit) => retryableExecutionReason(state, unit) !== null,
+  );
+}
+
+function retryableExecutionReason(state, unit) {
+  if (!unit || unit.candidate) return null;
+  const checkpoint = state.candidate_checkpoints.find(
+    (candidate) => candidate.checkpoint_id === unit.candidate_checkpoint_id,
+  );
+  if (
+    ["validation_pending", "validation_failed", "failed"].includes(
+      unit.state,
+    ) &&
+    checkpoint &&
+    !isNonEmptyCheckpoint(checkpoint)
+  ) {
+    return {
+      reason_code: "EMPTY_IMPLEMENTATION_RESULT",
+      source_run_id: checkpoint.source_run_id,
+      checkpoint_id: checkpoint.checkpoint_id,
+    };
+  }
+  if (
+    ["failed", "blocked"].includes(unit.state) &&
+    unit.candidate_checkpoint_id === null &&
+    RETRYABLE_PRE_CANDIDATE_CODES.has(unit.last_error?.code)
+  ) {
+    return {
+      reason_code: unit.last_error.code,
+      source_run_id: unit.run_references.at(-1)?.run_id ?? null,
+      checkpoint_id: null,
+    };
+  }
+  return null;
+}
+
+function isNonEmptyCheckpoint(checkpoint) {
+  return Boolean(
+    checkpoint &&
+      checkpoint.candidate_sha !== checkpoint.base_sha &&
+      Array.isArray(checkpoint.changed_paths) &&
+      checkpoint.changed_paths.length > 0,
   );
 }
 

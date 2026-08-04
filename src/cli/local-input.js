@@ -1,5 +1,4 @@
 import { readFile } from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
 
 import { normalizeAgentProfile } from "../domain/agent-profile.js";
@@ -70,7 +69,7 @@ export async function loadLocalCliConfig(
     requirePlainObject(input.runtime, "runtime_not_object", invalidConfig);
     requireExactKeys(
       input.runtime,
-      ["adapter", "credential_source"],
+      ["adapter", "credential_source", "codex_home"],
       invalidConfig,
       "runtime",
     );
@@ -82,6 +81,19 @@ export async function loadLocalCliConfig(
     if (!CREDENTIAL_SOURCES.has(input.runtime.credential_source)) {
       throw invalidConfig("unsupported_credential_source", {
         field: "runtime.credential_source",
+      });
+    }
+    const codexHome = requirePath(
+      input.runtime.codex_home,
+      "runtime.codex_home",
+      absolutePath,
+    );
+    if (
+      pathsOverlap(codexHome, controlRoot) ||
+      pathsOverlap(codexHome, workspaceRoot)
+    ) {
+      throw invalidConfig("codex_home_overlap", {
+        field: "runtime.codex_home",
       });
     }
 
@@ -137,6 +149,7 @@ export async function loadLocalCliConfig(
       runtime: Object.freeze({
         adapter: "codex-sdk",
         credential_source: input.runtime.credential_source,
+        codex_home: codexHome,
       }),
       agent_profile: Object.freeze(agentProfile),
     });
@@ -146,6 +159,17 @@ export async function loadLocalCliConfig(
     }
     throw error;
   }
+}
+
+function pathsOverlap(left, right) {
+  // 显式 Provider 环境不能位于控制存储或 Git 工作区内，避免运行状态进入交付路径。
+  const relativeLeft = path.relative(left, right);
+  const relativeRight = path.relative(right, left);
+  return (
+    relativeLeft === "" ||
+    (!relativeLeft.startsWith(`..${path.sep}`) && relativeLeft !== "..") ||
+    (!relativeRight.startsWith(`..${path.sep}`) && relativeRight !== "..")
+  );
 }
 
 // 请求文件保持应用层字段原样；这里只负责有界读取和 JSON 对象形状，不复制领域校验。
@@ -167,10 +191,6 @@ export async function loadStructuredRequest(
         });
   requirePlainObject(input, "request_not_object", invalidRequest);
   return input;
-}
-
-export function defaultLocalCodexHome(homeDirectory = os.homedir()) {
-  return path.join(homeDirectory, ".codex");
 }
 
 async function readJsonFile(

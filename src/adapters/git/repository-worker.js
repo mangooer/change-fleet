@@ -556,6 +556,41 @@ export class RepositoryWorker {
     };
   }
 
+  async preflightExecutionRetry({
+    repository,
+    workspace,
+    baseSha,
+    targetRef,
+  }) {
+    // 语义重试只复用仍在精确 base 的干净受控工作区；这里绝不 reset、stash 或删除部分修改。
+    invariant(
+      workspace?.repository_id === repository.repository_id &&
+        workspace.base_sha === baseSha &&
+        workspace.target_ref === targetRef &&
+        typeof workspace.workspace_id === "string" &&
+        workspace.workspace_id.length > 0,
+      "EXECUTION_RETRY_SUBJECT_MISMATCH",
+      "Execution retry workspace does not match the exact Repository and base",
+    );
+    await this.assertWorkspaceOwnership(repository, workspace.workspace_path);
+    const currentHead = await resolveCommit(workspace.workspace_path, "HEAD");
+    invariant(
+      currentHead === baseSha,
+      "EXECUTION_RETRY_HEAD_MOVED",
+      `Execution retry workspace is at ${currentHead}, expected ${baseSha}`,
+    );
+    invariant(
+      (await workspaceStatus(workspace.workspace_path)).length === 0,
+      "EXECUTION_RETRY_WORKSPACE_DIRTY",
+      "Execution retry workspace contains partial changes",
+    );
+    return {
+      repository_id: repository.repository_id,
+      workspace_id: workspace.workspace_id,
+      base_sha: baseSha,
+    };
+  }
+
   async cleanupPlanningWorkspace({
     repository,
     workspace,

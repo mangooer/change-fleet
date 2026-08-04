@@ -1,13 +1,5 @@
 import { Codex } from "@openai/codex-sdk";
 import { randomUUID } from "node:crypto";
-import {
-  copyFile,
-  mkdir,
-  mkdtemp,
-  rm,
-  stat,
-} from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
 
 import {
@@ -59,25 +51,31 @@ export class CodexSdkRuntime {
   constructor({
     apiKey = null,
     baseUrl = null,
-    credentialSourceCodexHome = null,
+    codexHome = null,
+    credentialProfileId = null,
     environment = process.env,
     clock = () => new Date(),
     codexFactory = (options) => new Codex(options),
+    platform = process.platform,
   } = {}) {
-    // 适配器只持有进程级凭据来源；这些值不会进入 ChangeSet、Run 或 Evidence。
+    // Provider 环境由操作者准备；适配器只持有显式 locator，不读取或维护其中内容。
     this.apiKey = apiKey;
     this.baseUrl = baseUrl;
-    this.credentialSourceCodexHome = credentialSourceCodexHome
-      ? path.resolve(credentialSourceCodexHome)
-      : null;
+    this.codexHome = codexHome ? path.resolve(codexHome) : null;
+    this.credentialProfileId = credentialProfileId;
     this.environment = environment;
     this.clock = clock;
     this.codexFactory = codexFactory;
+    this.platform = platform;
   }
 
   async invoke(invocation, { onEvent = async () => {} } = {}) {
     const profile = normalizeAgentProfile(invocation.agent_profile);
-    assertInvocationCapability(invocation, profile);
+    assertInvocationCapability(
+      invocation,
+      profile,
+      this.credentialProfileId,
+    );
     const startedAt = this.clock().toISOString();
     const providerEvidence = {
       invocation_id: `runtime-invocation-${randomUUID()}`,
@@ -99,21 +97,19 @@ export class CodexSdkRuntime {
       usage_observations: [],
       raw_artifact_references: [],
     };
-    let runtimeHome = null;
     let observedUsage = null;
 
     try {
-      runtimeHome = await this.prepareIsolatedRuntimeHome();
       const codex = this.codexFactory({
         apiKey: this.apiKey ?? undefined,
         baseUrl: this.baseUrl ?? undefined,
-        env: controlledEnvironment(this.environment, runtimeHome),
+        env: controlledEnvironment(this.environment, this.codexHome),
         config: {
           // Provider 会话只服务本次 Run；本地历史和原生多 Agent 在首个切片中关闭。
           history: { persistence: "none" },
           features: { multi_agent: false },
           // 原生 Windows 必须显式选择已安装的 elevated sandbox；不可用时由 Provider 失败，不降级到全权限。
-          ...(process.platform === "win32"
+          ...(this.platform === "win32"
             ? { windows: { sandbox: "elevated" } }
             : {}),
         },
@@ -205,43 +201,16 @@ export class CodexSdkRuntime {
       const wrapped = normalizeProviderError(error, invocation.signal);
       wrapped.runtime_evidence = providerEvidence;
       throw wrapped;
-    } finally {
-      if (runtimeHome) await removeIsolatedRuntimeHome(runtimeHome);
     }
   }
 
-  async prepareIsolatedRuntimeHome() {
-    // 每次调用使用一次性 CODEX_HOME，避免隐式继承用户全局 Harness、Skills 和设置。
-    const runtimeHome = await mkdtemp(
-      path.join(os.tmpdir(), "changefleet-codex-"),
-    );
-    if (!this.credentialSourceCodexHome) return runtimeHome;
-
-    if (!this.apiKey) {
-      const sourceAuth = path.join(
-        this.credentialSourceCodexHome,
-        "auth.json",
-      );
-      const sourceStat = await stat(sourceAuth).catch(() => null);
-      invariant(
-        sourceStat?.isFile(),
-        "CODEX_CREDENTIALS_UNAVAILABLE",
-        "Selected Codex credential profile has no auth.json",
-      );
-      // 只复制认证材料，不复制 config、AGENTS、skills 或 sessions。
-      await copyFile(sourceAuth, path.join(runtimeHome, "auth.json"));
-    }
-    if (process.platform === "win32") {
-      await copyWindowsSandboxState(
-        this.credentialSourceCodexHome,
-        runtimeHome,
-      );
-    }
-    return runtimeHome;
-  }
 }
 
-function assertInvocationCapability(invocation, profile) {
+function assertInvocationCapability(
+  invocation,
+  profile,
+  credentialProfileId,
+) {
   invariant(
     invocation &&
       ["planning", "execution"].includes(invocation.operation) &&
@@ -270,11 +239,23 @@ function assertInvocationCapability(invocation, profile) {
     "UNSUPPORTED_AGENT_PROFILE",
     "Codex Runtime requires an OpenAI Codex SDK profile with a supported reasoning effort",
   );
+  invariant(
+    typeof credentialProfileId === "string" &&
+      credentialProfileId.length > 0 &&
+      profile.credential_profile_id === credentialProfileId,
+    "INVALID_RUNTIME_INVOCATION",
+    "Codex AgentProfile does not match the selected Provider environment",
+  );
 }
 
-function controlledEnvironment(source, runtimeHome) {
+function controlledEnvironment(source, codexHome) {
   // SDK 提供 env 后不会继承父进程，因此只透传启动 CLI 所需的非敏感宿主变量。
-  const result = { CODEX_HOME: runtimeHome };
+  invariant(
+    typeof codexHome === "string" && codexHome.length > 0,
+    "INVALID_RUNTIME_INVOCATION",
+    "Codex Runtime requires an explicitly selected Provider environment",
+  );
+  const result = { CODEX_HOME: codexHome };
   for (const [key, value] of Object.entries(source ?? {})) {
     if (
       value !== undefined &&
@@ -304,7 +285,8 @@ function buildPrompt(invocation) {
           "Use apply_patch or an equivalent available editing tool; a JSON response alone does not implement the WorkUnit.",
           "Verify the requested files exist in the writable workspace and run the WorkUnit repository check before completion.",
           "Do not commit, change Git refs, or modify ChangeFleet control state.",
-          "Return implementation_completed after the repository files are ready for controller-owned publication.",
+          "Return implementation_completed with blocker null after the repository files are ready for controller-owned publication.",
+          "If unavailable tools, permissions, missing information, or another blocker prevents inspection, editing, or verification, return implementation_blocked with a bounded blocker code and message; never label an unchanged workspace implementation_completed.",
         ].join(" ");
   return [
     "You are an Agent Runtime operating under a ChangeFleet control contract.",
@@ -398,49 +380,4 @@ function normalizeProviderError(error, signal) {
   );
   wrapped.cause = error;
   return wrapped;
-}
-
-async function removeIsolatedRuntimeHome(runtimeHome) {
-  // 删除前验证一次性目录确实位于系统临时目录内，避免对宽泛或计算错误的路径递归操作。
-  const resolved = path.resolve(runtimeHome);
-  const temporaryRoot = path.resolve(os.tmpdir());
-  invariant(
-    resolved.startsWith(`${temporaryRoot}${path.sep}`) &&
-      path.basename(resolved).startsWith("changefleet-codex-"),
-    "UNSAFE_RUNTIME_HOME_CLEANUP",
-    "Refusing to remove an unexpected Codex Runtime home",
-  );
-  await mkdir(temporaryRoot, { recursive: true });
-  await rm(resolved, { recursive: true, force: true });
-}
-
-async function copyWindowsSandboxState(sourceHome, runtimeHome) {
-  // elevated sandbox 的系统账号已由操作者预配；这里只复制启动标记和 SID 映射，不复制用户配置或 Harness。
-  const requiredFiles = [
-    ["cap_sid"],
-    [".sandbox", "setup_marker.json"],
-  ];
-  const optionalFiles = [
-    [".sandbox", "deny_read_acl_state.json"],
-    [".sandbox_migration"],
-  ];
-  for (const parts of requiredFiles) {
-    const source = path.join(sourceHome, ...parts);
-    const sourceStat = await stat(source).catch(() => null);
-    invariant(
-      sourceStat?.isFile(),
-      "CODEX_WINDOWS_SANDBOX_STATE_UNAVAILABLE",
-      `Selected Codex profile lacks ${parts.join("/")}`,
-    );
-    const destination = path.join(runtimeHome, ...parts);
-    await mkdir(path.dirname(destination), { recursive: true });
-    await copyFile(source, destination);
-  }
-  for (const parts of optionalFiles) {
-    const source = path.join(sourceHome, ...parts);
-    if (!(await stat(source).catch(() => null))?.isFile()) continue;
-    const destination = path.join(runtimeHome, ...parts);
-    await mkdir(path.dirname(destination), { recursive: true });
-    await copyFile(source, destination);
-  }
 }

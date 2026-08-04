@@ -8,6 +8,7 @@ const RUNTIME_EXCLUDED_DECISION_TYPES = new Set([
   "bundle_review",
   "legacy_candidate_recovery",
   "changeset_closure",
+  "provider_retry",
 ]);
 
 export function createControlContract({

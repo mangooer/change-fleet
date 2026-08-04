@@ -26,11 +26,13 @@ export class ScriptedRuntime {
     },
     interruptRepository = null,
     failRepository = null,
+    executionOutcome = null,
   }) {
     this.plan = plan;
     this.contextMeasurement = contextMeasurement;
     this.interruptRepository = interruptRepository;
     this.failRepository = failRepository;
+    this.executionOutcome = executionOutcome;
     this.interrupted = false;
     this.invocations = [];
   }
@@ -68,6 +70,13 @@ export class ScriptedRuntime {
         `Scripted execution failed for ${repositoryId}`,
       );
     }
+    if (this.executionOutcome) {
+      // 测试可显式模拟阻塞或空实现；生产 Runtime 仍由严格 schema 约束。
+      return {
+        outcome: structuredClone(this.executionOutcome),
+        provider_evidence: testProviderEvidence(),
+      };
+    }
     const workspace = invocation.workspace.workspace_path;
     const target = path.resolve(workspace, "feature.txt");
     const relative = path.relative(path.resolve(workspace), target);
@@ -81,6 +90,7 @@ export class ScriptedRuntime {
         type: "implementation_completed",
         summary: `implemented ${repositoryId}`,
         changed_paths: ["feature.txt"],
+        blocker: null,
       },
       provider_evidence: testProviderEvidence(),
     };

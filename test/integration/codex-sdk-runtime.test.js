@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { stat } from "node:fs/promises";
 import path from "node:path";
 import { describe, test } from "node:test";
 
@@ -15,8 +14,12 @@ const PROFILE = {
   permissions: "operation_scoped",
   network_access: false,
   skills: [],
-  credential_profile_id: null,
+  credential_profile_id: "test-credentials",
 };
+const RUNTIME_OPTIONS = Object.freeze({
+  codexHome: path.resolve("test-provider-home"),
+  credentialProfileId: "test-credentials",
+});
 
 describe("Codex SDK Runtime protocol", () => {
   test("starts a fresh controlled thread and maps aggregate usage", async () => {
@@ -55,6 +58,7 @@ describe("Codex SDK Runtime protocol", () => {
       request: null,
     });
     const runtime = new CodexSdkRuntime({
+      ...RUNTIME_OPTIONS,
       environment: {
         PATH: process.env.PATH,
         SECRET_SHOULD_NOT_PASS: "secret",
@@ -99,6 +103,8 @@ describe("Codex SDK Runtime protocol", () => {
       second.provider_evidence.invocation_id,
     );
     assert.equal(factoryCalls.length, 2);
+    assert.equal(factoryCalls[1].env.CODEX_HOME, firstHome);
+    assert.equal(firstHome, RUNTIME_OPTIONS.codexHome);
     assert.equal(factoryCalls[0].env.SECRET_SHOULD_NOT_PASS, undefined);
     assert.equal(factoryCalls[0].config.history.persistence, "none");
     assert.equal(factoryCalls[0].config.features.multi_agent, false);
@@ -132,11 +138,11 @@ describe("Codex SDK Runtime protocol", () => {
     );
     assert.equal(commandEvent.payload.output_bytes > 0, true);
     assert.match(commandEvent.payload.output_sha256, /^[0-9a-f]{64}$/u);
-    assert.equal(await stat(firstHome).catch(() => null), null);
   });
 
   test("preserves terminal failure evidence without accepting text output", async () => {
     const runtime = new CodexSdkRuntime({
+      ...RUNTIME_OPTIONS,
       codexFactory() {
         return {
           startThread() {
@@ -174,6 +180,7 @@ describe("Codex SDK Runtime protocol", () => {
 
   test("rejects invalid structured output with observed usage attached", async () => {
     const runtime = new CodexSdkRuntime({
+      ...RUNTIME_OPTIONS,
       codexFactory() {
         return {
           startThread() {
@@ -206,6 +213,7 @@ describe("Codex SDK Runtime protocol", () => {
     const controller = new AbortController();
     controller.abort();
     const runtime = new CodexSdkRuntime({
+      ...RUNTIME_OPTIONS,
       codexFactory() {
         return {
           startThread() {
@@ -228,6 +236,20 @@ describe("Codex SDK Runtime protocol", () => {
       assert.equal(error.runtime_evidence.completed_at !== null, true);
       return true;
     });
+  });
+
+  test("rejects a missing explicit Provider environment before starting Codex", async () => {
+    const runtime = new CodexSdkRuntime({
+      credentialProfileId: "test-credentials",
+      codexFactory() {
+        throw new Error("Provider must not start");
+      },
+    });
+
+    await assert.rejects(
+      runtime.invoke(planningInvocation(process.cwd())),
+      { code: "INVALID_RUNTIME_INVOCATION" },
+    );
   });
 });
 

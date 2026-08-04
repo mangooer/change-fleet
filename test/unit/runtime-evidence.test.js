@@ -122,6 +122,27 @@ describe("Runtime identity and evidence", () => {
         type: "implementation_completed",
         summary: "done",
         changed_paths: [1],
+        blocker: null,
+      }),
+    );
+    const blockedOutcome = {
+      type: "implementation_blocked",
+      summary: "sandbox unavailable",
+      changed_paths: [],
+      blocker: {
+        code: "sandbox_unavailable",
+        message: "sandbox setup was cancelled",
+      },
+    };
+    assert.equal(
+      assertStructuredOutcome("execution", blockedOutcome),
+      blockedOutcome,
+    );
+    assert.throws(() =>
+      assertStructuredOutcome("execution", {
+        type: "implementation_completed",
+        summary: "done",
+        changed_paths: [],
       }),
     );
   });

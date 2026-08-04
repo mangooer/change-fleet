@@ -1,11 +1,8 @@
-import os from "node:os";
-
 import { CodexSdkRuntime } from "../adapters/runtime/codex-sdk-runtime.js";
 import { ChangeFleetService } from "../application/change-fleet-service.js";
 import { createOperatorApplication } from "../application/operator-application.js";
 import { ChangeFleetError } from "../domain/errors.js";
 import {
-  defaultLocalCodexHome,
   loadLocalCliConfig,
   loadStructuredRequest,
 } from "./local-input.js";
@@ -16,7 +13,6 @@ export async function executeLifecycleCommand(
   {
     stdin = process.stdin,
     environment = process.env,
-    homeDirectory = os.homedir(),
     runtimeFactory = createProductionRuntime,
     openService = (options) => ChangeFleetService.open(options),
   } = {},
@@ -28,7 +24,6 @@ export async function executeLifecycleCommand(
       (await loadStructuredRequest(command.request_source, { stdin }));
     const runtime = await runtimeFactory(config, {
       environment,
-      homeDirectory,
     });
     const service = await openService({
       controlRoot: config.control_root,
@@ -50,7 +45,7 @@ export async function executeLifecycleCommand(
 
 export function createProductionRuntime(
   config,
-  { environment = process.env, homeDirectory = os.homedir() } = {},
+  { environment = process.env } = {},
 ) {
   if (
     config.runtime.adapter !== "codex-sdk" ||
@@ -73,13 +68,15 @@ export function createProductionRuntime(
     }
     return new CodexSdkRuntime({
       apiKey,
-      // Windows elevated sandbox 仍需宿主默认 Codex Home 中的预配状态，但不会复制其中的认证文件。
-      credentialSourceCodexHome: defaultLocalCodexHome(homeDirectory),
+      // API Key 只替代认证来源；Provider 的其余本机状态仍来自操作者显式选择的环境。
+      codexHome: config.runtime.codex_home,
+      credentialProfileId: config.agent_profile.credential_profile_id,
       environment,
     });
   }
   return new CodexSdkRuntime({
-    credentialSourceCodexHome: defaultLocalCodexHome(homeDirectory),
+    codexHome: config.runtime.codex_home,
+    credentialProfileId: config.agent_profile.credential_profile_id,
     environment,
   });
 }

@@ -875,3 +875,29 @@ The first close operation requires no active Run or lifecycle command and no beg
 Generic resume, human holds, automatic retry, turn checkpoints, rewind, restart, fork, conversation
 deletion, content retention, and Provider-session continuation remain deferred to a later
 interactive lifecycle stage.
+
+## 20. Provider Environment Ownership And Pre-Candidate Retry Stage
+
+Provider installation, authentication, native configuration, Sandbox provisioning, credentials,
+and runtime-home lifecycle belong to the Agent Runtime or operator. ChangeFleet never creates,
+copies, repairs, migrates, resets, or deletes that state. Local configuration explicitly selects an
+already prepared Codex environment through a host-only locator. The locator and selected Home
+contents remain outside ChangeSet state, Runtime context, evidence payloads, registered
+repositories, and Candidates. Provider-native configuration cannot expand Repository authority,
+confirmed plans, exact Git subjects, Candidates, or human gates.
+
+Execution may return strict `implementation_blocked` when semantic work cannot proceed. A Provider
+turn completion does not make the WorkUnit successful. `implementation_completed` also fails
+deterministic finalization when the published Git subject equals the exact base or has no changed
+path; no current CandidateCheckpoint or validation authority is created.
+
+A new explicit execution command may retry a failed or blocked pre-Candidate WorkUnit in the same
+ChangeSet only after ownership, exact-base HEAD, clean workspace, current plan, Repository
+selection, and Harness selection preflight. Retry creates a fresh Run and Provider thread while
+preserving prior Runs, usage, commands, blockers, validation attempts, and historical empty
+checkpoints. It does not reset, stash, delete, merge, or adopt partial work and never replaces a
+non-empty CandidateCheckpoint validation resume.
+
+Provider setup is never launched implicitly during a Run. Automatic retry policy, dirty-workspace
+recovery, Provider-session continuation, general rewind, silent Sandbox fallback, managed Provider
+environments, and universal repository toolchain selection remain deferred.

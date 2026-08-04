@@ -379,6 +379,7 @@ function cliConfig() {
     runtime: {
       adapter: "codex-sdk",
       credential_source: "local_codex_home",
+      codex_home: "./provider-home",
     },
     agent_profile: {
       profile_id: "local-codex-profile",

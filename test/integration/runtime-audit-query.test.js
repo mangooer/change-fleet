@@ -196,6 +196,42 @@ describe("read-only Runtime audit queries", () => {
       ["completed", "abandoned", "completed"],
     );
   });
+
+  test("attributes blocked and successful pre-Candidate attempts to one ChangeSet", async (t) => {
+    const fixture = await createAuditFixture(t, "provider-retry", BlockedUsageRuntime);
+    await assert.rejects(
+      fixture.service.executeChangeSet({
+        idempotency_key: "execute-blocked",
+        change_set_id: "change",
+      }),
+      { code: "RUNTIME_IMPLEMENTATION_BLOCKED" },
+    );
+    const retryRuntime = new UsageRuntime({ plan: fixture.plan });
+    const reopened = await ChangeFleetService.open({
+      ...fixture.options,
+      runtime: retryRuntime,
+    });
+    await reopened.executeChangeSet({
+      idempotency_key: "execute-retry",
+      change_set_id: "change",
+    });
+
+    const audit = await createQuery(
+      reopened,
+      "2026-08-03T14:00:00.000Z",
+    ).getChangeSetAudit("change");
+    const state = await reopened.readChangeSet("change");
+    assert.equal(audit.payload.usage.referenced_run_count, 3);
+    assert.equal(audit.payload.usage.observed_run_count, 3);
+    assert.equal(audit.payload.usage.observed_total_tokens, 580);
+    assert.deepEqual(audit.payload.outcomes.runtime_attempts, {
+      completed: 3,
+    });
+    assert.equal(
+      state.decisions.some((decision) => decision.type === "provider_retry"),
+      true,
+    );
+  });
 });
 
 class UsageRuntime extends ScriptedRuntime {
@@ -233,6 +269,23 @@ class CancellationRuntime extends ScriptedRuntime {
       );
     }
     return super.invoke(invocation);
+  }
+}
+
+class BlockedUsageRuntime extends UsageRuntime {
+  constructor(options) {
+    super({
+      ...options,
+      executionOutcome: {
+        type: "implementation_blocked",
+        summary: "sandbox setup unavailable",
+        changed_paths: [],
+        blocker: {
+          code: "sandbox_unavailable",
+          message: "sandbox setup unavailable",
+        },
+      },
+    });
   }
 }
 

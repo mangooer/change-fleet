@@ -7,11 +7,8 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 
 ## Current Baseline
 
-- WI-0001 through WI-0008 and WI-0010 through WI-0011 are accepted and landed. WI-0009 remains
+- WI-0001 through WI-0008 and WI-0010 through WI-0012 are accepted and landed. WI-0009 remains
   unfinished; its old Runtime ChangeSet is abandoned and `changefleet-wi-0009-v2` is newly created.
-- The private Node.js 24 ESM package has a versioned filesystem store, `node:test`, pinned
-  `@openai/codex-sdk@0.146.0`, one real Codex adapter, test-only scripted Runtime, and one
-  experimental CLI; no released package, stable CLI, API, or UI exists.
 - Agent Runtimes own semantic work. ChangeFleet owns cross-repository authorization, revisions,
   scheduling, exact Git and Bundle subjects, evidence, recovery, and human gates.
 
@@ -46,6 +43,11 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
   enforcement remain deferred.
 - Closing an unfinished quiescent pre-delivery task and ordinarily creating a later exact-base task
   are separate actions; generic resume, rewind, restart, and fork remain deferred.
+- Decision 0020 supersedes ChangeFleet-owned Provider Home copying. Local configuration explicitly
+  selects an operator-prepared Codex environment; ChangeFleet never manages its files. Clean
+  exact-base pre-Candidate retry remains accepted.
+- Execution may report a strict blocked result. Base-equal or empty implementation output is not a
+  CandidateCheckpoint and cannot enter validation or review.
 
 ## Accepted Decisions
 
@@ -66,7 +68,10 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
   [0015](decisions/0015-exact-github-pull-request-delivery.md) GitHub delivery; and
   [0016](decisions/0016-local-review-and-delivery-console.md) the local review console;
   [0017](decisions/0017-post-provider-candidate-finalization-and-recovery.md) finalization recovery;
-  and [0018](decisions/0018-explicit-changeset-closure.md) explicit closure.
+  [0018](decisions/0018-explicit-changeset-closure.md) explicit closure;
+  [0019](decisions/0019-durable-codex-runtime-home-and-pre-candidate-retry.md) clean pre-Candidate
+  retry; and [0020](decisions/0020-provider-environment-ownership-boundary.md) external Provider
+  environment ownership.
 
 ## Repository Design Proposals
 
@@ -78,6 +83,9 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
   input to the new task. Accepted
   [0016](proposals/0016-explicit-changeset-closure.md) is implemented by landed WI-0011, adding
   human closure before the user creates a fresh task.
+- Accepted [0018](proposals/0018-provider-environment-ownership-and-pre-candidate-retry-correction.md)
+  supersedes Proposal 0017's Provider Home mechanism. Landed WI-0012 removes that code while
+  retaining blocked, empty-result, and exact retry semantics. WI-0009-v2 remains blocked.
 
 ## Open Questions
 
@@ -86,8 +94,6 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 
 ## Known Limitations
 
-- Landed private schema v5 has no compatibility promise. Deterministic GitHub PR delivery is
-  landed, while its real gate is open.
 - Git URLs, remote workers, automatic merge, deployment, service graph, and stacked ChangeSets
   remain deferred. The console exists only as unaccepted dogfood commit `12a7036`; review found
   security, strict-transport, reproducible-lockfile, and real-Chromium gate blockers.
@@ -95,21 +101,18 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
   access, hard interruption, and paid multi-Repository work remain unverified.
 - Codex SDK usage is aggregate-only; effective model and universal host read-denial remain unknown.
 - The abandoned WI-0009 attempt has no exact Bundle. Its invalid combined command and review
-  findings remain historical evidence; the new ChangeSet has no plan, Run, Candidate, or Bundle.
-- Native Windows needs a pre-provisioned elevated sandbox. The explicit administrator refresh
-  necessarily raised UAC; the user still observed a consent prompt afterward, but its exact trigger
-  was not captured. Recurring managed-Run prompts remain unresolved and grant no product authority.
-- Local workspaces use the registered Git object database; Git URL and remote-worker work need new
-  authority.
-- Local ignored Codex Harness is proven; hosted retention, encryption, and actual-load evidence are
-  deferred.
+  findings remain historical evidence. The new ChangeSet has a confirmed plan but its first
+  execution produced no Candidate or code change.
+- WI-0009-v2 proved that a partial Codex Home can retrigger elevated setup and yield an empty
+  checkpoint. Copied Sandbox state was incompatible and lacked protected ACL lifecycle. Decision
+  0020 returns all Provider host state to the Harness or operator; no later retry ran.
 - Runtime Kit, Codex App Server, another Provider, Linear, pricing, dashboards, and continuous
   context enforcement are deferred.
 
 ## Next Recommended Task
 
-Plan `changefleet-wi-0009-v2` from its latest explicit `main` selection. Plan confirmation and any
-real Provider execution remain separate human gates.
+After the selected Codex environment is healthy, explicitly retry the clean exact-base WI-0009-v2
+WorkUnit under Node.js 24. Do not resume its historical empty checkpoint.
 
 ## Maintenance Contract
 

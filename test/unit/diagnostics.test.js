@@ -89,3 +89,14 @@ test("ChangeSet closure diagnostics remain stable across locales", () => {
     "The ChangeSet is abandoned and cannot receive lifecycle mutations.",
   );
 });
+
+test("pre-Candidate retry diagnostics remain stable across locales", () => {
+  assert.equal(
+    diagnosticMessage("EMPTY_IMPLEMENTATION_RESULT"),
+    "Agent Runtime 没有产生可交付的 Git 修改。",
+  );
+  assert.equal(
+    diagnosticMessage("EXECUTION_RETRY_WORKSPACE_DIRTY", { locale: "en" }),
+    "The retry workspace contains partial changes and cannot be reset automatically.",
+  );
+});

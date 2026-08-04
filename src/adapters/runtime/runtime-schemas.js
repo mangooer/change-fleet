@@ -102,11 +102,28 @@ export const PLANNING_OUTCOME_SCHEMA = Object.freeze({
 export const EXECUTION_OUTCOME_SCHEMA = Object.freeze({
   type: "object",
   properties: {
-    type: { type: "string", enum: ["implementation_completed"] },
+    type: {
+      type: "string",
+      enum: ["implementation_completed", "implementation_blocked"],
+    },
     summary: { type: "string" },
     changed_paths: STRING_ARRAY_SCHEMA,
+    blocker: {
+      anyOf: [
+        {
+          type: "object",
+          properties: {
+            code: { type: "string" },
+            message: { type: "string" },
+          },
+          required: ["code", "message"],
+          additionalProperties: false,
+        },
+        { type: "null" },
+      ],
+    },
   },
-  required: ["type", "summary", "changed_paths"],
+  required: ["type", "summary", "changed_paths", "blocker"],
   additionalProperties: false,
 });
 
@@ -149,7 +166,22 @@ export function assertStructuredOutcome(operation, outcome) {
     outcome.type === "implementation_completed" &&
     typeof outcome.summary === "string" &&
     Array.isArray(outcome.changed_paths) &&
-    outcome.changed_paths.every((item) => typeof item === "string")
+    outcome.changed_paths.every((item) => typeof item === "string") &&
+    outcome.blocker === null
+  ) {
+    return outcome;
+  }
+  if (
+    operation === "execution" &&
+    outcome.type === "implementation_blocked" &&
+    typeof outcome.summary === "string" &&
+    Array.isArray(outcome.changed_paths) &&
+    outcome.changed_paths.every((item) => typeof item === "string") &&
+    outcome.blocker &&
+    typeof outcome.blocker === "object" &&
+    !Array.isArray(outcome.blocker) &&
+    typeof outcome.blocker.code === "string" &&
+    typeof outcome.blocker.message === "string"
   ) {
     return outcome;
   }

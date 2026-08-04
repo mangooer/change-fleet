@@ -183,6 +183,10 @@ describe("local CLI structured input", () => {
     );
     assert.equal(config.locale, "en");
     assert.equal(config.runtime.adapter, "codex-sdk");
+    assert.equal(
+      config.runtime.codex_home,
+      path.resolve("fixtures", "provider-home"),
+    );
     assert.equal(config.agent_profile.provider, "openai");
   });
 
@@ -215,6 +219,28 @@ describe("local CLI structured input", () => {
     );
   });
 
+  test("requires a Provider environment outside control and workspace roots", async () => {
+    const missing = validConfig();
+    delete missing.runtime.codex_home;
+    await assert.rejects(
+      loadLocalCliConfig("config.json", {
+        readFileImpl: async () => Buffer.from(JSON.stringify(missing)),
+      }),
+      { code: "INVALID_CLI_CONFIG" },
+    );
+
+    for (const codexHome of ["./control/codex", "./workspaces/codex"]) {
+      const overlapping = validConfig();
+      overlapping.runtime.codex_home = codexHome;
+      await assert.rejects(
+        loadLocalCliConfig("config.json", {
+          readFileImpl: async () => Buffer.from(JSON.stringify(overlapping)),
+        }),
+        { code: "INVALID_CLI_CONFIG" },
+      );
+    }
+  });
+
   test("reads request JSON from a file or bounded stdin without changing fields", async () => {
     const request = { idempotency_key: "create-1", nested: { value: 1 } };
     assert.deepEqual(
@@ -241,28 +267,21 @@ describe("local CLI structured input", () => {
 describe("local CLI composition and presentation", () => {
   test("uses only accepted Codex credential sources in production composition", () => {
     const local = createProductionRuntime(validNormalizedConfig(), {
-      homeDirectory: path.resolve("user-home"),
       environment: {},
     });
     assert.equal(local instanceof CodexSdkRuntime, true);
-    assert.equal(
-      local.credentialSourceCodexHome,
-      path.resolve("user-home", ".codex"),
-    );
+    assert.equal(local.codexHome, path.resolve("provider-home"));
+    assert.equal(local.credentialProfileId, "local-codex-credentials");
 
     const api = createProductionRuntime(
       validNormalizedConfig("openai_api_key"),
       {
         environment: { OPENAI_API_KEY: "test-key" },
-        homeDirectory: path.resolve("user-home"),
       },
     );
     assert.equal(api instanceof CodexSdkRuntime, true);
     assert.equal(api.apiKey, "test-key");
-    assert.equal(
-      api.credentialSourceCodexHome,
-      path.resolve("user-home", ".codex"),
-    );
+    assert.equal(api.codexHome, path.resolve("provider-home"));
     assert.throws(
       () =>
         createProductionRuntime(
@@ -343,6 +362,7 @@ function validConfig() {
     runtime: {
       adapter: "codex-sdk",
       credential_source: "local_codex_home",
+      codex_home: "./provider-home",
     },
     agent_profile: {
       profile_id: "local-codex-profile",
@@ -368,6 +388,7 @@ function validNormalizedConfig(
     runtime: {
       adapter: "codex-sdk",
       credential_source: credentialSource,
+      codex_home: path.resolve("provider-home"),
     },
   };
 }
