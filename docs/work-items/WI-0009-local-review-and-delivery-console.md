@@ -138,19 +138,26 @@ authority is reported as unverified, never passed.
 ## Current Projection
 
 - Current subject: WI-0009 remains the started implementation WorkItem for accepted Proposal 0014,
-  but is blocked by the sole confirmed `todo` prerequisite WI-0010. Its dogfood ChangeSet is
+  and its WI-0010 prerequisite is accepted and landed. Its dogfood ChangeSet remains
   `changefleet-wi-0009` at exact base `5f2ad1d`.
 - Planning attempt 3 produced and confirmed one WorkUnit. Execution Run
   `run-f7d39a4b-2469-46d2-afa7-204cb7328fba` completed Provider implementation and the owned
-  workspace contains clean commit `12a7036`, but repository validation failed to spawn `npm` on
-  Windows before a Candidate was persisted.
+  workspace contains clean commit `12a7036`. Exact legacy recovery created checkpoint
+  `candidate-checkpoint-4da5d6ffed87f65ef75db5d8`; resumed repository validation passed and
+  persisted Candidate `candidate-d49b26ca52229dac377891f8` without another Runtime Run.
+- Combined validation then failed before Bundle creation because the confirmed command
+  `npm run test:ui` requires a repository working directory, while the accepted combined-validation
+  contract runs from the control-owned validation directory containing only `manifest.json`.
 - Read-only review found a partial but reusable implementation with blockers: incomplete Playwright
   lock data, false-success browser skips, inline-bootstrap XSS, non-strict HTTP fields/media types,
   unsafe error details, and missing required browser scenarios.
-- Next step: implement, review, accept, and land WI-0010. Then use its shared legacy-recovery
-  operation on this unchanged exact subject and record the reviewed findings as revision feedback.
-- Active blockers: no exact CandidateBundle exists; UAC recurrence is unresolved; real Chromium and
-  GitHub external-write gates remain unverified.
+- Next step: discuss a narrow Proposal 0016 for a human-confirmed pre-Bundle plan correction after
+  deterministic validation failure. It must preserve the exact Candidate and evidence, replace
+  neither the confirmed command nor toolchain silently, and return the same ChangeSet to an exact
+  revised validation plan without another semantic implementation Run.
+- Active blockers: the current state is `failed`, no exact CandidateBundle exists, and the current
+  public state machine has no pre-Bundle route back to `replanning`. UAC recurrence is unresolved;
+  real Chromium and GitHub external-write gates remain unverified.
 
 ## Implementation Evidence
 
@@ -179,6 +186,24 @@ authority is reported as unverified, never passed.
 - Review proved `test:ui` can exit zero without Playwright or Chromium, package-lock lacks the
   pinned package records, and an injected `change_set_id` can terminate the inline bootstrap
   script. The Candidate is therefore not review-ready despite the deterministic suite result.
+- `git status --porcelain=v1`, `git rev-parse HEAD`, `git rev-parse --git-common-dir`, and
+  `git merge-base --is-ancestor 5f2ad1d... 12a7036...` against the owned workspace returned exit
+  code `0`: the workspace was clean, its HEAD was the exact proposed commit, its common Git dir was
+  the registered ChangeFleet repository, and the Candidate descended from the exact base.
+- Node.js 24.14.0 running `changeset candidate recover-legacy` with the exact human-bound request
+  returned exit code `0`; private schema v4 migrated to v5 and created legacy checkpoint
+  `candidate-checkpoint-4da5d6ffed87f65ef75db5d8` for exact commit `12a7036`.
+- Node.js 24.14.0 running `changeset execute` with new key `wi-0009-execute-resume-2` returned exit
+  code `1` after 168.8 seconds. Repository validation attempt 1 passed and created Candidate
+  `candidate-d49b26ca52229dac377891f8`; combined attempt 1 failed with
+  `COMBINED_VALIDATION_FAILED` because its control-owned working directory had no `package.json`.
+  The four pre-existing Run ids remained unchanged, proving zero additional Runtime Runs.
+- Validation evidence recorded requested `npm`, resolved `C:\myData\nodejs\npm.cmd`, the
+  `windows_batch` adapter, and exact exit results. The outer npm shim itself binds Node 22.19.0, but
+  the operator PATH began with Node 24.14.0 and the Candidate's `run-checks.mjs` rejects every
+  non-24 test Runtime before dispatch; its exit code `0` therefore verifies the selected test
+  Runtime. Validation evidence does not expose the nested child locator, which remains an audit
+  precision limitation rather than a failed gate.
 
 ## Acceptance Review
 
@@ -186,5 +211,7 @@ Pending implementation, selected validation, and user review.
 
 ## Project Memory Impact
 
-WI-0009 is accepted unfinished work blocked by WI-0010. It does not change the landed WI-0001
-through WI-0008 baseline until its implementation is reviewed, accepted, and committed.
+WI-0009 is accepted unfinished work. WI-0010 is landed and legacy recovery preserved an exact
+Candidate without repeating Provider work, but invalid confirmed validation commands and the absent
+pre-Bundle replanning transition now block Bundle creation. The Candidate remains unaccepted and
+does not change the landed baseline.

@@ -70,8 +70,10 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 - The [Proposal Index](proposals/INDEX.md) owns chronology. Accepted implementation through Proposal
   0013 is represented by landed WI-0001 through WI-0008; superseded, rejected, and deferred
   boundaries remain explicit there and in their Decisions.
-- [0014](proposals/0014-local-review-and-delivery-console.md) is accepted; WI-0009 was blocked after
-  its completed Provider Run could not spawn the Windows `npm` shim before Candidate persistence.
+- [0014](proposals/0014-local-review-and-delivery-console.md) is accepted. WI-0009 legacy recovery
+  preserved exact commit `12a7036` as a Candidate without another Runtime Run, and repository
+  validation passed, but its confirmed combined command failed before Bundle creation because it
+  requires repository cwd instead of the specified control-owned validation directory.
   Accepted [0015](proposals/0015-post-provider-candidate-finalization-and-recovery.md) and landed
   WI-0010 now provide the checkpoint, exact resume, bounded feedback, and narrow shim prerequisite.
 
@@ -90,6 +92,10 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 - WI-0003 proved native-Windows local-ChatGPT single-Repository use. Other auth/hosts, hostile
   access, hard interruption, and paid multi-Repository work remain unverified.
 - Codex SDK usage is aggregate-only; effective model and universal host read-denial remain unknown.
+- WI-0009 has no exact Bundle: its current state is `failed`, its confirmed combined command cannot
+  run from the specified validation directory, and the current public state machine has no
+  pre-Bundle transition back to a human-confirmed revised plan. Validation evidence records the
+  outer npm shim but not the nested Node 24 child locator enforced by the repository check.
 - Native Windows needs a pre-provisioned elevated sandbox. The explicit administrator refresh
   necessarily raised UAC; the user still observed a consent prompt afterward, but its exact trigger
   was not captured. Recurring managed-Run prompts remain unresolved and grant no product authority.
@@ -102,9 +108,10 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 
 ## Next Recommended Task
 
-Resume the exact WI-0009 legacy subject through WI-0010 recovery, prove repository and combined
-validation with zero Runtime calls, and stop at the exact Bundle human-review gate. GitHub
-publication remains a separate gate.
+Discuss a narrow Proposal 0016 for human-confirmed pre-Bundle plan correction after deterministic
+validation failure. Preserve the exact Candidate, checkpoint, attempts, and zero-Runtime recovery;
+never mutate the confirmed command or persisted state in place. GitHub publication remains a
+separate gate.
 
 ## Maintenance Contract
 
