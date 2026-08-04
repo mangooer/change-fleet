@@ -6,6 +6,9 @@ Date: 2026-07-31
 
 Source: Repository Design Proposal 0007
 
+Superseded in part: Decision 0021 replaces mandatory operation-scoped host enforcement with an
+explicit trusted-local or constrained AgentProfile choice
+
 ## Decision
 
 ChangeFleet's first production Agent Runtime adapter uses the official
@@ -58,3 +61,10 @@ first proves the port and evidence model without building a speculative universa
 - Direct model API integration and a ChangeFleet-owned tool loop remain rejected for this stage.
 - The production fake Runtime profile is removed once this adapter proves the production boundary;
   scripted Runtime behavior remains test-only.
+
+## Later Boundary Correction
+
+Decision 0021 preserves the SDK, fresh-thread, exact-workspace, structured-output, and evidence
+choices above. It supersedes the mandatory controlled-environment, network-off, and native Sandbox
+claims: worktrees isolate development state but do not provide OS confinement. Trusted local Runs
+may now explicitly select `host_user`; `operation_scoped` remains optional and never a fallback.

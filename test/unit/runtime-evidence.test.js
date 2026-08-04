@@ -36,6 +36,22 @@ describe("Runtime identity and evidence", () => {
       () => normalizeAgentProfile({ ...PROFILE, network_access: true }),
       { code: "UNSUPPORTED_AGENT_PROFILE" },
     );
+    assert.deepEqual(
+      normalizeAgentProfile({
+        ...PROFILE,
+        permissions: "host_user",
+        network_access: true,
+      }),
+      {
+        ...PROFILE,
+        permissions: "host_user",
+        network_access: true,
+      },
+    );
+    assert.throws(
+      () => normalizeAgentProfile({ ...PROFILE, permissions: "host_user" }),
+      { code: "UNSUPPORTED_AGENT_PROFILE" },
+    );
     assert.throws(
       () => normalizeAgentProfile({ ...PROFILE, skills: ["implicit-skill"] }),
       { code: "UNSUPPORTED_AGENT_PROFILE" },

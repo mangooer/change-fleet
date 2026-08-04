@@ -57,8 +57,10 @@ Keep initial Project and Repository configuration minimal; follow the accepted `
 - Repository-native Harness remains semantic authority and may be absent.
 - Do not create or copy `.changefleet`, `AGENTS.md`, `WORKFLOW.md`, Skills, architecture, or test
   policy into registered repositories.
-- Planning access is read-only across explicitly authorized repositories.
-- Execution write access is scoped to the assigned isolated repository workspace.
+- Planning is semantically read-only; its writes never become Candidates. Execution accepts Git
+  changes only from the assigned isolated repository workspace.
+- Worktrees isolate development state, not host processes. The Runtime profile and operator own OS
+  permissions; ChangeFleet records the mode without claiming confinement it did not enforce.
 - Provider model, reasoning, permission, and optional Skill selection belong to a Runtime
   `AgentProfile`, not the ChangeSet aggregate.
 - Tracker integrations such as Linear are intake or projection surfaces, not ChangeSet authority.

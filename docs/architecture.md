@@ -510,17 +510,16 @@ The first production `AgentRuntimeAdapter` uses the official `@openai/codex-sdk`
 It is one adapter implementation, not a Provider framework.
 
 Each Run attempt owns a fresh SDK thread and child process. Planning first materializes one owned
-detached worktree at each selected Repository's persisted `resolved_base_sha`; the adapter exposes
-only those roots read-only. Execution exposes only the current WorkUnit workspace with write
-permission. Network remains off unless separately authorized, and no full-host permission fallback
-exists.
+detached worktree at each selected Repository's persisted `resolved_base_sha`; planning writes are
+non-authoritative. Execution publishes only the current WorkUnit workspace Git subject. Worktrees
+isolate development state, not the Runtime process from the host.
 
-Native Windows elevated-sandbox provisioning is a Runtime-host bootstrap prerequisite that may
-require operating-system administrator approval. It is not a ChangeSet gate, a per-Run business
-approval, or the same mechanism as Codex tool escalation. A managed Run consumes pre-provisioned
-host state and fails closed when that state is unavailable; it never silently falls back to
-full-host access. A recurring setup prompt is an operational readiness defect to diagnose from the
-next exact prompt and sandbox log, not a reason to broaden Agent authority.
+An exact AgentProfile selects `host_user` or `operation_scoped`. The trusted-local mode maps to
+Codex `danger-full-access`, inherits the host environment, and leaves native Sandbox, network, Web
+Search, history, tools, and subagents to the selected Provider environment. The optional constrained
+mode retains planning `read-only`, execution `workspace-write`, disabled network, and a controlled
+environment. The adapter never silently falls back between modes. Provider setup and native
+Windows prompts remain external readiness concerns, not ChangeSet gates.
 
 The adapter uses strict JSON Schema terminal output and maps streamed items into bounded normalized
 events. Provider types and full transcripts remain adapter evidence. Only validated typed outcomes

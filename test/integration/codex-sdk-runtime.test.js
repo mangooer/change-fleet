@@ -11,8 +11,8 @@ const PROFILE = {
   runtime: "codex-sdk",
   model: "gpt-5.4",
   reasoning: "high",
-  permissions: "operation_scoped",
-  network_access: false,
+  permissions: "host_user",
+  network_access: true,
   skills: [],
   credential_profile_id: "test-credentials",
 };
@@ -105,12 +105,11 @@ describe("Codex SDK Runtime protocol", () => {
     assert.equal(factoryCalls.length, 2);
     assert.equal(factoryCalls[1].env.CODEX_HOME, firstHome);
     assert.equal(firstHome, RUNTIME_OPTIONS.codexHome);
-    assert.equal(factoryCalls[0].env.SECRET_SHOULD_NOT_PASS, undefined);
-    assert.equal(factoryCalls[0].config.history.persistence, "none");
-    assert.equal(factoryCalls[0].config.features.multi_agent, false);
-    assert.equal(Object.hasOwn(factoryCalls[0].config, "windows"), false);
-    assert.equal(threadOptions[0].sandboxMode, "read-only");
-    assert.equal(threadOptions[0].networkAccessEnabled, false);
+    assert.equal(factoryCalls[0].env.SECRET_SHOULD_NOT_PASS, "secret");
+    assert.equal(factoryCalls[0].config, undefined);
+    assert.equal(threadOptions[0].sandboxMode, "danger-full-access");
+    assert.equal(threadOptions[0].networkAccessEnabled, undefined);
+    assert.equal(threadOptions[0].webSearchMode, undefined);
     assert.equal(threadOptions[0].approvalPolicy, "never");
     assert.match(
       prompts[0],
@@ -136,6 +135,48 @@ describe("Codex SDK Runtime protocol", () => {
     );
     assert.equal(commandEvent.payload.output_bytes > 0, true);
     assert.match(commandEvent.payload.output_sha256, /^[0-9a-f]{64}$/u);
+    assert.equal(JSON.stringify(first).includes("SECRET_SHOULD_NOT_PASS"), false);
+  });
+
+  test("retains constrained behavior only for an explicit operation-scoped profile", async () => {
+    const factoryCalls = [];
+    const threadOptions = [];
+    const runtime = new CodexSdkRuntime({
+      ...RUNTIME_OPTIONS,
+      environment: {
+        PATH: process.env.PATH,
+        SECRET_SHOULD_NOT_PASS: "secret",
+      },
+      codexFactory(options) {
+        factoryCalls.push(options);
+        return {
+          startThread(options_) {
+            threadOptions.push(options_);
+            return {
+              async runStreamed() {
+                return { events: providerEvents("not-json") };
+              },
+            };
+          },
+        };
+      },
+    });
+    const invocation = planningInvocation(process.cwd());
+    invocation.agent_profile = {
+      ...PROFILE,
+      permissions: "operation_scoped",
+      network_access: false,
+    };
+
+    await assert.rejects(runtime.invoke(invocation), {
+      code: "CODEX_RUNTIME_OUTPUT_INVALID",
+    });
+    assert.equal(factoryCalls[0].env.SECRET_SHOULD_NOT_PASS, undefined);
+    assert.equal(factoryCalls[0].config, undefined);
+    assert.equal(threadOptions[0].sandboxMode, "read-only");
+    assert.equal(threadOptions[0].networkAccessEnabled, false);
+    assert.equal(threadOptions[0].webSearchMode, "disabled");
+    assert.equal(threadOptions[0].approvalPolicy, "never");
   });
 
   test("preserves terminal failure evidence without accepting text output", async () => {

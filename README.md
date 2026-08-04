@@ -170,7 +170,11 @@ configuration; relative control and workspace roots resolve from that file:
 the credential value. `codex_home` explicitly selects an already prepared Provider environment.
 ChangeFleet passes that host locator to Codex but never copies, scans, repairs, or deletes the
 directory. It also does not override the selected environment's native Windows Sandbox
-implementation; `read-only` and `workspace-write` remain operation-scoped session permissions.
+implementation. The shown `operation_scoped` profile is the optional constrained mode: planning is
+`read-only`, execution is `workspace-write`, the environment is filtered, and network is disabled.
+For Conductor-style trusted local execution, set `permissions` to `host_user` and
+`network_access` to `true`; Codex then runs as the local account with `danger-full-access`, and
+ChangeFleet makes no OS-confinement claim. The two modes are explicit and never silent fallbacks.
 Mutations read one exact application request from a JSON file or `--request -` stdin:
 
 ```sh

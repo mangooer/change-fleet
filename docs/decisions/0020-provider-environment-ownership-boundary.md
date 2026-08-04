@@ -16,10 +16,10 @@ Sandbox provisioning, credentials, and runtime-home lifecycle. ChangeFleet does 
 repair, migrate, reset, or delete Provider operational state.
 
 Local configuration explicitly selects one already prepared Codex environment through a host-only
-`runtime.codex_home` locator. The adapter passes that locator to the pinned SDK process and controls
-only its accepted operation-scoped session settings. Provider-native configuration in that selected
-environment cannot change Repository authority, confirmed plans, exact Git subjects, Candidates,
-evidence identity, or human gates.
+`runtime.codex_home` locator. The adapter passes that locator to the pinned SDK process and maps
+only the exact permission mode selected by the AgentProfile. Provider-native configuration in that
+selected environment cannot change Repository authority, confirmed plans, exact Git subjects,
+Candidates, evidence identity, or human gates.
 
 Provider setup and UAC are external readiness concerns. ChangeFleet does not invoke setup during a
 Run or silently switch Sandbox implementations. A failed Provider attempt remains evidence and may
@@ -54,3 +54,7 @@ The accepted operation-scoped Sandbox setting means the SDK thread's `read-only`
 `windows.sandbox` implementation override. WI-0009-v3 process evidence proved that the retained
 unconditional `elevated` override entered Codex's administrator-approved setup path. The adapter
 must omit that override and honor the explicitly selected Provider environment instead.
+
+Decision 0021 later makes operation-scoped execution optional. Explicit `host_user` Runs use the
+local account's permissions and do not claim OS confinement; this does not change the external
+ownership of Provider setup, credentials, native configuration, or Runtime Home.

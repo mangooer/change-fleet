@@ -16,14 +16,15 @@ export function normalizeAgentProfile(input) {
     "Agent Profile revision must be a positive integer",
   );
   invariant(
-    input.permissions === "operation_scoped",
+    ["operation_scoped", "host_user"].includes(input.permissions),
     "INVALID_AGENT_PROFILE",
-    "Agent Profile permissions must be operation_scoped",
+    "Agent Profile permissions must be operation_scoped or host_user",
   );
+  const expectedNetworkAccess = input.permissions === "host_user";
   invariant(
-    input.network_access === undefined || input.network_access === false,
+    input.network_access === expectedNetworkAccess,
     "UNSUPPORTED_AGENT_PROFILE",
-    "The first real Provider keeps network access disabled",
+    "Agent Profile network access must match its permission mode",
   );
   invariant(
     Array.isArray(input.skills) && input.skills.length === 0,
@@ -42,7 +43,7 @@ export function normalizeAgentProfile(input) {
       input.reasoning,
     ),
     permissions: input.permissions,
-    network_access: false,
+    network_access: expectedNetworkAccess,
     skills: [],
     credential_profile_id: optionalId(
       "agent_profile.credential_profile_id",

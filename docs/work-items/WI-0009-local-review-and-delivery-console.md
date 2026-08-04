@@ -157,10 +157,10 @@ authority is reported as unverified, never passed.
 - `changefleet-wi-0009-v3` was independently created at exact base `f0dbe4f`. Its first planning
   Run triggered native Windows UAC and ended as `CODEX_PROVIDER_FAILED`. V3 remains `analyzing`
   with no Plan, Candidate, or Bundle, so human environment repair may continue the same ChangeSet.
-- Next step: outside ChangeFleet, repair and verify the selected Provider environment. Then revise
-  v3's unplanned Repository selection to current main and plan once with a fresh idempotency key.
-- Active blockers: Provider readiness and UAC recurrence; real Chromium and GitHub external-write
-  gates also remain unverified.
+- Next step: explicitly select WI-0013's trusted-local profile, revise v3's unplanned Repository
+  selection to current main, and plan once with a fresh idempotency key.
+- Active blockers: explicit profile and exact-base revision; real Chromium and GitHub
+  external-write gates also remain unverified.
 
 ## Implementation Evidence
 
@@ -226,6 +226,9 @@ authority is reported as unverified, never passed.
 - Node.js 24 direct adapter validation exited `0` with 5 passing tests after the correction; no
   real Provider ran. Static inspection found no native Sandbox implementation override in
   production or test code.
+- Accepted Decision 0021 now separates worktree development isolation from OS confinement.
+  Deterministic WI-0013 implementation is review-ready; v3 stays paused and its persisted
+  operation-scoped profile is unchanged until that WorkItem is accepted and landed.
 
 ## Acceptance Review
 

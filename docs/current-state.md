@@ -7,17 +7,17 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 
 ## Current Baseline
 
-- WI-0001 through WI-0008 and WI-0010 through WI-0012 are accepted and landed. WI-0009 remains
-  unfinished; its old ChangeSet and empty failed v2 are abandoned, while v3 is unplanned.
+- WI-0001 through WI-0008 and WI-0010 through WI-0013 are landed. Unfinished WI-0009-v3 remains
+  unplanned and paused.
 - Agent Runtimes own semantic work. ChangeFleet owns cross-repository authorization, revisions,
   scheduling, exact Git and Bundle subjects, evidence, recovery, and human gates.
 
 ## Accepted Product Direction
 
-- Managed Runs receive a compact Control Contract and current projection; referenced history stays
-  out of default context. ChangeFleet neither creates nor maintains registered-repository Harness.
-- Agent Profiles select Runtime settings. Planning is read-only; execution writes only to its
-  isolated WorkUnit workspace.
+- Managed Runs receive compact current control facts; referenced history stays out of default
+  context. ChangeFleet does not maintain registered-repository Harness.
+- Agent Profiles select explicit host-user or constrained Runtime permissions. Planning writes are
+  non-authoritative; execution accepts only its isolated WorkUnit workspace Git subject.
 - Initial context targets at most 70 percent usage and records `enforced | estimated | unknown`.
 - Tracker integrations remain edge projections, not ChangeSet authority.
 - A Project binds registered Repositories. A ChangePlan selects a non-empty subset;
@@ -35,17 +35,17 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
   records exact external results through UI-ready shared application operations.
 - The accepted next surface is a foreground loopback review and delivery console with bounded
   ChangeSet discovery, exact Bundle decisions, delivery actions, and no CLI invocation.
-- WI-0003 records Runtime evidence; WI-0005 derives audit views; WI-0007 exposes shared operations
-  through one experimental CLI with read-only debug audit.
+- Landed slices record Runtime evidence, derive audit views, and expose shared operations through
+  one experimental CLI with isolated read-only debug audit.
 - The first production Provider uses the pinned Codex SDK, a narrow Runtime port, one fresh thread
   per attempt, structured outcomes, exact-base planning worktrees, and WorkUnit-scoped writes.
-- Controller loss abandons an incomplete attempt; blind session resume and continuous context
-  enforcement remain deferred.
-- Closing an unfinished quiescent pre-delivery task and ordinarily creating a later exact-base task
-  are separate actions; generic resume, rewind, restart, and fork remain deferred.
+- Controller loss abandons incomplete attempts; blind session resume remains deferred.
+- Human closure and ordinary later task creation are separate; generic restart and fork are deferred.
 - Decision 0020 supersedes ChangeFleet-owned Provider Home copying. Local configuration explicitly
   selects an operator-prepared Codex environment; ChangeFleet neither manages its files nor
   overrides its native Windows Sandbox implementation. Clean exact-base retry remains accepted.
+- Decision 0021 restores the Conductor-style layer boundary: worktrees isolate development state,
+  while an explicit AgentProfile selects Provider-owned host or constrained permissions.
 - Execution may report a strict blocked result. Base-equal or empty implementation output is not a
   CandidateCheckpoint and cannot enter validation or review.
 
@@ -70,23 +70,23 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
   [0017](decisions/0017-post-provider-candidate-finalization-and-recovery.md) finalization recovery;
   [0018](decisions/0018-explicit-changeset-closure.md) explicit closure;
   [0019](decisions/0019-durable-codex-runtime-home-and-pre-candidate-retry.md) clean pre-Candidate
-  retry; and [0020](decisions/0020-provider-environment-ownership-boundary.md) external Provider
-  environment ownership.
+  retry; [0020](decisions/0020-provider-environment-ownership-boundary.md) external Provider
+  environment ownership; and [0021](decisions/0021-provider-owned-host-permissions-and-multi-repository-workspaces.md)
+  Provider-owned host permissions.
 
 ## Repository Design Proposals
 
-- The [Proposal Index](proposals/INDEX.md) owns chronology. Accepted implementation through Proposal
-  0013 is represented by landed WI-0001 through WI-0008; superseded, rejected, and deferred
-  boundaries remain explicit there and in their Decisions.
-- Accepted [0014](proposals/0014-local-review-and-delivery-console.md) is restarting in a fresh
-  ChangeSet. The old attempt and exact Candidate `12a7036` remain immutable history rather than
-  input to the new task. Accepted
-  [0016](proposals/0016-explicit-changeset-closure.md) is implemented by landed WI-0011, adding
-  human closure before the user creates a fresh task.
+- The [Proposal Index](proposals/INDEX.md) owns chronology; Decisions retain superseded, rejected,
+  and deferred boundaries.
+- Accepted [0014](proposals/0014-local-review-and-delivery-console.md) restarts independently; old
+  Candidate `12a7036` remains history. Landed WI-0011 implements Proposal 0016 human closure.
 - Accepted [0018](proposals/0018-provider-environment-ownership-and-pre-candidate-retry-correction.md)
   supersedes Proposal 0017's Provider Home mechanism. Landed WI-0012 removes that code while
   retaining blocked, empty-result, and exact retry semantics. V2 closed on its obsolete base; v3
   started from the accepted WI-0012 baseline.
+- Accepted [0019](proposals/0019-provider-owned-host-permissions-and-multi-repository-workspaces.md)
+  distinguishes development worktrees from OS security. Landed WI-0013 adds explicit trusted-local
+  `host_user`; mandatory strong Sandbox enforcement is no longer a first-version prerequisite.
 
 ## Open Questions
 
@@ -95,11 +95,9 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 
 ## Known Limitations
 
-- Git URLs, remote workers, automatic merge, deployment, service graph, and stacked ChangeSets
-  remain deferred. The console exists only as unaccepted dogfood commit `12a7036`; review found
-  security, strict-transport, reproducible-lockfile, and real-Chromium gate blockers.
-- WI-0003 proved native-Windows local-ChatGPT single-Repository use. Other auth/hosts, hostile
-  access, hard interruption, and paid multi-Repository work remain unverified.
+- Git URLs, remote workers, merge, deployment, service graph, and stacked ChangeSets are deferred.
+  Console commit `12a7036` has security, lockfile, and real-Chromium blockers.
+- Native-Windows single-Repository use passed; other hosts and paid multi-Repository work are unverified.
 - Codex SDK usage is aggregate-only; effective model and universal host read-denial remain unknown.
 - The old WI-0009 attempt has no Bundle; its invalid command and review remain history. V2 closed
   with a clean base-equal workspace and no Candidate or Bundle.
@@ -111,8 +109,8 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 
 ## Next Recommended Task
 
-Choose and prepare a UAC-free Sandbox mode in the selected Provider environment. Then revise
-unplanned v3 to current main and retry planning once; do not invoke Codex while UAC remains.
+Update WI-0009-v3 to the explicit trusted-local profile without invoking Codex. Then revise its
+unplanned Repository selection to the latest accepted baseline before one planning retry.
 
 ## Maintenance Contract
 

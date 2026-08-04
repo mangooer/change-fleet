@@ -29,6 +29,7 @@ preserve chronological reasoning and are not current truth merely because they e
 | [0016](0016-explicit-changeset-closure.md) | Explicit ChangeSet closure | `accepted` | Recorded by Decision 0018; human close is separate from ordinary successor creation | [WI-0011](../work-items/WI-0011-explicit-changeset-closure.md), `done` |
 | [0017](0017-durable-codex-runtime-home-and-pre-candidate-retry.md) | Durable Codex Runtime Home and pre-Candidate retry | `accepted; revised in part` | Decision 0019 remains for blocked, empty-result, and retry semantics; Proposal 0018 supersedes its Provider Home mechanism | [WI-0012](../work-items/WI-0012-durable-codex-runtime-home-and-pre-candidate-retry.md), `done` |
 | [0018](0018-provider-environment-ownership-and-pre-candidate-retry-correction.md) | Provider environment ownership and pre-Candidate retry correction | `accepted` | Recorded by Decision 0020; Provider host state belongs to the Harness or operator while ChangeFleet retains deterministic retry controls | [WI-0012](../work-items/WI-0012-durable-codex-runtime-home-and-pre-candidate-retry.md), `done` |
+| [0019](0019-provider-owned-host-permissions-and-multi-repository-workspaces.md) | Provider-owned host permissions and multi-Repository workspaces | `accepted` | Recorded by Decision 0021; worktrees isolate development state while trusted local host permissions belong to the Runtime and operator | [WI-0013](../work-items/WI-0013-provider-owned-host-permissions-and-multi-repository-workspaces.md), `done` |
 
 ## Status Rules
 

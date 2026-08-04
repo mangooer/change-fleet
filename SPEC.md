@@ -140,17 +140,21 @@ A stable `AgentProfile` selects a Runtime adapter and provider-native model, rea
 and optional Skill settings. Provider model names and Skill catalogs do not become fields in the
 ChangeSet aggregate.
 
-Default capabilities are operation-scoped:
+An AgentProfile explicitly selects either trusted-local `host_user` or optional constrained
+`operation_scoped` permissions. The former runs with the local account's authority; the latter asks
+the Provider for operation-specific confinement. Neither mode changes ChangeFleet's logical
+repository authority:
 
-| Operation | Default capability |
+| Operation | ChangeFleet acceptance boundary |
 | --- | --- |
-| Planning | Read-only access to explicitly authorized frozen repository bases |
-| WorkUnit execution | Read/write access only to that WorkUnit's isolated repository workspace |
+| Planning | Inspect explicitly authorized frozen repository bases; writes are non-authoritative |
+| WorkUnit execution | Publish only the assigned isolated repository workspace Git subject |
 | Bundle review | Read-only access to exact CandidateBundle subjects and evidence |
 | Control decision | Typed ChangeFleet command; no raw control-store or arbitrary filesystem access |
 
-Runtime-native subagents remain inside the capability boundary of their parent operation. They
-cannot expand repository scope or authorize control transitions.
+Runtime-native subagents cannot expand accepted repository scope or authorize control transitions.
+Host-user mode does not claim that ChangeFleet prevents the Runtime process from accessing other
+host resources.
 
 Task trackers such as Linear may provide intake, links, status, or generated progress projections.
 Tracker state is not authority for plan confirmation, repository authorization, Candidate identity,
@@ -734,9 +738,10 @@ uses a fresh thread and rebuilt current projection rather than blindly resuming 
 context.
 
 Before planning, ChangeFleet materializes each planning-visible Repository at its persisted
-`resolved_base_sha` in an owned detached planning worktree. Planning receives read-only access only
-to those roots. WorkUnit execution remains write-scoped to one isolated Repository workspace.
-Dirty files and a later branch movement in the registered checkout cannot affect either view.
+`resolved_base_sha` in an owned detached planning worktree. Planning writes never become
+Candidates. WorkUnit execution can publish only one isolated Repository workspace Git subject.
+Dirty files and a later branch movement in the registered checkout cannot affect either exact view.
+These worktrees isolate development state; they are not an operating-system security sandbox.
 
 The adapter:
 
@@ -747,7 +752,7 @@ The adapter:
 - records bounded normalized events and Runtime invocation evidence;
 - keeps Provider output subject to current-revision, authorization, exact-subject, and human-gate
   validation;
-- disables network by default and never uses full host access as a fallback;
+- maps the exact confirmed AgentProfile permission mode without silent fallback;
 - keeps secrets outside persisted ChangeSet and Run payloads.
 
 The first stage proves one real single-Repository planning-to-Candidate flow. App Server, a second
@@ -884,9 +889,14 @@ copies, repairs, migrates, resets, or deletes that state. Local configuration ex
 already prepared Codex environment through a host-only locator. The locator and selected Home
 contents remain outside ChangeSet state, Runtime context, evidence payloads, registered
 repositories, and Candidates. Provider-native configuration cannot expand Repository authority,
-confirmed plans, exact Git subjects, Candidates, or human gates. ChangeFleet selects the
-operation-scoped `read-only` or `workspace-write` session permission but never overrides the native
-Windows Sandbox implementation selected by that Provider environment.
+confirmed plans, exact Git subjects, Candidates, or human gates.
+
+The AgentProfile explicitly selects trusted-local `host_user` or optional constrained
+`operation_scoped` permissions. Codex host-user Runs use `danger-full-access`, inherit the host
+environment, and leave native Sandbox, network, Web Search, history, tools, and subagents to the
+selected Provider environment. Operation-scoped Runs retain `read-only` planning or
+`workspace-write` execution, a controlled environment, and disabled network. ChangeFleet never
+silently falls back between modes or claims OS confinement from worktree isolation.
 
 Execution may return strict `implementation_blocked` when semantic work cannot proceed. A Provider
 turn completion does not make the WorkUnit successful. `implementation_completed` also fails

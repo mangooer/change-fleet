@@ -188,6 +188,15 @@ describe("local CLI structured input", () => {
       path.resolve("fixtures", "provider-home"),
     );
     assert.equal(config.agent_profile.provider, "openai");
+
+    const hostUser = validConfig();
+    hostUser.agent_profile.permissions = "host_user";
+    hostUser.agent_profile.network_access = true;
+    const hostConfig = await loadLocalCliConfig(configPath, {
+      readFileImpl: async () => Buffer.from(JSON.stringify(hostUser)),
+    });
+    assert.equal(hostConfig.agent_profile.permissions, "host_user");
+    assert.equal(hostConfig.agent_profile.network_access, true);
   });
 
   test("rejects unknown secret fields, fake Runtime selection, and oversized input", async () => {

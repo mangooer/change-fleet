@@ -24,6 +24,9 @@ projection.
 | [0016](0016-local-review-and-delivery-console.md) | Foreground local review and delivery console | Accepted |
 | [0017](0017-post-provider-candidate-finalization-and-recovery.md) | Post-Provider Candidate finalization and recovery | Accepted |
 | [0018](0018-explicit-changeset-closure.md) | Explicit human closure of an unfinished ChangeSet | Accepted |
+| [0019](0019-durable-codex-runtime-home-and-pre-candidate-retry.md) | Blocked and empty-result handling with clean exact-base retry | Accepted; Provider Home mechanism revised by 0020 |
+| [0020](0020-provider-environment-ownership-boundary.md) | Provider environment ownership outside ChangeFleet | Accepted |
+| [0021](0021-provider-owned-host-permissions-and-multi-repository-workspaces.md) | Provider-owned host permissions outside multi-Repository workspace control | Accepted |
 
 Changing one of these boundaries requires a proposal. When a decision is superseded, preserve this
 record and point to the later accepted authority.

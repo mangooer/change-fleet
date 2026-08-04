@@ -58,6 +58,10 @@ Agent capabilities change:
 - human gates, recovery, partial failure, delivery, and compensation state;
 - one immutable `CandidateBundle` for cross-repository review.
 
+Owned worktrees isolate task development state; they are not host security sandboxes. The selected
+Runtime profile and operator own process permissions, while ChangeFleet accepts only exact assigned
+workspace Git subjects.
+
 The implementation should become smaller as Agent Runtimes improve. New Runtime intelligence is not
 itself a reason to add a Core abstraction.
 

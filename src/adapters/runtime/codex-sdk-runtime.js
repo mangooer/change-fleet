@@ -56,7 +56,6 @@ export class CodexSdkRuntime {
     environment = process.env,
     clock = () => new Date(),
     codexFactory = (options) => new Codex(options),
-    platform = process.platform,
   } = {}) {
     // Provider 环境由操作者准备；适配器只持有显式 locator，不读取或维护其中内容。
     this.apiKey = apiKey;
@@ -66,7 +65,6 @@ export class CodexSdkRuntime {
     this.environment = environment;
     this.clock = clock;
     this.codexFactory = codexFactory;
-    this.platform = platform;
   }
 
   async invoke(invocation, { onEvent = async () => {} } = {}) {
@@ -103,13 +101,11 @@ export class CodexSdkRuntime {
       const codex = this.codexFactory({
         apiKey: this.apiKey ?? undefined,
         baseUrl: this.baseUrl ?? undefined,
-        env: controlledEnvironment(this.environment, this.codexHome),
-        config: {
-          // Provider 会话只服务本次 Run；本地历史和原生多 Agent 在首个切片中关闭。
-          history: { persistence: "none" },
-          features: { multi_agent: false },
-          // Windows Sandbox 的具体实现属于显式选择的 Provider 环境；这里不覆盖配置或触发安装路径。
-        },
+        env: runtimeEnvironment(
+          this.environment,
+          this.codexHome,
+          profile.permissions,
+        ),
       });
       const paths = invocation.capabilities.paths.map((item) =>
         path.resolve(item),
@@ -117,16 +113,10 @@ export class CodexSdkRuntime {
       const thread = codex.startThread({
         model: profile.model,
         modelReasoningEffort: profile.reasoning,
-        sandboxMode:
-          invocation.operation === "planning"
-            ? "read-only"
-            : "workspace-write",
+        ...threadPermissionOptions(profile, invocation.operation),
         workingDirectory: paths[0],
         additionalDirectories: paths.slice(1),
         skipGitRepoCheck: false,
-        networkAccessEnabled: false,
-        webSearchMode: "disabled",
-        approvalPolicy: "never",
       });
       const streamed = await thread.runStreamed(buildPrompt(invocation), {
         outputSchema: schemaForOperation(invocation.operation),
@@ -225,9 +215,9 @@ function assertInvocationCapability(
     "Runtime capability mode does not match the operation",
   );
   invariant(
-    profile.network_access === false,
+    profile.network_access === (profile.permissions === "host_user"),
     "INVALID_RUNTIME_INVOCATION",
-    "Codex Runtime network access must remain disabled",
+    "Codex Runtime permission and network facts do not match",
   );
   invariant(
     profile.provider === "openai" &&
@@ -245,14 +235,24 @@ function assertInvocationCapability(
   );
 }
 
+function runtimeEnvironment(source, codexHome, permissions) {
+  if (permissions === "host_user") {
+    // 显式 host_user 与本机 Harness 使用相同环境；只覆盖已确认选择的 CODEX_HOME，不持久化环境内容。
+    const inherited = {};
+    for (const [key, value] of Object.entries(source ?? {})) {
+      if (value !== undefined && key.toUpperCase() !== "CODEX_HOME") {
+        inherited[key] = String(value);
+      }
+    }
+    inherited.CODEX_HOME = requireCodexHome(codexHome);
+    return inherited;
+  }
+  return controlledEnvironment(source, codexHome);
+}
+
 function controlledEnvironment(source, codexHome) {
   // SDK 提供 env 后不会继承父进程，因此只透传启动 CLI 所需的非敏感宿主变量。
-  invariant(
-    typeof codexHome === "string" && codexHome.length > 0,
-    "INVALID_RUNTIME_INVOCATION",
-    "Codex Runtime requires an explicitly selected Provider environment",
-  );
-  const result = { CODEX_HOME: codexHome };
+  const result = { CODEX_HOME: requireCodexHome(codexHome) };
   for (const [key, value] of Object.entries(source ?? {})) {
     if (
       value !== undefined &&
@@ -262,6 +262,31 @@ function controlledEnvironment(source, codexHome) {
     }
   }
   return result;
+}
+
+function requireCodexHome(codexHome) {
+  invariant(
+    typeof codexHome === "string" && codexHome.length > 0,
+    "INVALID_RUNTIME_INVOCATION",
+    "Codex Runtime requires an explicitly selected Provider environment",
+  );
+  return codexHome;
+}
+
+function threadPermissionOptions(profile, operation) {
+  if (profile.permissions === "host_user") {
+    // 本机高权限由 AgentProfile 明确授权；ChangeFleet 不再把 worktree 冒充为 OS 安全边界。
+    return {
+      sandboxMode: "danger-full-access",
+      approvalPolicy: "never",
+    };
+  }
+  return {
+    sandboxMode: operation === "planning" ? "read-only" : "workspace-write",
+    networkAccessEnabled: false,
+    webSearchMode: "disabled",
+    approvalPolicy: "never",
+  };
 }
 
 function buildPrompt(invocation) {
