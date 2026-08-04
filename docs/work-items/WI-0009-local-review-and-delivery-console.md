@@ -100,6 +100,12 @@ control-plane logic or expanding into a full lifecycle frontend.
   identity, recovery, and context boundaries are commented in Chinese.
 - Every maintained test fixture and product command has an ongoing accepted purpose; no temporary
   command or generated browser artifact remains.
+- The Repository check exercises the exact Candidate from its assigned workspace; proving only
+  that the base commit exists is not validation.
+- The combined check must run from the control-owned validation directory and consume
+  `CHANGEFLEET_VALIDATION_MANIFEST`. For this single-Repository ChangeSet, the full suite belongs in
+  the Repository check and the combined command verifies the one exact manifest Candidate without
+  using Repository-relative paths.
 - Real self-iteration success is recorded only if the exact UI Candidate is separately authorized,
   published, human-merged, and reconciled; otherwise that gate remains unverified.
 
@@ -158,10 +164,12 @@ authority is reported as unverified, never passed.
   Run triggered native Windows UAC and ended as `CODEX_PROVIDER_FAILED`. V3 remains `analyzing`
   with no Plan, Candidate, or Bundle. External configuration now selects revision 2 `host_user`;
   its historical revision 1 Run remains immutable.
-- Next step: revise v3's unplanned Repository selection to current main, then plan once with a
-  fresh idempotency key.
-- Active blockers: exact-base revision; real Chromium and GitHub external-write gates remain
-  unverified.
+- Planning attempt 2 succeeded on `109da56` with Plan revision 1, but its base-only Repository
+  check and Repository-relative combined command repeat the known validation failure. It remains
+  unconfirmed and must be superseded.
+- Next step: commit the clarified validation boundary, revise v3 to that exact base, and plan once
+  with a fresh idempotency key.
+- Active blockers: corrected Plan; real Chromium and GitHub external-write gates remain unverified.
 
 ## Implementation Evidence
 
@@ -233,6 +241,14 @@ authority is reported as unverified, never passed.
   revision 2 with `permissions: host_user` and `network_access: true`. Node.js 24 loaded it through
   `loadLocalCliConfig` with exit code `0`. No Runtime was invoked; prior Run and evidence snapshots
   remain revision 1 `operation_scoped` history.
+- Selection command `wi-0009-v3-selection-2` bound Repository and exact-base Harness revision 2 to
+  `109da56a0bba9690728195b0d40040713e8497fc`. Planning Run
+  `run-0a7894c8-9443-4b76-905e-39670192197f` then completed in 89093 ms without a UAC interruption
+  using Profile revision 2. Provider aggregate evidence recorded 154656 total tokens: 150870 input,
+  104320 cached input, 3786 output, and 814 reasoning output; monetary cost remains unknown.
+- Plan revision 1 correctly proposed one WorkUnit but used `git rev-parse` as its Repository check
+  and `node scripts/run-checks.mjs` as its control-directory combined check. It is deliberately not
+  confirmed; Candidate and Bundle counts remain zero.
 
 ## Acceptance Review
 

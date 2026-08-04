@@ -7,8 +7,8 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 
 ## Current Baseline
 
-- WI-0001 through WI-0008 and WI-0010 through WI-0013 are landed. WI-0009-v3 remains unplanned and
-  paused with external AgentProfile revision 2 `host_user` selected.
+- WI-0001 through WI-0008 and WI-0010 through WI-0013 are landed. WI-0009-v3 Plan revision 1 is
+  proposed but unconfirmed because its validation commands cannot exercise the exact Candidate.
 - Agent Runtimes own semantic work. ChangeFleet owns cross-repository authorization, revisions,
   scheduling, exact Git and Bundle subjects, evidence, recovery, and human gates.
 
@@ -101,15 +101,15 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 - Codex SDK usage is aggregate-only; effective model and universal host read-denial remain unknown.
 - The old WI-0009 attempt has no Bundle; its invalid command and review remain history. V2 closed
   with a clean base-equal workspace and no Candidate or Bundle.
-- V3 planning failed under historical revision 1 `operation_scoped` before producing a Plan.
-  Revision 2 `host_user` is selected, but no real retry has verified UAC absence.
+- V3 planning succeeded under revision 2 `host_user` without a UAC interruption. Its first Plan
+  repeats the known combined-validation working-directory defect and must be superseded.
 - Runtime Kit, Codex App Server, another Provider, Linear, pricing, dashboards, and continuous
   context enforcement are deferred.
 
 ## Next Recommended Task
 
-Revise WI-0009-v3's unplanned Repository selection to the latest accepted baseline before one
-planning retry. Do not reuse its obsolete `f0dbe4f` base.
+Land the clarified WI-0009 validation boundary, revise v3 to that exact base, and plan once. Confirm
+only a Plan whose Repository check runs in the Candidate and combined check consumes its manifest.
 
 ## Maintenance Contract
 
