@@ -15,7 +15,12 @@ import {
 } from "../domain/runtime-audit.js";
 
 const MAX_BOUNDED_ROWS = 100;
-const TERMINAL_CHANGE_SET_STATES = new Set(["done", "canceled", "failed"]);
+const TERMINAL_CHANGE_SET_STATES = new Set([
+  "done",
+  "canceled",
+  "failed",
+  "abandoned",
+]);
 
 // 查询服务只接收 Store 的 read 能力，构造时不初始化目录，也不持有任何编排或写入端口。
 export class RuntimeAuditQueryService {

@@ -14,7 +14,7 @@ Depends on: Decisions 0002, 0008, 0009, 0014, and 0017; WI-0009 recovery evidenc
 
 Decision: [Decision 0018](../decisions/0018-explicit-changeset-closure.md)
 
-Implementation tracking: [WI-0011](../work-items/WI-0011-explicit-changeset-closure.md), `in_progress`
+Implementation tracking: [WI-0011](../work-items/WI-0011-explicit-changeset-closure.md), `done`
 
 ## Context
 

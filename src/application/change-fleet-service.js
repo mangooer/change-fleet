@@ -3,6 +3,7 @@ import path from "node:path";
 
 import { sha256 } from "../domain/canonical-json.js";
 import {
+  assertChangeSetMutable,
   commandFingerprint,
   createCandidate,
   createCandidateCheckpoint,
@@ -10,6 +11,7 @@ import {
   createValidationAttempt,
   createValidationSubject,
   normalizeHumanDecision,
+  normalizeChangeSetCloseRequest,
   normalizeId,
   normalizeIntent,
   normalizePlan,
@@ -47,6 +49,18 @@ import { CombinedValidator } from "./combined-validator.js";
 import { GithubDeliveryService } from "./github-delivery-service.js";
 
 const MAX_CONTEXT_HARNESS_RESOURCES = 32;
+const CLOSABLE_CHANGE_SET_STATES = new Set([
+  "analyzing",
+  "awaiting_plan_confirmation",
+  "replanning",
+  "ready",
+  "executing",
+  "validating",
+  "candidate_review",
+  "delivery_ready",
+  "failed",
+  "blocked",
+]);
 
 // 应用服务是确定性编排入口：语义工作交给 Runtime，权限、状态和证据在此裁决。
 export class ChangeFleetService {
@@ -380,6 +394,70 @@ export class ChangeFleetService {
     }
   }
 
+  async closeChangeSet(request) {
+    // 关闭只写控制事实：不解析基线、不触碰工作区，也不调用 Runtime、验证或交付端口。
+    const {
+      idempotency_key,
+      change_set_id,
+      actor,
+      reason,
+    } = normalizeChangeSetCloseRequest(request);
+    const commandInput = { change_set_id, actor, reason };
+    return this.controlStore.transactChangeSet(change_set_id, (state) =>
+      applyIdempotentCommand({
+        record: state,
+        idempotencyKey: idempotency_key,
+        command: "closeChangeSet",
+        input: commandInput,
+        perform: () => {
+          invariant(
+            !["done", "abandoned"].includes(state.state),
+            "CHANGE_SET_ALREADY_TERMINAL",
+            `ChangeSet cannot close from terminal state ${state.state}`,
+          );
+          invariant(
+            !state.run_references.some(
+              (reference) => reference.status === "running",
+            ) &&
+              !Object.values(state.commands ?? {}).some(
+                (command) => command.status === "in_progress",
+              ),
+            "CHANGE_SET_NOT_QUIESCENT",
+            "ChangeSet has active lifecycle work",
+          );
+          invariant(
+            (state.delivery_requests ?? []).length === 0,
+            "CHANGE_SET_DELIVERY_STARTED",
+            "ChangeSet delivery has already begun",
+          );
+          invariant(
+            CLOSABLE_CHANGE_SET_STATES.has(state.state),
+            "INVALID_CHANGE_SET_STATE",
+            `ChangeSet cannot close from state ${state.state}`,
+          );
+          const closedAt = this.now();
+          const decision = {
+            decision_id: this.idFactory("decision"),
+            type: "changeset_closure",
+            disposition: "abandoned",
+            actor,
+            reason: structuredClone(reason),
+            decided_at: closedAt,
+          };
+          state.decisions.push(decision);
+          state.state = "abandoned";
+          state.updated_at = closedAt;
+          return {
+            change_set_id,
+            status: "abandoned",
+            decision_id: decision.decision_id,
+            closed_at: closedAt,
+          };
+        },
+      }),
+    );
+  }
+
   async reviseRepositorySelection({
     idempotency_key,
     change_set_id,
@@ -417,6 +495,7 @@ export class ChangeFleetService {
       commandInput,
     );
     if (existing?.status === "completed") return structuredClone(existing.result);
+    assertChangeSetMutable(initialState);
     const requestedHarnessSelection =
       normalizeRepositoryHarnessSelectionRequest(project, {
         repositoryIds: requestedSelection.repository_ids,
@@ -424,6 +503,7 @@ export class ChangeFleetService {
       });
     await this.recoverInterruptedPlanningRuns(change_set_id, project);
     initialState = await this.controlStore.readChangeSet(change_set_id);
+    assertChangeSetMutable(initialState);
     assertRepositorySelectionRevisionAllowed(
       initialState,
       current_repository_selection_revision,
@@ -454,6 +534,7 @@ export class ChangeFleetService {
         command: "reviseRepositorySelection",
         input: commandInput,
         perform: () => {
+          assertChangeSetMutable(state);
           assertRepositorySelectionRevisionAllowed(
             state,
             current_repository_selection_revision,
@@ -545,6 +626,7 @@ export class ChangeFleetService {
       commandInput,
     );
     if (existing?.status === "completed") return structuredClone(existing.result);
+    assertChangeSetMutable(initialState);
     const request = normalizeRepositoryHarnessSelectionRequest(project, {
       repositoryIds: repositorySelection.repositories.map(
         (repository) => repository.repository_id,
@@ -553,6 +635,7 @@ export class ChangeFleetService {
     });
     await this.recoverInterruptedPlanningRuns(change_set_id, project);
     initialState = await this.controlStore.readChangeSet(change_set_id);
+    assertChangeSetMutable(initialState);
     assertRepositoryHarnessSelectionRevisionAllowed(
       initialState,
       current_repository_harness_selection_revision,
@@ -576,6 +659,7 @@ export class ChangeFleetService {
         command: "reviseRepositoryHarnessSelection",
         input: commandInput,
         perform: () => {
+          assertChangeSetMutable(state);
           assertRepositoryHarnessSelectionRevisionAllowed(
             state,
             current_repository_harness_selection_revision,
@@ -755,8 +839,10 @@ export class ChangeFleetService {
       commandInput,
     );
     if (existing?.status === "completed") return structuredClone(existing.result);
+    assertChangeSetMutable(initialState);
     await this.recoverInterruptedPlanningRuns(change_set_id, project);
     initialState = await this.controlStore.readChangeSet(change_set_id);
+    assertChangeSetMutable(initialState);
 
     const repositorySelection = currentRepositorySelection(initialState);
     const repositoryHarnessSelection =
@@ -928,59 +1014,69 @@ export class ChangeFleetService {
       agentProfile,
       runtimeMeasurement: await measureInitialContext(this.runtime, invocation),
     });
-    await this.runStore.create({
-      schema_version: 1,
-      run_id: runId,
-      change_set_id,
-      work_unit_id: null,
-      operation: "planning",
-      attempt: planningAttempt,
-      status: "running",
-      agent_profile: agentProfile,
-      repository_harness_selection: {
-        revision: repositoryHarnessSelection.revision,
-        repositories: repositoryHarnessSelection.repositories.map(
-          harnessSelectionForContext,
-        ),
-      },
-      repository_harness_observation: {
-        repositories: harnessObservations,
-      },
-      context_evidence: contextEvidence,
-      context_projection_identity: {
-        schema_version: contextProjection.schema_version,
-        digest: sha256(contextProjection),
-      },
-      planning_workspaces: planningWorkspaces,
-      runtime_evidence: null,
-      created_at: this.now(),
-      completed_at: null,
-      outcome: null,
-    });
-    await this.controlStore.transactChangeSet(change_set_id, (state) => {
-      invariant(
-        state.current_repository_selection_revision ===
-          repositorySelection.revision,
-        "STALE_REPOSITORY_SELECTION_REVISION",
-        "Repository selection changed before planning dispatch",
-      );
-      invariant(
-        state.current_repository_harness_selection_revision ===
-          repositoryHarnessSelection.revision,
-        "STALE_REPOSITORY_HARNESS_SELECTION_REVISION",
-        "Repository Harness selection changed before planning dispatch",
-      );
-      state.run_references.push({
+    try {
+      await this.runStore.create({
+        schema_version: 1,
         run_id: runId,
+        change_set_id,
+        work_unit_id: null,
         operation: "planning",
-        plan_revision: state.current_plan_revision,
-        repository_harness_selection_revision:
-          repositoryHarnessSelection.revision,
         attempt: planningAttempt,
         status: "running",
+        agent_profile: agentProfile,
+        repository_harness_selection: {
+          revision: repositoryHarnessSelection.revision,
+          repositories: repositoryHarnessSelection.repositories.map(
+            harnessSelectionForContext,
+          ),
+        },
+        repository_harness_observation: {
+          repositories: harnessObservations,
+        },
+        context_evidence: contextEvidence,
+        context_projection_identity: {
+          schema_version: contextProjection.schema_version,
+          digest: sha256(contextProjection),
+        },
+        planning_workspaces: planningWorkspaces,
+        runtime_evidence: null,
+        created_at: this.now(),
+        completed_at: null,
+        outcome: null,
       });
-      state.updated_at = this.now();
-    });
+      await this.controlStore.transactChangeSet(change_set_id, (state) => {
+        assertChangeSetMutable(state);
+        invariant(
+          state.current_repository_selection_revision ===
+            repositorySelection.revision,
+          "STALE_REPOSITORY_SELECTION_REVISION",
+          "Repository selection changed before planning dispatch",
+        );
+        invariant(
+          state.current_repository_harness_selection_revision ===
+            repositoryHarnessSelection.revision,
+          "STALE_REPOSITORY_HARNESS_SELECTION_REVISION",
+          "Repository Harness selection changed before planning dispatch",
+        );
+        state.run_references.push({
+          run_id: runId,
+          operation: "planning",
+          plan_revision: state.current_plan_revision,
+          repository_harness_selection_revision:
+            repositoryHarnessSelection.revision,
+          attempt: planningAttempt,
+          status: "running",
+        });
+        state.updated_at = this.now();
+      });
+    } catch (error) {
+      // 关闭若先赢得状态事务，规划不得调用 Runtime；只回收本次尚未授权的隔离工作区。
+      await this.cleanupPlanningWorkspaces({
+        planningWorkspaces,
+        projectRepositories,
+      }).catch(() => {});
+      throw error;
+    }
 
     let outcome;
     let providerEvidence = null;
@@ -1085,6 +1181,7 @@ export class ChangeFleetService {
         command: "planChangeSet",
         input: commandInput,
         perform: () => {
+          assertChangeSetMutable(state);
           invariant(
             [
               "analyzing",
@@ -1198,6 +1295,7 @@ export class ChangeFleetService {
         command: "confirmPlanRevision",
         input: { change_set_id, plan_revision, actor },
         perform: () => {
+          assertChangeSetMutable(state);
           invariant(
             state.state === "awaiting_plan_confirmation",
             "INVALID_CHANGE_SET_STATE",
@@ -1229,7 +1327,19 @@ export class ChangeFleetService {
   async executeChangeSet({ idempotency_key, change_set_id }) {
     // 单一 scheduler 所有者负责恢复和派发，防止多控制器重复执行 WorkUnit。
     normalizeId("idempotency_key", idempotency_key);
+    normalizeId("change_set_id", change_set_id);
     const commandInput = { change_set_id };
+    const initialState = await this.controlStore.readChangeSet(change_set_id);
+    const initialCommand = existingCommand(
+      initialState,
+      idempotency_key,
+      "executeChangeSet",
+      commandInput,
+    );
+    if (initialCommand?.status === "completed") {
+      return structuredClone(initialCommand.result);
+    }
+    assertChangeSetMutable(initialState);
     const schedulerLock = await this.controlStore.acquireSchedulerLock(
       this.instanceId,
     );
@@ -1247,6 +1357,7 @@ export class ChangeFleetService {
           if (existing?.status === "completed") {
             return { completed: true, result: structuredClone(existing.result) };
           }
+          assertChangeSetMutable(state);
           if (existing?.status === "failed") {
             throw new ChangeFleetError(
               "COMMAND_PREVIOUSLY_FAILED",
@@ -1438,6 +1549,7 @@ export class ChangeFleetService {
       if (existing?.status === "completed") {
         return structuredClone(existing.result);
       }
+      assertChangeSetMutable(initialState);
       invariant(
         !existing,
         "COMMAND_IN_PROGRESS",
@@ -1524,6 +1636,7 @@ export class ChangeFleetService {
           command: "recoverLegacyCandidate",
           input: commandInput,
           perform: () => {
+            assertChangeSetMutable(state);
             const currentUnit = unitsForCurrentPlan(state).find(
               (unit) => unit.work_unit_id === work_unit_id,
             );
@@ -1615,6 +1728,7 @@ export class ChangeFleetService {
           actor,
         },
         perform: () => {
+          assertChangeSetMutable(state);
           invariant(
             state.state === "candidate_review",
             "INVALID_CHANGE_SET_STATE",

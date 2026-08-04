@@ -48,6 +48,15 @@ describe("read-only Runtime audit queries", () => {
       bundle_hash: execution.bundle_hash,
       decision: "accept",
     });
+    await fixture.service.closeChangeSet({
+      idempotency_key: "close",
+      change_set_id: "change",
+      actor: "human",
+      reason: {
+        code: "no_longer_needed",
+        summary: "Close after preserving the measured Runtime history",
+      },
+    });
     const query = createQuery(fixture.service, "2026-08-03T10:00:00.000Z");
     const before = await directoryDigest(fixture.controlRoot);
     const changeAudit = await query.getChangeSetAudit("change", {
@@ -66,6 +75,8 @@ describe("read-only Runtime audit queries", () => {
     assert.equal(changeAudit.payload.usage.observed_run_count, 2);
     assert.equal(changeAudit.payload.usage.unknown_run_count, 0);
     assert.equal(changeAudit.payload.usage.observed_total_tokens, 350);
+    assert.equal(changeAudit.payload.identity.state, "abandoned");
+    assert.equal(changeAudit.payload.timing.change_set_wall.complete, true);
     assert.equal(
       changeAudit.payload.usage.token_fields.cached_input_tokens.observed_sum,
       120,

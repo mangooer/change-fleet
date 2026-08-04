@@ -26,7 +26,7 @@ preserve chronological reasoning and are not current truth merely because they e
 | [0013](0013-exact-github-pull-request-delivery.md) | Exact GitHub pull-request delivery and human-controlled integration | `accepted` | Recorded by Decision 0015; GitHub-first publication and reconciliation over accepted Bundle, Repository selection, delivery serialization, and shared application-operation boundaries | [WI-0008](../work-items/WI-0008-exact-github-pull-request-delivery.md), `done` |
 | [0014](0014-local-review-and-delivery-console.md) | Foreground local review and delivery console | `accepted` | Recorded by Decision 0016; bounded loopback UI and HTTP adapter over shared Bundle, audit, and delivery semantics | [WI-0009](../work-items/WI-0009-local-review-and-delivery-console.md), `in_progress` |
 | [0015](0015-post-provider-candidate-finalization-and-recovery.md) | Post-Provider Candidate finalization and recovery | `accepted` | Recorded by Decision 0017; exact Candidate checkpoints, validation resume, narrow Windows argv shims, and bounded revision feedback | [WI-0010](../work-items/WI-0010-post-provider-candidate-finalization-and-recovery.md), `done` |
-| [0016](0016-explicit-changeset-closure.md) | Explicit ChangeSet closure | `accepted` | Recorded by Decision 0018; human close is separate from ordinary successor creation | [WI-0011](../work-items/WI-0011-explicit-changeset-closure.md), `in_progress` |
+| [0016](0016-explicit-changeset-closure.md) | Explicit ChangeSet closure | `accepted` | Recorded by Decision 0018; human close is separate from ordinary successor creation | [WI-0011](../work-items/WI-0011-explicit-changeset-closure.md), `done` |
 
 ## Status Rules
 

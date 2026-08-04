@@ -4,6 +4,11 @@ import { invariant } from "./errors.js";
 // Runtime 只接收当前操作所需投影；完整历史留在控制存储中按引用读取。
 export const CONTROL_CONTRACT_VERSION = 3;
 export const CONTEXT_PROJECTION_VERSION = 4;
+const RUNTIME_EXCLUDED_DECISION_TYPES = new Set([
+  "bundle_review",
+  "legacy_candidate_recovery",
+  "changeset_closure",
+]);
 
 export function createControlContract({
   operation,
@@ -66,10 +71,8 @@ export function createContextProjection({
       .map(projectBlocker),
     decisions: changeSet.decisions
       .filter(
-        (decision) =>
-          !new Set(["bundle_review", "legacy_candidate_recovery"]).has(
-            decision.type,
-          ),
+        // 审核、恢复和关闭细节只属于控制与审计面，不能反向扩大 Agent 上下文。
+        (decision) => !RUNTIME_EXCLUDED_DECISION_TYPES.has(decision.type),
       )
       .slice(-16)
       .map((decision) => structuredClone(decision)),

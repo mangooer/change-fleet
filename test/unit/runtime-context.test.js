@@ -91,6 +91,14 @@ describe("Runtime context admission", () => {
           type: "legacy_candidate_recovery",
           checkpoint_id: "candidate-checkpoint-secret",
         },
+        {
+          decision_id: "decision-closure",
+          type: "changeset_closure",
+          reason: {
+            code: "route_abandoned",
+            summary: "closure-summary-must-stay-outside-runtime",
+          },
+        },
       ],
       current_revision_feedback: {
         decision_id: "decision-current",
@@ -130,6 +138,10 @@ describe("Runtime context admission", () => {
     assert.equal("candidate_checkpoint_id" in result.work_unit, false);
     assert.equal(
       JSON.stringify(result).includes("candidate-checkpoint-secret"),
+      false,
+    );
+    assert.equal(
+      JSON.stringify(result).includes("closure-summary-must-stay-outside-runtime"),
       false,
     );
   });

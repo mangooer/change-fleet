@@ -1,16 +1,16 @@
 ---
 artifact_type: development_work_item
 id: WI-0011
-status: in_progress
+status: done
 title: Implement explicit ChangeSet closure
 source: 'User request: "按这个执行" after accepting separate close and create actions'
 confirmed_by: user
 confirmed_at: 2026-08-04
 started_by: user
 started_at: 2026-08-04
-review_ready_at:
-completed_by:
-completed_at:
+review_ready_at: 2026-08-04
+completed_by: user
+completed_at: 2026-08-04
 standing_policy:
 design_proposal: docs/proposals/0016-explicit-changeset-closure.md
 accepted_decisions:
@@ -81,20 +81,46 @@ the existing creation flow for any later task.
 
 ## Current Projection
 
-- Current subject: WI-0011 is the sole active prerequisite implementation WorkItem.
-- Last verified state: Proposal 0016 and Decision 0018 are accepted; no close operation exists yet.
-- Next step: implement and validate the close-only shared operation.
-- Active blocker or decision: none. WI-0009 remains open until this feature is accepted and used.
+- Current subject: WI-0011 is accepted and ready to land with this completion update.
+- Last verified state: the close-only domain, service, audit, shared operation, CLI, and regression
+  boundaries pass the selected deterministic gates.
+- Next step: land this implementation, then separately close the old WI-0009 Runtime ChangeSet.
+- Active blocker or decision: none. Closing the old Runtime task remains an explicit user operation.
 
 ## Implementation Evidence
 
-Pending implementation.
+Implemented:
+
+- strict closure request and bounded reason normalization with localized stable diagnostics;
+- one idempotent `closeChangeSet` transition that permits only quiescent unfinished pre-delivery
+  states, records an immutable human decision, and preserves all prior aggregate facts;
+- one shared `changeset.close` operation and experimental `changeset close` CLI route;
+- abandoned-state guards across selection, Harness, planning, confirmation, execution, legacy
+  recovery, Bundle review, delivery publication, and delivery refresh;
+- restart and read-only audit support with `abandoned` recognized as complete while measured Run
+  usage remains unchanged;
+- Runtime projection exclusion for closure reasons and metadata;
+- test-only deterministic fixtures only; no product fake, successor creation, reset, cleanup, or
+  temporary executable was added.
+
+Validation evidence:
+
+| Command | Exit | Scope and observation | Unverified boundary |
+| --- | ---: | --- | --- |
+| `C:\Users\tangyi\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe --test --test-concurrency=1 test/integration/change-set-closure.test.js test/integration/runtime-audit-query.test.js test/acceptance/local-cli-flow.test.js test/unit/model.test.js test/unit/diagnostics.test.js test/unit/operator-application.test.js test/unit/local-cli.test.js test/unit/runtime-context.test.js` | 0 | 40 selected tests passed in 31.6 s: strict request, close gates, all exposed post-close mutations, restart, 350-token audit preservation, context exclusion, shared operation, and CLI lifecycle | No real Provider, browser, GitHub, or concurrent multi-process close race |
+| `$node24 = 'C:\Users\tangyi\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin'; $env:Path = "$node24;$env:Path"; npm run check` | 124 | First full-gate attempt was terminated by the invoking tool after about 5.2 s because its timeout was configured too low; this is not a product test result | Entire gate remained unverified by this attempt |
+| `$node24 = 'C:\Users\tangyi\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin'; $env:Path = "$node24;$env:Path"; npm run check` | 0 | Node.js 24 full gate passed in 170.4 s: 52 unit, 53 integration, and 6 acceptance tests; real Codex, browser, and GitHub external writes were not selected | External Provider credentials/cost, browser UI, and real GitHub writes |
+| `git diff --check` | 0 | Final source, tests, and authority-document diff has no whitespace error | Semantic correctness remains covered by the Node gates above |
+| PowerShell `Test-Path` for Proposal 0016, Decision 0018, and WI-0011; byte inspection for `AGENTS.md`, `WORKFLOW.md`, and `docs/current-state.md`; added-production-comment and temporary-marker diff searches | 0 | Authority targets exist; eager files are 5,872, 1,264, and 7,997 bytes; all added production intent comments are Chinese; no added production TODO/FIXME/temporary/mock/fake marker exists | Files not selected by the accepted eager Harness map |
 
 ## Acceptance Review
 
-Pending implementation, selected validation, and user review.
+Accepted by the user on 2026-08-04. The implementation satisfies Proposal 0016 without adding
+generic resume, successor creation, automatic task linkage, detailed lineage aggregates, or
+destructive cleanup. Acceptance does not itself close `changefleet-wi-0009`; that remains a later
+explicit operational request.
 
 ## Project Memory Impact
 
-WI-0011 is accepted unfinished work. It does not close the actual WI-0009 Runtime ChangeSet or
-change the landed implementation baseline until reviewed, accepted, and committed.
+WI-0011 is accepted and lands the close-only lifecycle boundary. It does not close the actual
+WI-0009 Runtime ChangeSet or create a successor.

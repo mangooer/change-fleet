@@ -15,11 +15,10 @@ reviewable `CandidateBundle` representing one exact cross-repository outcome.
 ## Current Status
 
 This repository contains the spec-first project Harness and the private implementation through
-landed WI-0008, including immutable Repository Harness overlays, Runtime audit projections, one
-experimental lifecycle CLI, and exact GitHub pull-request delivery. The package is not released
-and exposes no stable public CLI contract. Accepted Proposal 0014 defines a local review and
-delivery console, and WI-0009 is started but has not mutated implementation; no API or UI exists
-yet.
+landed WI-0010, including immutable Repository Harness overlays, Runtime audit projections, one
+experimental lifecycle CLI, exact GitHub pull-request delivery, post-Provider Candidate recovery,
+and explicit close-only ChangeSet abandonment. The package is not released and exposes no stable
+public CLI contract; no API or UI exists yet.
 
 The first accepted vertical slice, tracked by
 [`WI-0001`](docs/work-items/WI-0001-local-two-repository-vertical-slice.md), is:
@@ -114,9 +113,10 @@ implement the deterministic control kernel. The accepted WI-0003 implementation 
 Codex SDK production adapter; scripted Runtime behavior remains test support only.
 WI-0004 adds the accepted Codex local Harness overlay path without adding a general workspace seed
 framework or a second Provider. WI-0007 adds one experimental local CLI over the existing typed
-application operations and retains exact-id audit as a bounded debug command. Active WI-0010 pins
+application operations and retains exact-id audit as a bounded debug command. Landed WI-0010 pins
 `cross-spawn@7.0.6` only for structured cross-platform process launch and the reviewed Windows
-batch-shim boundary; callers still cannot submit shell strings.
+batch-shim boundary; callers still cannot submit shell strings. WI-0011 adds human-gated closure
+without generic resume, automatic successor creation, or destructive cleanup.
 
 The accepted package exposes:
 
@@ -174,6 +174,7 @@ node ./bin/changefleet.js project register --config changefleet.json --request r
 node ./bin/changefleet.js project repository-policy revise --config changefleet.json --request policy.json
 node ./bin/changefleet.js project github-delivery configure --config changefleet.json --request github-binding.json
 node ./bin/changefleet.js changeset create --config changefleet.json --request create.json
+node ./bin/changefleet.js changeset close --config changefleet.json --request close.json
 node ./bin/changefleet.js changeset repository-selection revise --config changefleet.json --request selection.json
 node ./bin/changefleet.js changeset harness-selection revise --config changefleet.json --request harness.json
 node ./bin/changefleet.js changeset plan --config changefleet.json --request plan.json
@@ -191,6 +192,11 @@ A `request_revision` Bundle decision also requires `feedback.summary` and 1-20 b
 `feedback.findings`, each with a stable `finding_id` and concise `text`. Only that current bounded
 feedback is projected to the next planning and execution calls; prior review artifacts stay linked
 outside Runtime context.
+
+`changeset close` accepts only `idempotency_key`, `change_set_id`, `actor`, and a `reason` with one
+of `no_longer_needed`, `restart_on_new_base`, `route_abandoned`, `duplicate`, or `other` plus a
+bounded `summary`. It abandons only a quiescent pre-delivery ChangeSet; it does not create, choose,
+or link a successor. A later task continues to use ordinary `changeset create`.
 
 Debug audit preserves the exact-id, read-only, zero-initialization boundary without loading the
 lifecycle or Runtime adapter:

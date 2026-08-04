@@ -31,6 +31,7 @@ Status: Active policy; Node.js 24 deterministic commands and the WI-0005 opt-in 
 | Runtime audit projection | canonical usage and unknown semantics, required-reference integrity, restart reproduction, zero writes, and context exclusion |
 | Debug audit CLI route | exact grammar, process JSON, exit statuses, projection equivalence, missing-root behavior, and zero writes |
 | Unified local CLI | allowlist, application delegation, idempotency, process I/O, human gates, lifecycle path, and obsolete-entry removal |
+| ChangeSet closure | strict reason bounds, quiescence and delivery gates, history preservation, restart, audit retention, context exclusion, shared operation, and CLI path |
 | API or UI | affected tests plus one targeted user path |
 | Multi-repository orchestration | real two-repository acceptance fixture |
 | Delivery integration | provider fixture plus exact target-movement case |
@@ -157,6 +158,14 @@ and older decisions remain excluded. WI-0010 changes shared domain contracts, pe
 stores, Git workspaces, command launch, context, and CLI behavior, so its final stable subject must
 run `npm run check` under Node.js 24. Another real Provider call is excluded; actual WI-0009 legacy
 recovery is an operational continuation only after WI-0010 is accepted and landed.
+
+Decision 0018 requires close-only tests for exact request fields, bounded reasons, idempotent replay,
+quiescent unfinished states, active Run or command rejection, begun-delivery rejection, and terminal
+rejection. Restart and audit checks must prove that prior Runtime usage and all immutable subjects
+remain readable while the closure decision stays outside Runtime context. Shared application and
+CLI tests must prove that close delegates without creating a successor or invoking Runtime, Git,
+validation, workspace cleanup, or delivery. The slice does not select a real Provider, browser, or
+GitHub external-write gate.
 
 The recommended first real GitHub gate is the accepted UI WorkItem's exact Candidate rather than a
 disposable smoke change. It remains separately authorized under the repository, branch, PR, merge,

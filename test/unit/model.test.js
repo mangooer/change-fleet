@@ -8,6 +8,7 @@ import {
   createCandidateBundle,
   createValidationAttempt,
   createValidationSubject,
+  normalizeChangeSetCloseRequest,
   normalizePlan,
   normalizeRepositorySelectionRequest,
   normalizeRevisionFeedback,
@@ -236,6 +237,40 @@ describe("domain model", () => {
     assert.notEqual(
       commandFingerprint("confirm", { revision: 1 }),
       commandFingerprint("confirm", { revision: 2 }),
+    );
+  });
+
+  test("normalizes only bounded exact ChangeSet closure requests", () => {
+    const request = {
+      idempotency_key: "close-1",
+      change_set_id: "change-1",
+      actor: "human",
+      reason: {
+        code: "restart_on_new_base",
+        summary: "Restart from the newly selected branch tip",
+      },
+    };
+    assert.deepEqual(normalizeChangeSetCloseRequest(request), request);
+
+    assert.throws(
+      () => normalizeChangeSetCloseRequest({ ...request, successor_id: "next" }),
+      { code: "INVALID_CHANGE_SET_CLOSURE" },
+    );
+    assert.throws(
+      () =>
+        normalizeChangeSetCloseRequest({
+          ...request,
+          reason: { ...request.reason, code: "retry" },
+        }),
+      { code: "INVALID_CHANGE_SET_CLOSURE" },
+    );
+    assert.throws(
+      () =>
+        normalizeChangeSetCloseRequest({
+          ...request,
+          reason: { ...request.reason, summary: "界".repeat(683) },
+        }),
+      { code: "INVALID_CHANGE_SET_CLOSURE" },
     );
   });
 

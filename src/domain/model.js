@@ -13,6 +13,14 @@ const FEEDBACK_FINDING_LIMIT = 20;
 const FEEDBACK_SUMMARY_BYTES = 2 * 1024;
 const FEEDBACK_FINDING_BYTES = 2 * 1024;
 const FEEDBACK_TOTAL_BYTES = 16 * 1024;
+const CHANGE_SET_CLOSURE_SUMMARY_BYTES = 2 * 1024;
+const CHANGE_SET_CLOSURE_REASON_CODES = new Set([
+  "no_longer_needed",
+  "restart_on_new_base",
+  "route_abandoned",
+  "duplicate",
+  "other",
+]);
 
 export function normalizeId(label, value) {
   invariant(
@@ -22,6 +30,51 @@ export function normalizeId(label, value) {
     { label, value },
   );
   return value;
+}
+
+export function normalizeChangeSetCloseRequest(input) {
+  // 关闭是人工终态操作：严格字段集合可防止调用者误以为请求会复制或创建后继任务。
+  assertExactFields(
+    "ChangeSet close request",
+    input,
+    ["actor", "change_set_id", "idempotency_key", "reason"],
+    "INVALID_CHANGE_SET_CLOSURE",
+  );
+  assertExactFields(
+    "ChangeSet close reason",
+    input.reason,
+    ["code", "summary"],
+    "INVALID_CHANGE_SET_CLOSURE",
+  );
+  invariant(
+    CHANGE_SET_CLOSURE_REASON_CODES.has(input.reason.code),
+    "INVALID_CHANGE_SET_CLOSURE",
+    "ChangeSet close reason code is not supported",
+  );
+  return {
+    idempotency_key: normalizeId("idempotency_key", input.idempotency_key),
+    change_set_id: normalizeId("change_set_id", input.change_set_id),
+    actor: normalizeId("actor", input.actor),
+    reason: {
+      code: input.reason.code,
+      summary: boundedUtf8String(
+        "reason.summary",
+        input.reason.summary,
+        CHANGE_SET_CLOSURE_SUMMARY_BYTES,
+        "INVALID_CHANGE_SET_CLOSURE",
+      ),
+    },
+  };
+}
+
+export function assertChangeSetMutable(state) {
+  // abandoned 是不可逆业务终态；读和审计仍允许，所有后续变更必须失败关闭。
+  invariant(
+    state?.state !== "abandoned",
+    "CHANGE_SET_ABANDONED",
+    "Abandoned ChangeSet cannot be mutated",
+    { change_set_id: state?.change_set_id ?? null },
+  );
 }
 
 export function normalizeIntent(input, { revision, confirmedAt }) {
@@ -648,14 +701,39 @@ function requireString(label, value) {
   return value.trim();
 }
 
-function boundedUtf8String(label, value, maximumBytes) {
-  const normalized = requireString(label, value);
+function boundedUtf8String(
+  label,
+  value,
+  maximumBytes,
+  errorCode = "INVALID_REVISION_FEEDBACK",
+) {
+  invariant(
+    typeof value === "string" && value.trim().length > 0,
+    errorCode,
+    `${label} must be a non-empty string`,
+  );
+  const normalized = value.trim();
   invariant(
     Buffer.byteLength(normalized) <= maximumBytes,
-    "INVALID_REVISION_FEEDBACK",
+    errorCode,
     `${label} exceeds ${maximumBytes} bytes`,
   );
   return normalized;
+}
+
+function assertExactFields(label, value, expectedFields, errorCode) {
+  invariant(
+    value && typeof value === "object" && !Array.isArray(value),
+    errorCode,
+    `${label} must be one object`,
+  );
+  const actualFields = Object.keys(value).sort();
+  invariant(
+    JSON.stringify(actualFields) === JSON.stringify(expectedFields),
+    errorCode,
+    `${label} fields are invalid`,
+    { expected_fields: expectedFields, actual_fields: actualFields },
+  );
 }
 
 function requirePositiveInteger(label, value) {

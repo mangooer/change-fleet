@@ -78,3 +78,14 @@ test("Candidate recovery and revision feedback diagnostics remain localized", ()
     "Revision feedback is missing, duplicated, or outside its bounds.",
   );
 });
+
+test("ChangeSet closure diagnostics remain stable across locales", () => {
+  assert.equal(
+    diagnosticMessage("CHANGE_SET_NOT_QUIESCENT"),
+    "变更单仍有运行或命令正在执行，当前不能关闭。",
+  );
+  assert.equal(
+    diagnosticMessage("CHANGE_SET_ABANDONED", { locale: "en" }),
+    "The ChangeSet is abandoned and cannot receive lifecycle mutations.",
+  );
+});

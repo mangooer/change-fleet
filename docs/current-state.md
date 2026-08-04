@@ -7,8 +7,8 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 
 ## Current Baseline
 
-- WI-0001 through WI-0008 and WI-0010 are accepted and landed. WI-0009 remains the active
-  unfinished implementation WorkItem.
+- WI-0001 through WI-0008 and WI-0010 through WI-0011 are accepted and landed. WI-0009 remains
+  unfinished and its old Runtime ChangeSet has not yet been explicitly closed.
 - The private Node.js 24 ESM package has a versioned filesystem store, `node:test`, pinned
   `@openai/codex-sdk@0.146.0`, one real Codex adapter, test-only scripted Runtime, and one
   experimental CLI; no released package, stable CLI, API, or UI exists.
@@ -44,7 +44,8 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
   per attempt, structured outcomes, exact-base planning worktrees, and WorkUnit-scoped writes.
 - Controller loss abandons an incomplete attempt; blind session resume and continuous context
   enforcement remain deferred.
-- Closing an unfinished task and ordinarily creating a later exact-base task are separate actions.
+- Closing an unfinished quiescent pre-delivery task and ordinarily creating a later exact-base task
+  are separate actions; generic resume, rewind, restart, and fork remain deferred.
 
 ## Accepted Decisions
 
@@ -75,8 +76,8 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 - Accepted [0014](proposals/0014-local-review-and-delivery-console.md) remains blocked: exact
   Candidate `12a7036` passed repository validation but its invalid combined command produced no
   Bundle. Landed WI-0010 preserved it without another Runtime Run. Accepted
-  [0016](proposals/0016-explicit-changeset-closure.md) and active WI-0011 add human closure before
-  the user creates a fresh task.
+  [0016](proposals/0016-explicit-changeset-closure.md) is implemented by landed WI-0011, adding
+  human closure before the user creates a fresh task.
 
 ## Open Questions
 
@@ -109,9 +110,8 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 
 ## Next Recommended Task
 
-Implement and review WI-0011's close-only shared operation. After it lands, close the old WI-0009
-Runtime ChangeSet and let the user create a fresh ChangeSet on a newly frozen base. Generic resume,
-rewind, restart, and fork remain later interactive-stage work.
+Explicitly close the old WI-0009 Runtime ChangeSet. The user can then create a fresh ChangeSet on a
+newly selected branch and frozen base through the ordinary creation operation.
 
 ## Maintenance Contract
 

@@ -1,4 +1,7 @@
-import { commandFingerprint } from "../domain/model.js";
+import {
+  assertChangeSetMutable,
+  commandFingerprint,
+} from "../domain/model.js";
 import { ChangeFleetError, invariant } from "../domain/errors.js";
 import {
   createDeliveryProjection,
@@ -145,6 +148,7 @@ export class GithubDeliveryService {
         if (existing?.status === "completed") {
           return { completed: true, result: structuredClone(existing.result) };
         }
+        assertChangeSetMutable(state);
         if (existing?.status === "failed") {
           throw new ChangeFleetError(
             "COMMAND_PREVIOUSLY_FAILED",
@@ -262,6 +266,7 @@ export class GithubDeliveryService {
         if (existing?.status === "completed") {
           return { completed: true, result: structuredClone(existing.result) };
         }
+        assertChangeSetMutable(state);
         if (existing?.status === "failed") {
           throw new ChangeFleetError(
             "COMMAND_PREVIOUSLY_FAILED",

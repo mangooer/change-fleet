@@ -139,6 +139,26 @@ test("unified CLI completes one current single-Repository lifecycle", async (t) 
   assert.equal(finalState.candidates.length, 1);
   assert.equal(finalState.decisions.at(-1).bundle_hash, execution.bundle_hash);
   assert.equal(runtime.invocations.length, 2);
+
+  const closure = await invoke(
+    ["changeset", "close"],
+    configPath,
+    root,
+    "close",
+    {
+      idempotency_key: "close-1",
+      change_set_id: "change-1",
+      actor: "human",
+      reason: {
+        code: "no_longer_needed",
+        summary: "Close the completed acceptance exercise before delivery",
+      },
+    },
+    dependencies,
+  );
+  assert.equal(closure.status, "abandoned");
+  assert.equal((await invokeShow("change-1", configPath, dependencies)).state, "abandoned");
+  assert.equal(runtime.invocations.length, 2);
 });
 
 async function invoke(

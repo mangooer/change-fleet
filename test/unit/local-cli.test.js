@@ -30,6 +30,7 @@ describe("unified local CLI grammar", () => {
         "project.repository_delivery.github.configure",
       ],
       [["changeset", "create"], "changeset.create"],
+      [["changeset", "close"], "changeset.close"],
       [
         ["changeset", "repository-selection", "revise"],
         "changeset.repository_selection.revise",

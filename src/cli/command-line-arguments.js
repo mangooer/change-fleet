@@ -32,6 +32,7 @@ const LIFECYCLE_ROUTES = Object.freeze([
   route(["changeset", "delivery", "publish"], "changeset.delivery.publish"),
   route(["changeset", "delivery", "refresh"], "changeset.delivery.refresh"),
   route(["changeset", "create"], "changeset.create"),
+  route(["changeset", "close"], "changeset.close"),
   route(["changeset", "plan"], "changeset.plan"),
   route(["changeset", "execute"], "changeset.execute"),
 ]);
