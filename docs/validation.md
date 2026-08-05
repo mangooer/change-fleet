@@ -152,12 +152,20 @@ human-gated exact legacy recovery, and tampered-subject rejection. Native Window
 prove `npm.cmd` resolution, metacharacter argv preservation, effective-invocation evidence, timeout,
 and cancellation without exposing a caller-provided shell command.
 
-Context regression must prove that only bounded current `request_revision` feedback enters later
-planning and execution while checkpoint details, host locators, output, complete review artifacts,
+Context regression must prove that only bounded current `request_revision` feedback enters the
+handling correction Run while checkpoint details, host locators, output, complete review artifacts,
 and older decisions remain excluded. WI-0010 changes shared domain contracts, persisted schema,
 stores, Git workspaces, command launch, context, and CLI behavior, so its final stable subject must
 run `npm run check` under Node.js 24. Another real Provider call is excluded; actual WI-0009 legacy
 recovery is an operational continuation only after WI-0010 is accepted and landed.
+
+Decisions 0022 and 0023 require exact per-finding assessment completeness, uniqueness, allowed
+dispositions, ordering, and bounds without treating reviewer claims as truth. Tests must prove that
+planning messages allocate no Plan revision, exact message approval creates the next confirmed
+revision, ordinary Bundle correction keeps that revision, and typed contract invalidation is the
+only route back to planning. Migration must deterministically retire incompatible unconfirmed v5
+Plan records. This shared domain, store, Runtime, CLI, and UI contract selects the Node.js 24 full
+deterministic check and one authorized real Provider planning flow.
 
 Decision 0018 requires close-only tests for exact request fields, bounded reasons, idempotent replay,
 quiescent unfinished states, active Run or command rejection, begun-delivery rejection, and terminal

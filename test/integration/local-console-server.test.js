@@ -27,6 +27,61 @@ import {
 } from "../support/scripted-runtime.js";
 
 describe("local console server", () => {
+  test("renders and confirms the current exact planning message through the shared operation", async (t) => {
+    const fixture = await createReviewFixture(t);
+    await fixture.service.createChangeSet({
+      idempotency_key: "create-plan-only",
+      change_set_id: "plan-only",
+      project_id: "project",
+      intent: { objective: "Approve one exact conversation plan" },
+    });
+    const planned = await fixture.service.planChangeSet({
+      idempotency_key: "plan-only-message",
+      change_set_id: "plan-only",
+    });
+    const server = await fixture.startServer();
+    try {
+      const bootstrap = extractBootstrap(await fetchText(server, "/"));
+      const headers = {
+        "X-ChangeFleet-Session": bootstrap.session_nonce,
+        "X-ChangeFleet-CSRF": bootstrap.csrf_nonce,
+        Origin: `http://${server.host}:${server.port}`,
+        "Content-Type": "application/json; charset=utf-8",
+      };
+      const exact = await fetchJson(
+        server,
+        "/api/local/v0/changesets/plan-only",
+        { headers },
+      );
+      assert.equal(exact.plan, null);
+      assert.equal(
+        exact.planning_message.message_id,
+        planned.message.message_id,
+      );
+      const confirmation = await fetchJson(
+        server,
+        "/api/local/v0/changesets/plan-only/plan-confirmation",
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            idempotency_key: "confirm-plan-only",
+            message_id: exact.planning_message.message_id,
+            content_digest: exact.planning_message.content_digest,
+            actor: "human",
+          }),
+        },
+      );
+      assert.equal(confirmation.plan_revision, 1);
+      assert.equal(
+        (await fixture.service.readChangeSet("plan-only")).state,
+        "ready",
+      );
+    } finally {
+      await server.close();
+    }
+  });
+
   test("serves bounded reads, rejects invalid session or origin, and keeps GET side-effect free", async (t) => {
     const fixture = await createReviewFixture(t);
     const before = await directoryDigest(fixture.controlRoot);
@@ -261,10 +316,11 @@ async function createReviewFixture(
     idempotency_key: "plan",
     change_set_id: "change",
   });
-  await service.confirmPlanRevision({
+  await service.confirmPlanMessage({
     idempotency_key: "confirm",
     change_set_id: "change",
-    plan_revision: planned.plan_revision,
+    message_id: planned.message.message_id,
+    content_digest: planned.message.content_digest,
   });
   await service.executeChangeSet({
     idempotency_key: "execute",
@@ -272,6 +328,7 @@ async function createReviewFixture(
   });
   const queryService = new ChangeSetViewService({
     controlStore: service.controlStore,
+    runStore: service.runStore,
     auditQueryService: new RuntimeAuditQueryService({
       controlStore: service.controlStore,
       runStore: service.runStore,
@@ -283,6 +340,7 @@ async function createReviewFixture(
     controlRoot,
     repositories,
     github,
+    service,
     async startServer() {
       return startLocalConsoleServer({
         queryService,

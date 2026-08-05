@@ -114,10 +114,11 @@ describe("Repository Harness overlays", () => {
       planningRepository.harness_resource_summary.identity_digest,
       /^[0-9a-f]{64}$/u,
     );
-    await service.confirmPlanRevision({
+    await service.confirmPlanMessage({
       idempotency_key: "confirm",
       change_set_id: "change",
-      plan_revision: planned.plan_revision,
+      message_id: planned.message.message_id,
+      content_digest: planned.message.content_digest,
     });
     await unlink(fixture.skillPath);
 
@@ -292,7 +293,8 @@ describe("Repository Harness overlays", () => {
     );
     const revisedState = await service.readChangeSet("change");
     assert.equal(revisedState.current_plan_revision, null);
-    assert.equal(revisedState.plans[0].status, "superseded");
+    assert.deepEqual(revisedState.plans, []);
+    assert.equal(revisedState.current_approvable_plan_message_id, null);
     assert.deepEqual(
       revisedState.repository_harness_selection_revisions.map(
         (selection) => selection.status,
@@ -770,10 +772,11 @@ async function createPlanAndConfirm(service) {
     idempotency_key: "plan",
     change_set_id: "change",
   });
-  await service.confirmPlanRevision({
+  await service.confirmPlanMessage({
     idempotency_key: "confirm",
     change_set_id: "change",
-    plan_revision: planned.plan_revision,
+    message_id: planned.message.message_id,
+    content_digest: planned.message.content_digest,
   });
 }
 

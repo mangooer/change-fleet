@@ -22,6 +22,7 @@ const GET_ROUTES = Object.freeze([
   /^\/api\/local\/v0\/changesets\/[A-Za-z0-9._-]+\/delivery$/u,
 ]);
 const POST_ROUTES = Object.freeze([
+  /^\/api\/local\/v0\/changesets\/[A-Za-z0-9._-]+\/plan-confirmation$/u,
   /^\/api\/local\/v0\/changesets\/[A-Za-z0-9._-]+\/bundle-decisions$/u,
   /^\/api\/local\/v0\/changesets\/[A-Za-z0-9._-]+\/delivery\/publish$/u,
   /^\/api\/local\/v0\/changesets\/[A-Za-z0-9._-]+\/delivery\/refresh$/u,
@@ -207,11 +208,23 @@ async function handlePostApi({
   operatorApplication,
 }) {
   const match = url.pathname.match(
-    /^\/api\/local\/v0\/changesets\/(?<changeSetId>[A-Za-z0-9._-]+)\/(?<tail>bundle-decisions|delivery\/publish|delivery\/refresh)$/u,
+    /^\/api\/local\/v0\/changesets\/(?<changeSetId>[A-Za-z0-9._-]+)\/(?<tail>plan-confirmation|bundle-decisions|delivery\/publish|delivery\/refresh)$/u,
   );
   invariant(match?.groups, "CHANGE_SET_NOT_FOUND", "Route not found");
   const changeSetId = match.groups.changeSetId;
   normalizeId("change_set_id", changeSetId);
+  if (match.groups.tail === "plan-confirmation") {
+    const body = normalizePlanConfirmationBody(await readJsonBody(request));
+    sendJson(
+      response,
+      200,
+      await operatorApplication.execute("changeset.plan.confirm", {
+        ...body,
+        change_set_id: changeSetId,
+      }),
+    );
+    return;
+  }
   if (match.groups.tail === "bundle-decisions") {
     const body = normalizeBundleDecisionBody(await readJsonBody(request));
     sendJson(
@@ -245,6 +258,21 @@ async function handlePostApi({
       change_set_id: changeSetId,
     }),
   );
+}
+
+function normalizePlanConfirmationBody(body) {
+  requireExactFields(body, [
+    "idempotency_key",
+    "message_id",
+    "content_digest",
+    "actor",
+  ]);
+  return {
+    idempotency_key: requireNonEmptyString(body.idempotency_key, "idempotency_key"),
+    message_id: requireNonEmptyString(body.message_id, "message_id"),
+    content_digest: requireNonEmptyString(body.content_digest, "content_digest"),
+    actor: requireNonEmptyString(body.actor, "actor"),
+  };
 }
 
 function normalizeBundleDecisionBody(body) {

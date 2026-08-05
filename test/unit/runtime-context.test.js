@@ -59,7 +59,7 @@ describe("Runtime context admission", () => {
       enabled: false,
       skills: [],
     });
-    assert.equal(projection.schema_version, 4);
+    assert.equal(projection.schema_version, 6);
     assert.equal(controlContract.repository_selection_revision, 1);
     assert.equal(
       controlContract.repository_harness_selection_revision,
@@ -67,6 +67,39 @@ describe("Runtime context admission", () => {
     );
     assert.equal(projection.repository_selection.revision, 1);
     assert.equal(projection.repository_harness_selection.revision, 1);
+  });
+
+  test("projects only the current planning input and exact approvable message", () => {
+    const result = createContextProjection({
+      operation: "planning",
+      changeSet,
+      repositorySelection: projection.repository_selection,
+      repositoryHarnessSelection: projection.repository_harness_selection,
+      repositories: projection.repositories,
+      capability: { mode: "read_only" },
+      requiredEvidence: ["plan"],
+      historyReferences: [{ kind: "run", run_id: "run-reference-only" }],
+      planningConversation: {
+        user_message: "Revise the current proposal.",
+        current_approvable_message: {
+          message_id: "message-current",
+          content_digest: "a".repeat(64),
+          text: "Current proposal",
+          plan_content: { rationale: "current" },
+          transcript: "must-not-project",
+        },
+      },
+    });
+    assert.deepEqual(result.planning_conversation, {
+      user_message: "Revise the current proposal.",
+      current_approvable_message: {
+        message_id: "message-current",
+        content_digest: "a".repeat(64),
+        text: "Current proposal",
+        plan_content: { rationale: "current" },
+      },
+    });
+    assert.equal(JSON.stringify(result).includes("must-not-project"), false);
   });
 
   test("projects only bounded current feedback and excludes finalization internals", () => {

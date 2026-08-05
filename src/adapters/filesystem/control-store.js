@@ -6,9 +6,10 @@ import { ChangeFleetError, invariant } from "../../domain/errors.js";
 import { readJsonFile, writeJsonFileAtomic } from "./atomic-json-file.js";
 import { DirectoryLock } from "./directory-lock.js";
 
-// v5 增加发布后 Checkpoint、验证尝试索引和当前修订反馈；现有 v4 私有快照原地迁移。
-export const CONTROL_SCHEMA_VERSION = 5;
-const PREVIOUS_CONTROL_SCHEMA_VERSION = 4;
+// v6 只把已确认计划留在 Plan 历史；未确认的 v5 计划确定性退役为兼容证据。
+export const CONTROL_SCHEMA_VERSION = 6;
+const PREVIOUS_CONTROL_SCHEMA_VERSION = 5;
+const LEGACY_CONTROL_SCHEMA_VERSION = 4;
 
 export class ControlStore {
   constructor(controlRoot, { clock = () => new Date() } = {}) {
@@ -38,7 +39,12 @@ export class ControlStore {
           idempotency: {},
         });
       } else if (existing.schema_version === PREVIOUS_CONTROL_SCHEMA_VERSION) {
-        await writeJsonFileAtomic(this.catalogPath, migrateCatalogV4(existing));
+        await writeJsonFileAtomic(this.catalogPath, migrateCatalogV5(existing));
+      } else if (existing.schema_version === LEGACY_CONTROL_SCHEMA_VERSION) {
+        await writeJsonFileAtomic(
+          this.catalogPath,
+          migrateCatalogV5(migrateCatalogV4(existing)),
+        );
       } else {
         assertSchema(existing, "catalog");
       }
@@ -188,7 +194,12 @@ export class ControlStore {
         const existing = await readJsonFile(filePath, { allowMissing: true });
         if (!existing) continue;
         if (existing.schema_version === PREVIOUS_CONTROL_SCHEMA_VERSION) {
-          await writeJsonFileAtomic(filePath, migrateChangeSetV4(existing));
+          await writeJsonFileAtomic(filePath, migrateChangeSetV5(existing));
+        } else if (existing.schema_version === LEGACY_CONTROL_SCHEMA_VERSION) {
+          await writeJsonFileAtomic(
+            filePath,
+            migrateChangeSetV5(migrateChangeSetV4(existing)),
+          );
         } else {
           assertSchema(existing, `ChangeSet ${entry.name}`);
         }
@@ -209,6 +220,12 @@ function assertSchema(record, label) {
 
 function migrateCatalogV4(record) {
   const migrated = structuredClone(record);
+  migrated.schema_version = PREVIOUS_CONTROL_SCHEMA_VERSION;
+  return migrated;
+}
+
+function migrateCatalogV5(record) {
+  const migrated = structuredClone(record);
   migrated.schema_version = CONTROL_SCHEMA_VERSION;
   return migrated;
 }
@@ -221,6 +238,45 @@ function migrateChangeSetV4(record) {
   for (const workUnit of migrated.work_units ?? []) {
     workUnit.candidate_checkpoint_id ??= null;
     workUnit.validation_attempt_ids ??= [];
+  }
+  migrated.schema_version = PREVIOUS_CONTROL_SCHEMA_VERSION;
+  return migrated;
+}
+
+function migrateChangeSetV5(record) {
+  const migrated = structuredClone(record);
+  migrated.planning_message_references ??= [];
+  migrated.current_approvable_plan_message_id ??= null;
+  migrated.legacy_unconfirmed_plans ??= [];
+
+  const confirmedPlans = [];
+  const retiredRevisions = new Set();
+  for (const plan of migrated.plans ?? []) {
+    if (typeof plan.confirmed_at === "string") {
+      confirmedPlans.push(plan);
+      continue;
+    }
+    retiredRevisions.add(plan.revision);
+    migrated.legacy_unconfirmed_plans.push({
+      ...plan,
+      legacy_disposition: "retired_unconfirmed_v5",
+      legacy_content_digest: sha256(plan),
+    });
+  }
+  confirmedPlans.sort((left, right) => left.revision - right.revision);
+  const latestConfirmed = confirmedPlans.at(-1) ?? null;
+  if (latestConfirmed) latestConfirmed.status = "confirmed";
+  migrated.plans = confirmedPlans;
+  migrated.current_plan_revision = latestConfirmed?.revision ?? null;
+  for (const workUnit of migrated.work_units ?? []) {
+    if (retiredRevisions.has(workUnit.plan_revision)) {
+      workUnit.state = "retired_unconfirmed_legacy";
+    }
+  }
+  if (
+    ["awaiting_plan_confirmation", "replanning"].includes(migrated.state)
+  ) {
+    migrated.state = latestConfirmed ? "replanning" : "analyzing";
   }
   migrated.schema_version = CONTROL_SCHEMA_VERSION;
   return migrated;

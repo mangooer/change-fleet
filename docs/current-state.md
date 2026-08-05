@@ -1,16 +1,15 @@
 # Current State
 
-Updated: 2026-08-04
+Updated: 2026-08-05
 
 This projects accepted direction, implementation, active gaps, and the next task. `SPEC.md` owns
 the contract; Decisions own rationale; WorkItems and Git own implementation evidence.
 
 ## Current Baseline
 
-- WI-0001 through WI-0008 and WI-0010 through WI-0013 are landed. WI-0009 is implemented in the
-  current workspace and ready for controller-owned review/publication; the landed baseline still
-  excludes it until that publication occurs. V3 remains abandoned history with an immutable,
-  unaccepted Candidate that may be reused only as Git input.
+- WI-0001 through WI-0015 are complete. WI-0009 entered `main` through merge commit `f8fd77f`;
+  WI-0015 implements conversation-first planning and stage-scoped feedback. Abandoned predecessor
+  attempts remain audit history rather than current authority.
 - Agent Runtimes own semantic work. ChangeFleet owns cross-repository authorization, revisions,
   scheduling, exact Git and Bundle subjects, evidence, recovery, and human gates.
 
@@ -28,17 +27,14 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
   replace them and dirty checkout files are excluded.
 - Optional confirmed Repository Harness policies may freeze contained Git-ignored Codex resources
   as immutable ChangeSet input; they are never reread live, written back, or delivered.
-- Replanning continues the same ChangeSet with superseded attempts preserved. Post-Provider
-  checkpoints preserve exact Git subjects before validation; exact resume never repeats Runtime
-  work, and bounded revision feedback is current context.
+- Exact approval of a planning message creates a Plan revision. Ordinary correction stays under it;
+  feedback is assessed, and only contract invalidation returns to planning.
 - WorkUnits may run in parallel; delivery to one `repository_id + target_ref` is serialized, and
   cross-repository compensation never promises universal atomic rollback.
-- Accepted GitHub-first delivery publishes exact Candidates to PRs, leaves merge to humans, and
-  records exact external results through UI-ready shared application operations.
+- GitHub delivery publishes exact Candidates to human-merged PRs and records bounded results.
 - The accepted next surface is a foreground loopback review and delivery console with bounded
   ChangeSet discovery, exact Bundle decisions, delivery actions, and no CLI invocation.
-- Landed slices record Runtime evidence, derive audit views, and expose shared operations through
-  one experimental CLI with isolated read-only debug audit.
+- Landed slices expose shared operations through one experimental CLI and isolated debug audit.
 - The first production Provider uses the pinned Codex SDK, a narrow Runtime port, one fresh thread
   per attempt, structured outcomes, exact-base planning worktrees, and WorkUnit-scoped writes.
 - Controller loss abandons incomplete attempts; blind session resume remains deferred.
@@ -73,8 +69,10 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
   [0018](decisions/0018-explicit-changeset-closure.md) explicit closure;
   [0019](decisions/0019-durable-codex-runtime-home-and-pre-candidate-retry.md) clean pre-Candidate
   retry; [0020](decisions/0020-provider-environment-ownership-boundary.md) external Provider
-  environment ownership; and [0021](decisions/0021-provider-owned-host-permissions-and-multi-repository-workspaces.md)
-  Provider-owned host permissions.
+  environment ownership; [0021](decisions/0021-provider-owned-host-permissions-and-multi-repository-workspaces.md)
+  Provider-owned host permissions; [0022](decisions/0022-explicit-revision-feedback-assessment.md)
+  explicit feedback assessment; and [0023](decisions/0023-conversation-first-planning-and-stage-scoped-feedback.md)
+  conversation-first planning and stage-scoped correction.
 
 ## Repository Design Proposals
 
@@ -89,6 +87,11 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 - Accepted [0019](proposals/0019-provider-owned-host-permissions-and-multi-repository-workspaces.md)
   distinguishes development worktrees from OS security. Landed WI-0013 adds explicit trusted-local
   `host_user`; mandatory strong Sandbox enforcement is no longer a first-version prerequisite.
+- Accepted [0020](proposals/0020-explicit-revision-feedback-assessment.md) requires explicit Agent
+  assessment; Proposal 0021 moves it from mandatory replanning to the handling outcome.
+- Accepted [0021](proposals/0021-conversation-first-planning-and-stage-scoped-feedback.md) records
+  this boundary. Landed WI-0015 implements exact planning-message approval, same-Plan correction,
+  typed Plan invalidation, and deterministic retirement of incompatible unconfirmed v5 records.
 
 ## Open Questions
 
@@ -100,20 +103,15 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 - Git URLs, remote workers, merge, deployment, service graph, and stacked ChangeSets are deferred.
 - Native-Windows single-Repository use passed; other hosts and paid multi-Repository work are unverified.
 - Codex SDK usage is aggregate-only; effective model and universal host read-denial remain unknown.
-- The old WI-0009 attempt and v2 remain abandoned history. V3 produced exact Candidate `bb5ed6c`
-  but no Bundle: its UI gate falsely skipped unavailable Chromium and its combined check required
-  a `candidate_id` field that the validation manifest deliberately does not contain. V3 is closed;
-  the Candidate is reusable source material, not an accepted baseline. The current successor
-  corrects both issues, adds the bounded local review/delivery console, and passes the full
-  Repository check on this branch.
+- Historical WI-0009 retries remain linked audit history; eager current authority no longer carries
+  their incident-by-incident recovery narrative.
 - Runtime Kit, Codex App Server, another Provider, Linear, pricing, dashboards, and continuous
   context enforcement are deferred.
 
 ## Next Recommended Task
 
-Submit the WI-0009 successor branch for controller-owned review/publication. If separately
-authorized later, verify the landed subject's real GitHub self-iteration delivery rather than this
-local deterministic fixture path.
+Create the next ordinary ChangeSet through the conversation-first lifecycle and resume
+self-iteration without reviving either abandoned bootstrap ChangeSet.
 
 ## Maintenance Contract
 

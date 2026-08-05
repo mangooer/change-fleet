@@ -85,7 +85,7 @@ test("unified CLI completes one current single-Repository lifecycle", async (t) 
     },
     dependencies,
   );
-  assert.equal(planned.plan_revision, 1);
+  assert.equal(planned.status, "awaiting_plan_confirmation");
 
   const confirmed = await invoke(
     ["changeset", "plan", "confirm"],
@@ -95,7 +95,8 @@ test("unified CLI completes one current single-Repository lifecycle", async (t) 
     {
       idempotency_key: "confirm-1",
       change_set_id: "change-1",
-      plan_revision: planned.plan_revision,
+      message_id: planned.message.message_id,
+      content_digest: planned.message.content_digest,
     },
     dependencies,
   );

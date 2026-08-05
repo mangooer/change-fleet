@@ -29,9 +29,12 @@ describe("Codex SDK Runtime protocol", () => {
     const prompts = [];
     const events = [];
     const finalResponse = JSON.stringify({
-      type: "plan_proposed",
-      plan: {
+      type: "conversation_message",
+      message: {
+        text: "The exact plan is ready for approval.",
+        plan: {
         rationale: null,
+        revision_feedback_assessments: [],
         work_units: [
           {
             work_unit_id: "api-unit",
@@ -54,6 +57,7 @@ describe("Codex SDK Runtime protocol", () => {
         },
         risks: [],
         unverified_boundaries: [],
+        },
       },
       request: null,
     });
@@ -91,7 +95,7 @@ describe("Codex SDK Runtime protocol", () => {
     const firstHome = factoryCalls[0].env.CODEX_HOME;
     const second = await runtime.invoke(invocation);
 
-    assert.equal(first.outcome.type, "plan_proposed");
+    assert.equal(first.outcome.type, "conversation_message");
     assert.equal(first.provider_evidence.provider.thread_id, "thread-1");
     assert.equal(
       first.provider_evidence.usage_observations[0].coverage,
@@ -115,6 +119,11 @@ describe("Codex SDK Runtime protocol", () => {
       prompts[0],
       /at most one WorkUnit for each repository_id; combine all tasks for the same Repository/u,
     );
+    assert.match(
+      prompts[0],
+      /reviewer claim to evaluate, not as an automatic fact or command/u,
+    );
+    assert.match(prompts[0], /using adopt, adapt, or decline/u);
     assert.equal(turnOptions[0].outputSchema.additionalProperties, false);
     assert.equal(
       events.some(

@@ -3,6 +3,7 @@ import { describe, test } from "node:test";
 
 import {
   commandFingerprint,
+  createConfirmedPlan,
   createCandidate,
   createCandidateCheckpoint,
   createCandidateBundle,
@@ -10,6 +11,7 @@ import {
   createValidationSubject,
   normalizeChangeSetCloseRequest,
   normalizePlan,
+  normalizePlanContent,
   normalizeRepositorySelectionRequest,
   normalizeRevisionFeedback,
 } from "../../src/domain/model.js";
@@ -23,6 +25,7 @@ const command = {
 
 function planInput(overrides = {}) {
   return {
+    revision_feedback_assessments: [],
     work_units: [
       {
         work_unit_id: "api",
@@ -57,6 +60,29 @@ const bases = {
 };
 
 describe("domain model", () => {
+  test("keeps normalized planning content revision-free until exact confirmation", () => {
+    const content = normalizePlanContent(planInput(), {
+      project,
+      bases,
+      intentRevision: 1,
+      repositorySelectionRevision: 1,
+      repositoryHarnessSelectionRevision: 1,
+    });
+    assert.equal("revision" in content, false);
+    assert.equal("status" in content, false);
+    const plan = createConfirmedPlan(content, {
+      revision: 1,
+      confirmedAt: "2026-08-05T00:00:00.000Z",
+      agentProfile: { profile_id: "profile" },
+      planningRunId: "run-1",
+      sourceMessageId: "message-1",
+      sourceContentDigest: "a".repeat(64),
+    });
+    assert.equal(plan.revision, 1);
+    assert.equal(plan.status, "confirmed");
+    assert.equal(plan.source_message_id, "message-1");
+  });
+
   test("normalizes the exact authorized two-node plan", () => {
     const plan = normalizePlan(planInput(), {
       project,
@@ -119,6 +145,73 @@ describe("domain model", () => {
       createdAt: "2026-07-30T00:00:00.000Z",
     });
     assert.deepEqual(plan.work_units.map((unit) => unit.repository_id), ["api"]);
+  });
+
+  test("requires one bounded Agent assessment for every current feedback finding", () => {
+    const revisionFeedback = {
+      summary: "Review the conflicting claims",
+      findings: [
+        { finding_id: "landed-state", text: "The prior slice is landed" },
+        { finding_id: "task-state", text: "Complete project tracking" },
+      ],
+    };
+    const revised = planInput({
+      revision_feedback_assessments: [
+        {
+          finding_id: "task-state",
+          disposition: "adopt",
+          rationale: "The exact task evidence supports completing the tracking state",
+        },
+        {
+          finding_id: "landed-state",
+          disposition: "adapt",
+          rationale: "Git proves the code landed, but the repository projection is stale",
+        },
+      ],
+    });
+    const options = {
+      project,
+      bases,
+      intentRevision: 1,
+      repositorySelectionRevision: 1,
+      repositoryHarnessSelectionRevision: 1,
+      revisionFeedback,
+      revision: 2,
+      createdAt: "2026-08-05T00:00:00.000Z",
+    };
+
+    const plan = normalizePlan(revised, options);
+    assert.deepEqual(
+      plan.revision_feedback_assessments.map((item) => [
+        item.finding_id,
+        item.disposition,
+      ]),
+      [
+        ["landed-state", "adapt"],
+        ["task-state", "adopt"],
+      ],
+    );
+    assert.throws(
+      () =>
+        normalizePlan(
+          planInput({ revision_feedback_assessments: [] }),
+          options,
+        ),
+      { code: "INVALID_PLAN" },
+    );
+    assert.throws(
+      () =>
+        normalizePlan(
+          planInput({
+            revision_feedback_assessments: [
+              revised.revision_feedback_assessments[0],
+              revised.revision_feedback_assessments[0],
+            ],
+          }),
+          options,
+        ),
+      { code: "INVALID_PLAN" },
+    );
   });
 
   test("binds validation and Bundle hashes to exact Candidates and evidence", () => {

@@ -32,6 +32,7 @@ export async function executeServeCommand(
   });
   const queryService = new ChangeSetViewService({
     controlStore: service.controlStore,
+    runStore: service.runStore,
     auditQueryService,
   });
   const server = await startLocalConsoleServer({

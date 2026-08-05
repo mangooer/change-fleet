@@ -1,7 +1,7 @@
 ---
 artifact_type: development_work_item
 id: WI-0009
-status: review_ready
+status: done
 title: Implement the local review and delivery console
 source: 'User request: "创建并确认WI-0009。"'
 confirmed_by: user
@@ -9,8 +9,8 @@ confirmed_at: 2026-08-03
 started_by: user
 started_at: 2026-08-03
 review_ready_at: 2026-08-05
-completed_by:
-completed_at:
+completed_by: user
+completed_at: 2026-08-05
 standing_policy:
 design_proposal: docs/proposals/0014-local-review-and-delivery-console.md
 accepted_decisions:
@@ -271,9 +271,11 @@ authority is reported as unverified, never passed.
 
 ## Acceptance Review
 
-Pending controller-owned review/publication and any separately authorized real GitHub write.
+The user accepted the exact Bundle, ChangeFleet published Candidate `55c79af` to GitHub, and the
+user merged PR #1. Merge commit `f8fd77f3941063859288c104d440caae89a956a9` entered `main` on
+2026-08-05. GitHub merge and delivery timing remain Control Store facts; no post-merge code change
+was required.
 
 ## Project Memory Impact
 
-WI-0009 is accepted unfinished work. The old ChangeSet, v2, and v3 are abandoned audit history.
-No Candidate changes the landed baseline until an exact Bundle is reviewed and accepted.
+WI-0009 is complete and landed. The old ChangeSet, v2, and v3 remain abandoned audit history.

@@ -53,8 +53,13 @@ describe("local two-repository vertical slice", () => {
       featureSha,
     );
     await git(api.path, ["checkout", "main"]);
-    await service.planChangeSet({ idempotency_key: "plan-2", change_set_id: "single" });
-    await service.confirmPlanRevision({ idempotency_key: "confirm", change_set_id: "single", plan_revision: 2 });
+    const planned = await service.planChangeSet({ idempotency_key: "plan-2", change_set_id: "single" });
+    await service.confirmPlanMessage({
+      idempotency_key: "confirm",
+      change_set_id: "single",
+      message_id: planned.message.message_id,
+      content_digest: planned.message.content_digest,
+    });
     const execution = await service.executeChangeSet({ idempotency_key: "execute", change_set_id: "single" });
     const state = await service.readChangeSet("single");
     assert.equal(state.candidates.length, 1);
@@ -101,8 +106,8 @@ describe("local two-repository vertical slice", () => {
     assert.equal(revised.candidates.length, 1);
     assert.equal(revised.bundles.length, 1);
     assert.equal(
-      revised.work_units.find((unit) => unit.plan_revision === 2).state,
-      "candidate_ready",
+      revised.work_units.find((unit) => unit.plan_revision === 1).state,
+      "superseded",
     );
   });
 
@@ -203,7 +208,7 @@ describe("local two-repository vertical slice", () => {
       idempotency_key: "plan-1",
       change_set_id: "checkout-change",
     });
-    assert.equal(planned.plan_revision, 1);
+    assert.equal(planned.status, "awaiting_plan_confirmation");
     const planningInvocation = runtime.invocations.find(
       (invocation) => invocation.operation === "planning",
     );
@@ -230,16 +235,18 @@ describe("local two-repository vertical slice", () => {
       }),
       { code: "PLAN_CONFIRMATION_REQUIRED" },
     );
-    const confirmation = await service.confirmPlanRevision({
+    const confirmation = await service.confirmPlanMessage({
       idempotency_key: "confirm-1",
       change_set_id: "checkout-change",
-      plan_revision: 1,
+      message_id: planned.message.message_id,
+      content_digest: planned.message.content_digest,
     });
     assert.deepEqual(
-      await service.confirmPlanRevision({
+      await service.confirmPlanMessage({
         idempotency_key: "confirm-1",
         change_set_id: "checkout-change",
-        plan_revision: 1,
+        message_id: planned.message.message_id,
+        content_digest: planned.message.content_digest,
       }),
       confirmation,
     );

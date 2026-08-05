@@ -88,7 +88,7 @@ function createServiceDouble(calls) {
     "reviseRepositorySelection",
     "reviseRepositoryHarnessSelection",
     "planChangeSet",
-    "confirmPlanRevision",
+    "confirmPlanMessage",
     "recoverLegacyCandidate",
     "executeChangeSet",
     "recordBundleDecision",

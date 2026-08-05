@@ -79,7 +79,7 @@ describe("application failure and revision boundaries", () => {
     assert.equal(evidence.payload.postflight.status, "failed");
   });
 
-  test("replanning continues one ChangeSet and preserves superseded work", async (t) => {
+  test("planning conversation replaces the approval subject without allocating Plan revisions", async (t) => {
     const fixture = await createApplicationFixture(t, "replan");
     const runtime = new ScriptedRuntime({ plan: fixture.plan });
     const service = await ChangeFleetService.open({
@@ -89,29 +89,42 @@ describe("application failure and revision boundaries", () => {
       agentProfile: TEST_AGENT_PROFILE,
     });
     await registerAndCreate(service, fixture);
-    await service.planChangeSet({
+    const first = await service.planChangeSet({
       idempotency_key: "plan-1",
       change_set_id: "change-1",
     });
-    await service.planChangeSet({
+    const second = await service.planChangeSet({
       idempotency_key: "plan-2",
       change_set_id: "change-1",
+      message: "Keep the same scope but explain the checks more clearly.",
     });
 
     const state = await service.readChangeSet("change-1");
     assert.equal(state.change_set_id, "change-1");
-    assert.equal(state.current_plan_revision, 2);
-    assert.deepEqual(
-      state.plans.map((plan) => plan.status),
-      ["superseded", "proposed"],
+    assert.equal(state.current_plan_revision, null);
+    assert.deepEqual(state.plans, []);
+    assert.deepEqual(state.work_units, []);
+    assert.equal(state.planning_message_references.length, 2);
+    assert.equal(
+      state.current_approvable_plan_message_id,
+      second.message.message_id,
     );
-    assert.equal(state.work_units.length, 4);
-    assert.deepEqual(
-      state.work_units
-        .filter((unit) => unit.plan_revision === 1)
-        .map((unit) => unit.state),
-      ["superseded", "superseded"],
+    await assert.rejects(
+      service.confirmPlanMessage({
+        idempotency_key: "confirm-stale-message",
+        change_set_id: "change-1",
+        message_id: first.message.message_id,
+        content_digest: first.message.content_digest,
+      }),
+      { code: "STALE_PLAN_MESSAGE_CONFIRMATION" },
     );
+    const confirmed = await service.confirmPlanMessage({
+      idempotency_key: "confirm-current-message",
+      change_set_id: "change-1",
+      message_id: second.message.message_id,
+      content_digest: second.message.content_digest,
+    });
+    assert.equal(confirmed.plan_revision, 1);
   });
 
   test("requires bounded request-revision feedback in only the current Runtime projection", async (t) => {
@@ -146,43 +159,71 @@ describe("application failure and revision boundaries", () => {
       decision: "request_revision",
       feedback,
     });
-    const secondPlan = await service.planChangeSet({
-      idempotency_key: "plan-2",
-      change_set_id: "change-1",
-    });
-    const planningProjection = runtime.invocations
-      .filter((invocation) => invocation.operation === "planning")
-      .at(-1).context_projection;
-    assert.deepEqual(planningProjection.revision_feedback, {
-      bundle_revision: first.bundle_revision,
-      bundle_hash: first.bundle_hash,
-      ...feedback,
-    });
-    assert.equal(
-      planningProjection.decisions.some(
-        (decision) => decision.type === "bundle_review",
-      ),
-      false,
-    );
-
-    await service.confirmPlanRevision({
-      idempotency_key: "confirm-2",
-      change_set_id: "change-1",
-      plan_revision: secondPlan.plan_revision,
-    });
-    await service.executeChangeSet({
+    const second = await service.executeChangeSet({
       idempotency_key: "execute-2",
       change_set_id: "change-1",
     });
+    assert.equal(second.bundle_revision, 2);
+    const correctedState = await service.readChangeSet("change-1");
+    assert.equal(correctedState.current_plan_revision, 1);
+    assert.equal(correctedState.plans.length, 1);
+    assert.equal(correctedState.current_revision_feedback, null);
     const executionProjection = runtime.invocations
       .filter(
         (invocation) =>
           invocation.operation === "execution" &&
-          invocation.context_projection.current_plan.revision === 2,
+          invocation.context_projection.revision_feedback !== null,
       )[0].context_projection;
     assert.deepEqual(executionProjection.revision_feedback.findings, feedback.findings);
     assert.equal("candidate_checkpoint_id" in executionProjection.work_unit, false);
     assert.equal("workspace" in executionProjection.work_unit, false);
+    const correctionRun = runtime.invocations.filter(
+      (invocation) =>
+        invocation.operation === "execution" &&
+        invocation.context_projection.revision_feedback !== null,
+    )[0];
+    assert.equal(correctionRun.control_contract.plan_revision, 1);
+  });
+
+  test("allocates a later Plan revision only after typed execution invalidation and exact approval", async (t) => {
+    const fixture = await createApplicationFixture(t, "typed-plan-invalidation");
+    const runtime = new ScriptedRuntime({
+      plan: fixture.plan,
+      executionOutcome: {
+        type: "plan_invalidation_required",
+        summary: "The confirmed design cannot satisfy the exact repository contract",
+        changed_paths: [],
+        blocker: {
+          code: "design_assumption_invalid",
+          message: "The exact base exposes a mutually exclusive contract",
+        },
+      },
+    });
+    const service = await openBootstrappedService(fixture, runtime);
+    const invalidated = await service.executeChangeSet({
+      idempotency_key: "execute-invalidated",
+      change_set_id: "change-1",
+    });
+    assert.equal(invalidated.status, "replanning");
+    const invalidatedState = await service.readChangeSet("change-1");
+    assert.equal(invalidatedState.current_plan_revision, 1);
+    assert.equal(invalidatedState.plans[0].status, "invalidated");
+    assert.equal(invalidatedState.bundles.length, 0);
+
+    runtime.executionOutcome = null;
+    const replacement = await service.planChangeSet({
+      idempotency_key: "replacement-plan-message",
+      change_set_id: "change-1",
+      message: "Replace the invalidated execution contract.",
+    });
+    assert.equal((await service.readChangeSet("change-1")).plans.length, 1);
+    const confirmed = await service.confirmPlanMessage({
+      idempotency_key: "confirm-replacement",
+      change_set_id: "change-1",
+      message_id: replacement.message.message_id,
+      content_digest: replacement.message.content_digest,
+    });
+    assert.equal(confirmed.plan_revision, 2);
   });
 });
 
@@ -209,14 +250,15 @@ async function openBootstrappedService(fixture, runtime) {
     agentProfile: TEST_AGENT_PROFILE,
   });
   await registerAndCreate(service, fixture);
-  await service.planChangeSet({
+  const planned = await service.planChangeSet({
     idempotency_key: "plan-1",
     change_set_id: "change-1",
   });
-  await service.confirmPlanRevision({
+  await service.confirmPlanMessage({
     idempotency_key: "confirm-1",
     change_set_id: "change-1",
-    plan_revision: 1,
+    message_id: planned.message.message_id,
+    content_digest: planned.message.content_digest,
   });
   return service;
 }

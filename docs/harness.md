@@ -35,10 +35,12 @@ These names are intentionally different:
 Files under `docs/proposals/` and `docs/work-items/` are part of the first lifecycle. They are not
 ChangeFleet Runtime output and are never written into a registered repository by ChangeFleet.
 
-An Agent Runtime may return a proposed `ChangePlanRevision`, `ScopeExpansionRequest`, or
-`DecisionRequest`. The product should not persist a generic `Proposal` entity. If ChangeFleet is
-eventually used to develop itself, a Runtime ChangeSet may reference a Repository Design Proposal
-as an input source, but their ids, status, and authority remain separate.
+An Agent Runtime may return a conversation message with optional structured plan content, a
+`ScopeExpansionRequest`, or a `DecisionRequest`. Exact human approval promotes that message into a
+confirmed `ChangePlanRevision`; conversation is not Plan history. The product should not persist a
+generic `Proposal` entity. If ChangeFleet is eventually used to develop itself, a Runtime ChangeSet
+may reference a Repository Design Proposal as an input source, but their ids, status, and authority
+remain separate.
 
 ## Intended Product
 
@@ -304,7 +306,7 @@ chronological reasoning:
 - an optional operation-scoped Runtime Skill layer in the model, with no accepted kit packaging;
 - Agent Profiles for provider, model, permission, and Skill selection;
 - read-only planning access and repository-workspace-scoped execution access;
-- ChangeFleet-owned plan revision and confirmation history;
+- ChangeFleet-owned confirmed plan revision and confirmation history;
 - tracker integrations such as Linear as intake and projection surfaces, not lifecycle authority.
 
 The deterministic first slice proved the Control Contract, projections, scoped capabilities, and

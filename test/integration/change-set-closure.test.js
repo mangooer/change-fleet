@@ -80,10 +80,11 @@ describe("explicit ChangeSet closure", () => {
           change_set_id: "change-close",
         }),
       () =>
-        fixture.service.confirmPlanRevision({
+        fixture.service.confirmPlanMessage({
           idempotency_key: "confirm-after-close",
           change_set_id: "change-close",
-          plan_revision: 1,
+          message_id: "message-after-close",
+          content_digest: "a".repeat(64),
         }),
       () =>
         fixture.service.executeChangeSet({
