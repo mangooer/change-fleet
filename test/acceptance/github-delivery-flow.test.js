@@ -142,7 +142,7 @@ describe("GitHub pull-request delivery", () => {
       mergeCommitSha: apiMerge,
     });
     const partial = await fixture.service.refreshDelivery({
-      idempotency_key: "refresh-partial",
+      idempotency_key: "refresh-attempt",
       change_set_id: ready.change_set_id,
     });
     assert.equal(partial.state, "delivering");
@@ -159,7 +159,7 @@ describe("GitHub pull-request delivery", () => {
       mergeCommitSha: webMerge,
     });
     const complete = await fixture.service.refreshDelivery({
-      idempotency_key: "refresh-complete",
+      idempotency_key: "refresh-attempt",
       change_set_id: ready.change_set_id,
     });
     assert.equal(complete.state, "done");

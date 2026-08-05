@@ -17,7 +17,7 @@ Blocks: One Development WorkItem for the first local review and delivery console
 Decision: [Decision 0016](../decisions/0016-local-review-and-delivery-console.md)
 
 Implementation tracking:
-[WI-0009](../work-items/WI-0009-local-review-and-delivery-console.md), `in_progress`
+[WI-0009](../work-items/WI-0009-local-review-and-delivery-console.md), `review_ready`
 
 ## Context
 

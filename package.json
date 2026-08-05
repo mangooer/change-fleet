@@ -14,7 +14,11 @@
     "test:integration": "node --test \"test/integration/**/*.test.js\"",
     "test:acceptance": "node --test --test-concurrency=1 \"test/acceptance/**/*.test.js\"",
     "test:provider:codex": "node --test --test-concurrency=1 \"test/provider/**/*.test.js\"",
+    "test:ui": "node scripts/run-ui-tests.mjs",
     "check": "node scripts/run-checks.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.55.0"
   },
   "dependencies": {
     "@openai/codex-sdk": "0.146.0",

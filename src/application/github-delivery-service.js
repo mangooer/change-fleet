@@ -264,7 +264,17 @@ export class GithubDeliveryService {
           commandInput,
         );
         if (existing?.status === "completed") {
-          return { completed: true, result: structuredClone(existing.result) };
+          if (!refreshResultRemainsAmbiguous(existing.result)) {
+            return {
+              completed: true,
+              result: structuredClone(existing.result),
+            };
+          }
+          // 当 refresh 结果仍停留在非终态 delivery 视图时，允许同一 attempt identity
+          // 继续复用同一 idempotency key 重新观察外部状态，而不是把 partial 结果永久缓存成终值。
+          existing.status = "in_progress";
+          delete existing.result;
+          delete existing.completed_at;
         }
         assertChangeSetMutable(state);
         if (existing?.status === "failed") {
@@ -855,6 +865,10 @@ function finishCommand(state, idempotencyKey, result, completedAt) {
   command.status = "completed";
   command.result = structuredClone(result);
   command.completed_at = completedAt;
+}
+
+function refreshResultRemainsAmbiguous(result) {
+  return result?.state === "delivering";
 }
 
 function normalizeOptionalText(value, field, maximum) {

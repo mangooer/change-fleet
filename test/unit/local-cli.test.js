@@ -72,6 +72,20 @@ describe("unified local CLI grammar", () => {
   test("parses exact ChangeSet reads and bounded debug audit queries", () => {
     assert.deepEqual(
       parseCommandLine([
+        "serve",
+        "--config",
+        "changefleet.json",
+        "--port",
+        "4311",
+      ]),
+      {
+        kind: "serve",
+        config_path: "changefleet.json",
+        port: 4311,
+      },
+    );
+    assert.deepEqual(
+      parseCommandLine([
         "changeset",
         "delivery",
         "show",
@@ -359,6 +373,22 @@ describe("local CLI composition and presentation", () => {
         details: null,
       },
     });
+  });
+
+  test("delegates the retained serve command without JSON wrapping", async () => {
+    let stdout = "";
+    const exitCode = await runChangeFleetCommand(
+      ["serve", "--config", "config.json"],
+      {
+        stdout: { write: (value) => (stdout += value) },
+        stderr: { write() {} },
+        serveExecutor: async (command, { stdout: stream }) => {
+          stream.write(`serving ${command.config_path}\n`);
+        },
+      },
+    );
+    assert.equal(exitCode, 0);
+    assert.equal(stdout, "serving config.json\n");
   });
 });
 

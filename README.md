@@ -15,10 +15,8 @@ reviewable `CandidateBundle` representing one exact cross-repository outcome.
 ## Current Status
 
 This repository contains the spec-first project Harness and the private implementation through
-landed WI-0010, including immutable Repository Harness overlays, Runtime audit projections, one
-experimental lifecycle CLI, exact GitHub pull-request delivery, post-Provider Candidate recovery,
-and explicit close-only ChangeSet abandonment. The package is not released and exposes no stable
-public CLI contract; no API or UI exists yet.
+landed WI-0013, plus the current WI-0009 branch implementation of the bounded local review and
+delivery console. The package is not released and exposes no stable public CLI or HTTP contract.
 
 The first accepted vertical slice, tracked by
 [`WI-0001`](docs/work-items/WI-0001-local-two-repository-vertical-slice.md), is:
@@ -125,6 +123,7 @@ npm test
 npm run test:integration
 npm run test:acceptance
 npm run test:provider:codex
+npm run test:ui
 npm run check
 ```
 
@@ -194,6 +193,7 @@ node ./bin/changefleet.js changeset delivery publish --config changefleet.json -
 node ./bin/changefleet.js changeset delivery refresh --config changefleet.json --request refresh.json
 node ./bin/changefleet.js changeset delivery show <change_set_id> --config changefleet.json
 node ./bin/changefleet.js changeset show <change_set_id> --config changefleet.json
+node ./bin/changefleet.js serve --config changefleet.json [--port 4311]
 ```
 
 A `request_revision` Bundle decision also requires `feedback.summary` and 1-20 bounded
@@ -220,5 +220,8 @@ to stderr. The CLI cannot discover roots or subjects, select a fake Runtime, or 
 recovery helpers. `candidate recover-legacy` is the sole explicit human-gated private-schema
 recovery operation; it requires the exact current plan, WorkUnit, completed Run, base, candidate,
 and actor. Its current grammar is experimental rather than a released compatibility contract.
+
+`serve` keeps one foreground loopback server alive for the repository-owned browser console. It
+reuses the shared application and query services directly rather than shelling back into the CLI.
 
 Report every command actually executed and never claim an unexecuted check passed.
