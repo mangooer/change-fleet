@@ -7,8 +7,9 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 
 ## Current Baseline
 
-- WI-0001 through WI-0014 are complete. WI-0009 entered `main` through merge commit `f8fd77f`; its
-  abandoned predecessor attempts remain audit history rather than current authority.
+- WI-0001 through WI-0015 are complete. WI-0009 entered `main` through merge commit `f8fd77f`;
+  WI-0015 implements conversation-first planning and stage-scoped feedback. Abandoned predecessor
+  attempts remain audit history rather than current authority.
 - Agent Runtimes own semantic work. ChangeFleet owns cross-repository authorization, revisions,
   scheduling, exact Git and Bundle subjects, evidence, recovery, and human gates.
 
@@ -89,8 +90,8 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 - Accepted [0020](proposals/0020-explicit-revision-feedback-assessment.md) requires explicit Agent
   assessment; Proposal 0021 moves it from mandatory replanning to the handling outcome.
 - Accepted [0021](proposals/0021-conversation-first-planning-and-stage-scoped-feedback.md) records
-  this boundary. WI-0015 is complete on `codex/conversation-first-planning`; it remains branch-local
-  until landed and therefore is not yet part of the canonical baseline above.
+  this boundary. Landed WI-0015 implements exact planning-message approval, same-Plan correction,
+  typed Plan invalidation, and deterministic retirement of incompatible unconfirmed v5 records.
 
 ## Open Questions
 
@@ -109,8 +110,8 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 
 ## Next Recommended Task
 
-Land WI-0015, then create the next ordinary ChangeSet through the conversation-first lifecycle and
-resume self-iteration without reviving either abandoned bootstrap ChangeSet.
+Create the next ordinary ChangeSet through the conversation-first lifecycle and resume
+self-iteration without reviving either abandoned bootstrap ChangeSet.
 
 ## Maintenance Contract
 
