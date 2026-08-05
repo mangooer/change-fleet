@@ -32,6 +32,7 @@ describe("Codex SDK Runtime protocol", () => {
       type: "plan_proposed",
       plan: {
         rationale: null,
+        revision_feedback_assessments: [],
         work_units: [
           {
             work_unit_id: "api-unit",
@@ -115,6 +116,11 @@ describe("Codex SDK Runtime protocol", () => {
       prompts[0],
       /at most one WorkUnit for each repository_id; combine all tasks for the same Repository/u,
     );
+    assert.match(
+      prompts[0],
+      /reviewer claim to evaluate, not as an automatic fact or command/u,
+    );
+    assert.match(prompts[0], /using adopt, adapt, or decline/u);
     assert.equal(turnOptions[0].outputSchema.additionalProperties, false);
     assert.equal(
       events.some(

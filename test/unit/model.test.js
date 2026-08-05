@@ -23,6 +23,7 @@ const command = {
 
 function planInput(overrides = {}) {
   return {
+    revision_feedback_assessments: [],
     work_units: [
       {
         work_unit_id: "api",
@@ -119,6 +120,73 @@ describe("domain model", () => {
       createdAt: "2026-07-30T00:00:00.000Z",
     });
     assert.deepEqual(plan.work_units.map((unit) => unit.repository_id), ["api"]);
+  });
+
+  test("requires one bounded Agent assessment for every current feedback finding", () => {
+    const revisionFeedback = {
+      summary: "Review the conflicting claims",
+      findings: [
+        { finding_id: "landed-state", text: "The prior slice is landed" },
+        { finding_id: "task-state", text: "Complete project tracking" },
+      ],
+    };
+    const revised = planInput({
+      revision_feedback_assessments: [
+        {
+          finding_id: "task-state",
+          disposition: "adopt",
+          rationale: "The exact task evidence supports completing the tracking state",
+        },
+        {
+          finding_id: "landed-state",
+          disposition: "adapt",
+          rationale: "Git proves the code landed, but the repository projection is stale",
+        },
+      ],
+    });
+    const options = {
+      project,
+      bases,
+      intentRevision: 1,
+      repositorySelectionRevision: 1,
+      repositoryHarnessSelectionRevision: 1,
+      revisionFeedback,
+      revision: 2,
+      createdAt: "2026-08-05T00:00:00.000Z",
+    };
+
+    const plan = normalizePlan(revised, options);
+    assert.deepEqual(
+      plan.revision_feedback_assessments.map((item) => [
+        item.finding_id,
+        item.disposition,
+      ]),
+      [
+        ["landed-state", "adapt"],
+        ["task-state", "adopt"],
+      ],
+    );
+    assert.throws(
+      () =>
+        normalizePlan(
+          planInput({ revision_feedback_assessments: [] }),
+          options,
+        ),
+      { code: "INVALID_PLAN" },
+    );
+    assert.throws(
+      () =>
+        normalizePlan(
+          planInput({
+            revision_feedback_assessments: [
+              revised.revision_feedback_assessments[0],
+              revised.revision_feedback_assessments[0],
+            ],
+          }),
+          options,
+        ),
+      { code: "INVALID_PLAN" },
+    );
   });
 
   test("binds validation and Bundle hashes to exact Candidates and evidence", () => {

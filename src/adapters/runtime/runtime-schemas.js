@@ -15,10 +15,25 @@ const COMMAND_SCHEMA = Object.freeze({
   additionalProperties: false,
 });
 
+const REVISION_FEEDBACK_ASSESSMENT_SCHEMA = Object.freeze({
+  type: "object",
+  properties: {
+    finding_id: { type: "string" },
+    disposition: { type: "string", enum: ["adopt", "adapt", "decline"] },
+    rationale: { type: "string" },
+  },
+  required: ["finding_id", "disposition", "rationale"],
+  additionalProperties: false,
+});
+
 const PLAN_SCHEMA = Object.freeze({
   type: "object",
   properties: {
     rationale: { anyOf: [{ type: "string" }, { type: "null" }] },
+    revision_feedback_assessments: {
+      type: "array",
+      items: REVISION_FEEDBACK_ASSESSMENT_SCHEMA,
+    },
     work_units: {
       type: "array",
       minItems: 1,
@@ -47,6 +62,7 @@ const PLAN_SCHEMA = Object.freeze({
   },
   required: [
     "rationale",
+    "revision_feedback_assessments",
     "work_units",
     "combined_check",
     "risks",

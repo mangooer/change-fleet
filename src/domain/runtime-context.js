@@ -3,7 +3,7 @@ import { invariant } from "./errors.js";
 
 // Runtime 只接收当前操作所需投影；完整历史留在控制存储中按引用读取。
 export const CONTROL_CONTRACT_VERSION = 3;
-export const CONTEXT_PROJECTION_VERSION = 4;
+export const CONTEXT_PROJECTION_VERSION = 5;
 const RUNTIME_EXCLUDED_DECISION_TYPES = new Set([
   "bundle_review",
   "legacy_candidate_recovery",

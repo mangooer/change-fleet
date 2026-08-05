@@ -59,7 +59,7 @@ describe("Runtime context admission", () => {
       enabled: false,
       skills: [],
     });
-    assert.equal(projection.schema_version, 4);
+    assert.equal(projection.schema_version, 5);
     assert.equal(controlContract.repository_selection_revision, 1);
     assert.equal(
       controlContract.repository_harness_selection_revision,

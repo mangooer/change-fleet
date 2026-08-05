@@ -159,6 +159,13 @@ stores, Git workspaces, command launch, context, and CLI behavior, so its final 
 run `npm run check` under Node.js 24. Another real Provider call is excluded; actual WI-0009 legacy
 recovery is an operational continuation only after WI-0010 is accepted and landed.
 
+Decision 0022 requires domain coverage for exact per-finding assessment completeness, uniqueness,
+allowed dispositions, ordering, and bounds. Runtime adapter tests must prove that reviewer findings
+are claims to evaluate rather than automatic facts, and application integration must bind the
+assessments into the confirmed Plan used by execution. A legacy revised Plan without assessments
+remains readable but cannot cross the Plan confirmation gate. This shared Plan and context contract
+change selects the Node.js 24 full deterministic check; it does not require a real Provider call.
+
 Decision 0018 requires close-only tests for exact request fields, bounded reasons, idempotent replay,
 quiescent unfinished states, active Run or command rejection, begun-delivery rejection, and terminal
 rejection. Restart and audit checks must prove that prior Runtime usage and all immutable subjects

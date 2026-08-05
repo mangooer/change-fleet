@@ -164,6 +164,34 @@ describe("application failure and revision boundaries", () => {
       ),
       false,
     );
+    assert.deepEqual(secondPlan.plan.revision_feedback_assessments, [
+      {
+        finding_id: "finding-1",
+        disposition: "adopt",
+        rationale: "The deterministic fixture adopts the reviewed finding",
+      },
+    ]);
+
+    const savedAssessments = secondPlan.plan.revision_feedback_assessments;
+    await service.controlStore.transactChangeSet("change-1", (state) => {
+      // 模拟升级前已经持久化、但没有新评估字段的待确认 Plan。
+      delete state.plans.find(
+        (plan) => plan.revision === secondPlan.plan_revision,
+      ).revision_feedback_assessments;
+    });
+    await assert.rejects(
+      service.confirmPlanRevision({
+        idempotency_key: "confirm-legacy-plan-without-assessment",
+        change_set_id: "change-1",
+        plan_revision: secondPlan.plan_revision,
+      }),
+      { code: "INVALID_PLAN" },
+    );
+    await service.controlStore.transactChangeSet("change-1", (state) => {
+      state.plans.find(
+        (plan) => plan.revision === secondPlan.plan_revision,
+      ).revision_feedback_assessments = savedAssessments;
+    });
 
     await service.confirmPlanRevision({
       idempotency_key: "confirm-2",
@@ -181,6 +209,10 @@ describe("application failure and revision boundaries", () => {
           invocation.context_projection.current_plan.revision === 2,
       )[0].context_projection;
     assert.deepEqual(executionProjection.revision_feedback.findings, feedback.findings);
+    assert.deepEqual(
+      executionProjection.current_plan.revision_feedback_assessments,
+      secondPlan.plan.revision_feedback_assessments,
+    );
     assert.equal("candidate_checkpoint_id" in executionProjection.work_unit, false);
     assert.equal("workspace" in executionProjection.work_unit, false);
   });

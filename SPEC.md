@@ -602,7 +602,12 @@ Review does not inherit private execute reasoning as authority.
 
 A `request_revision` decision binds the exact Bundle and carries a concise bounded summary plus
 bounded actionable findings. Only the current feedback enters later planning and execution
-projections; full review artifacts and superseded decisions remain linked history.
+projections; full review artifacts and superseded decisions remain linked history. Feedback is a
+reviewer's bounded claim, not an automatic fact or command. A revised ChangePlan records exactly
+one bounded `adopt | adapt | decline` assessment and rationale for every current finding. Core
+validates coverage and bounds, not semantic truth. Human confirmation binds the resulting Plan and
+its assessments; execution follows that confirmed subject and blocks if new exact evidence makes
+the task unsound.
 
 ## 12. Recovery, Audit, And Rollback
 
@@ -859,9 +864,11 @@ requested executable, resolved locator, adapter, and effective invocation record
 Shell strings, operators, redirection, substitution, and implicit command parsing remain rejected.
 
 Bundle `request_revision` decisions carry bounded current feedback for the next planning and
-execution projection. Checkpoints, host locators, validation output, full review artifacts, and
-superseded feedback remain outside default Runtime context. This stage does not add UI recovery,
-Provider-session resume, generic import, automatic retry policy, or GitHub write authority.
+execution projection. The planning Runtime must assess each current finding as `adopt`, `adapt`, or
+`decline`; it may not silently treat human text or repository prose as truth. Checkpoints, host
+locators, validation output, full review artifacts, and superseded feedback remain outside default
+Runtime context. This stage does not add automatic truth scoring, UI recovery, Provider-session
+resume, generic import, automatic retry policy, or GitHub write authority.
 
 ## 19. Explicit ChangeSet Closure Stage
 

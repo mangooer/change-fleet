@@ -168,11 +168,18 @@ from durable ChangeSet and Run state. It includes:
 - confirmed intent summary and the relevant current plan slice;
 - capability boundary, blockers, decisions, gates, and typed outcomes;
 - bounded current request-revision feedback when present;
+- the current Plan's bounded per-finding feedback assessments after planning;
 - required evidence and progressive resource references;
 - initial context-budget components and classification.
 
 It does not replay complete revision, attempt, transcript, diff, or log history. The projection is a
 rebuildable view, not an aggregate or recovery authority.
+
+Revision feedback is evidence for semantic reconciliation, not controller-certified truth. The
+planning adapter asks the Runtime to compare every finding with confirmed intent, exact Git, and
+repository-native authority, then return one bounded `adopt | adapt | decline` assessment. The
+domain validates exact finding coverage; the human confirmation gate decides whether that assessed
+Plan is acceptable.
 
 ### AgentRuntimeAdapter
 

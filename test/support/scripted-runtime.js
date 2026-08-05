@@ -44,10 +44,20 @@ export class ScriptedRuntime {
   async invoke(invocation) {
     this.invocations.push(structuredClone(invocation));
     if (invocation.operation === "planning") {
+      const plan = structuredClone(this.plan);
+      // 确定性 Runtime 逐项采纳夹具反馈，用来验证 Core 的覆盖约束而不模拟语义判断质量。
+      plan.revision_feedback_assessments ??=
+        invocation.context_projection.revision_feedback?.findings.map(
+          (finding) => ({
+            finding_id: finding.finding_id,
+            disposition: "adopt",
+            rationale: "The deterministic fixture adopts the reviewed finding",
+          }),
+        ) ?? [];
       return {
         outcome: {
           type: "plan_proposed",
-          plan: structuredClone(this.plan),
+          plan,
         },
         provider_evidence: testProviderEvidence(),
       };

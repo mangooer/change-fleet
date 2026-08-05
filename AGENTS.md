@@ -39,8 +39,8 @@ See `docs/harness.md` for the loading map, size guardrails, and maintenance rule
 - One business change is a `ChangeSet`; repository execution uses `WorkUnit`; review binds to one
   exact `CandidateBundle`.
 - Agent proposals never grant repository access, confirm a plan, or accept a Bundle by themselves.
-- Replanning continues the same ChangeSet. Preserve superseded plans and attempts as history, but
-  expose only the current exact subject as actionable.
+- Replanning keeps one ChangeSet and its history. Human feedback is review input, not fact; each
+  revised Plan records the Agent's assessment before confirmation.
 - Evidence belongs to exact base and candidate SHAs. A changed SHA creates new evidence identity.
 - GitHub delivery requires a confirmed binding and exact Candidate head; humans merge, not Agents.
 - Local UI/HTTP adapters use shared operations, never the CLI or internal control helpers.

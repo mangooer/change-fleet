@@ -17,6 +17,7 @@ import {
   normalizePlan,
   normalizeRepositorySelectionRequest,
   normalizeRevisionFeedback,
+  normalizeRevisionFeedbackAssessments,
 } from "../domain/model.js";
 import {
   assessInitialContext,
@@ -1108,6 +1109,7 @@ export class ChangeFleetService {
           repositorySelectionRevision: repositorySelection.revision,
           repositoryHarnessSelectionRevision:
             repositoryHarnessSelection.revision,
+          revisionFeedback: initialState.current_revision_feedback,
           revision: nextRevision,
           createdAt: this.now(),
         });
@@ -1307,6 +1309,14 @@ export class ChangeFleetService {
             `Plan revision ${plan_revision} is not current`,
           );
           const plan = currentPlan(state);
+          // 旧控制快照可以读取，但带当前反馈却没有逐项评估的旧计划不能在新契约下被确认。
+          normalizeRevisionFeedbackAssessments(
+            plan.revision_feedback_assessments,
+            state.current_revision_feedback?.applies_to_plan_revision ===
+              plan.revision
+              ? state.current_revision_feedback
+              : null,
+          );
           plan.status = "confirmed";
           plan.confirmed_at = this.now();
           state.decisions.push({

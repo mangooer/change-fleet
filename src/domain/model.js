@@ -13,6 +13,13 @@ const FEEDBACK_FINDING_LIMIT = 20;
 const FEEDBACK_SUMMARY_BYTES = 2 * 1024;
 const FEEDBACK_FINDING_BYTES = 2 * 1024;
 const FEEDBACK_TOTAL_BYTES = 16 * 1024;
+const FEEDBACK_ASSESSMENT_RATIONALE_BYTES = 1024;
+const FEEDBACK_ASSESSMENT_TOTAL_BYTES = 16 * 1024;
+const FEEDBACK_ASSESSMENT_DISPOSITIONS = new Set([
+  "adopt",
+  "adapt",
+  "decline",
+]);
 const CHANGE_SET_CLOSURE_SUMMARY_BYTES = 2 * 1024;
 const CHANGE_SET_CLOSURE_REASON_CODES = new Set([
   "no_longer_needed",
@@ -218,6 +225,7 @@ export function normalizePlan(
     intentRevision,
     repositorySelectionRevision,
     repositoryHarnessSelectionRevision,
+    revisionFeedback = null,
     revision,
     createdAt,
   },
@@ -319,6 +327,11 @@ export function normalizePlan(
     created_at: createdAt,
     status: "proposed",
     rationale: normalizeOptionalString(input.rationale),
+    // 人类反馈是待评估的审查主张；计划必须逐项记录判断，不能把它静默当成事实或忽略。
+    revision_feedback_assessments: normalizeRevisionFeedbackAssessments(
+      input.revision_feedback_assessments,
+      revisionFeedback,
+    ),
     work_units: workUnits,
     combined_check: normalizeCommand(input.combined_check, "combined_check"),
     risks: normalizeStringArray(input.risks),
@@ -592,6 +605,70 @@ export function normalizeRevisionFeedback(input) {
     Buffer.byteLength(canonicalStringify(normalized)) <= FEEDBACK_TOTAL_BYTES,
     "INVALID_REVISION_FEEDBACK",
     `Revision feedback exceeds ${FEEDBACK_TOTAL_BYTES} bytes`,
+  );
+  return normalized;
+}
+
+export function normalizeRevisionFeedbackAssessments(input, feedback) {
+  const findings = feedback?.findings ?? [];
+  if (findings.length === 0) {
+    invariant(
+      input === undefined || (Array.isArray(input) && input.length === 0),
+      "INVALID_PLAN",
+      "A plan without revision feedback cannot contain feedback assessments",
+    );
+    return [];
+  }
+
+  invariant(
+    Array.isArray(input) && input.length === findings.length,
+    "INVALID_PLAN",
+    "A revised plan must assess every current feedback finding exactly once",
+  );
+  const expectedIds = new Set(findings.map((finding) => finding.finding_id));
+  const assessmentsById = new Map();
+  for (const assessment of input) {
+    assertExactFields(
+      "Revision feedback assessment",
+      assessment,
+      ["disposition", "finding_id", "rationale"],
+      "INVALID_PLAN",
+    );
+    const findingId = normalizeId(
+      "revision_feedback_assessment.finding_id",
+      assessment.finding_id,
+    );
+    invariant(
+      expectedIds.has(findingId) && !assessmentsById.has(findingId),
+      "INVALID_PLAN",
+      `Revision feedback assessment ${findingId} is missing, unknown, or duplicated`,
+    );
+    invariant(
+      FEEDBACK_ASSESSMENT_DISPOSITIONS.has(assessment.disposition),
+      "INVALID_PLAN",
+      "Revision feedback assessment disposition must be adopt, adapt, or decline",
+    );
+    assessmentsById.set(findingId, {
+      finding_id: findingId,
+      disposition: assessment.disposition,
+      rationale: boundedUtf8String(
+        "revision_feedback_assessment.rationale",
+        assessment.rationale,
+        FEEDBACK_ASSESSMENT_RATIONALE_BYTES,
+        "INVALID_PLAN",
+      ),
+    });
+  }
+
+  // 按反馈原顺序持久化，确保同一语义不会因 Provider 输出顺序不同而改变计划身份。
+  const normalized = findings.map((finding) =>
+    assessmentsById.get(finding.finding_id),
+  );
+  invariant(
+    Buffer.byteLength(canonicalStringify(normalized)) <=
+      FEEDBACK_ASSESSMENT_TOTAL_BYTES,
+    "INVALID_PLAN",
+    `Revision feedback assessments exceed ${FEEDBACK_ASSESSMENT_TOTAL_BYTES} bytes`,
   );
   return normalized;
 }
