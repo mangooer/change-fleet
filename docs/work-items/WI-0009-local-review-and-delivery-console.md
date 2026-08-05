@@ -1,14 +1,14 @@
 ---
 artifact_type: development_work_item
 id: WI-0009
-status: blocked
+status: review_ready
 title: Implement the local review and delivery console
 source: 'User request: "创建并确认WI-0009。"'
 confirmed_by: user
 confirmed_at: 2026-08-03
 started_by: user
 started_at: 2026-08-03
-review_ready_at:
+review_ready_at: 2026-08-05
 completed_by:
 completed_at:
 standing_policy:
@@ -143,8 +143,9 @@ authority is reported as unverified, never passed.
 
 ## Current Projection
 
-- WI-0009 remains the started, unfinished WorkItem. Runtime ChangeSets `changefleet-wi-0009`, v2,
-  and v3 are abandoned audit history; none produced an accepted Bundle.
+- WI-0009 implementation is complete on the current successor workspace and is ready for
+  controller-owned review/publication. Runtime ChangeSets `changefleet-wi-0009`, v2, and v3
+  remain abandoned audit history; none produced an accepted Bundle.
 - V3 froze exact base `91114cd`, confirmed Plan revision 2, and completed implementation Run
   `run-a77d1902-f3f7-4dd7-9b3f-56dd13cb5eb6`. Controller-owned checkpoint
   `candidate-checkpoint-3a73cc1e1484b068738eaca8` preserved clean commit
@@ -159,10 +160,11 @@ authority is reported as unverified, never passed.
   `base_sha`, and `candidate_sha`, with `workspace_path` as a locator. No Bundle was created.
 - V3 was explicitly closed through decision `decision-2ceb4101-0c03-469c-a2b3-ebfeee7e4ecb`.
   Candidate `bb5ed6c` remains immutable, unaccepted, and available only as read-only Git material.
-- The next ordinary successor must start from a new exact `main` baseline, inspect and selectively
-  reuse the `bb5ed6c` diff, make missing Chromium fail the Repository check, and use only actual
-  manifest fields in the control-owned combined check. It must not merge or treat `bb5ed6c` as the
-  accepted base. Real Chromium and GitHub external-write gates remain unverified.
+- The current ordinary successor started from exact `main` base `7e911bcdf72855f010f20b0678745bbb8b22cb60`,
+  selectively reused the `bb5ed6c` diff, made missing Playwright or Chromium fail the Repository
+  gate closed, and extended the real-browser and integration paths to prove partial-then-merged
+  delivery refresh under one retained refresh attempt identity. It does not treat `bb5ed6c` as an
+  accepted base. Real GitHub external-write authority remains separately unverified.
 
 ## Implementation Evidence
 
@@ -257,10 +259,19 @@ authority is reported as unverified, never passed.
 - `changeset close` under Node.js 24 returned exit code `0` and abandoned v3 through decision
   `decision-2ceb4101-0c03-469c-a2b3-ebfeee7e4ecb`. All prior Run, Candidate, validation, and cost
   records remain immutable audit history.
+- `node --test test/integration/local-console-server.test.js test/acceptance/github-delivery-flow.test.js test/unit/local-cli.test.js test/unit/changeset-view-service.test.js`
+  under Node.js 24 returned exit code `0`: 17 tests passed, covering bounded ChangeSet reads,
+  explicit loopback HTTP routes, same-idempotency partial-to-merged refresh, CLI `serve`, and the
+  exact Bundle/Candidate view model.
+- `node scripts/run-ui-tests.mjs` under Node.js 24 returned exit code `0`: the real Chromium path
+  accepted the exact Bundle, published two Repository deliveries, observed a partial refresh,
+  retried refresh with the same attempt identity, and then observed merged completion.
+- `node scripts/run-checks.mjs` under Node.js 24 returned exit code `0`: the full Repository check
+  passed, including unit, integration, acceptance, and real Chromium `test:ui`.
 
 ## Acceptance Review
 
-Pending implementation, selected validation, and user review.
+Pending controller-owned review/publication and any separately authorized real GitHub write.
 
 ## Project Memory Impact
 

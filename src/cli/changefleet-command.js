@@ -8,6 +8,7 @@ import {
   parseCommandLine,
   requestedCommandLocale,
 } from "./command-line-arguments.js";
+import { executeServeCommand as defaultServeExecutor } from "./serve-command.js";
 
 const INVOCATION_ERROR_CODES = new Set([
   "INVALID_CLI_INVOCATION",
@@ -28,6 +29,7 @@ export async function runChangeFleetCommand(
     stderr = process.stderr,
     auditExecutor = defaultAuditExecutor,
     lifecycleExecutor = defaultLifecycleExecutor,
+    serveExecutor = defaultServeExecutor,
     lifecycleDependencies = {},
   } = {},
 ) {
@@ -35,12 +37,15 @@ export async function runChangeFleetCommand(
   try {
     command = parseCommandLine(arguments_);
     const result =
-      command.kind === "audit"
+      command.kind === "serve"
+        ? await serveExecutor(command, { stdout, stderr })
+        : command.kind === "audit"
         ? await auditExecutor(command)
         : await lifecycleExecutor(command, {
             stdin,
             ...lifecycleDependencies,
           });
+    if (command.kind === "serve") return 0;
     stdout.write(`${JSON.stringify(result)}\n`);
     return 0;
   } catch (error) {

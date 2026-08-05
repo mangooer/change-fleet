@@ -6,6 +6,7 @@ const checks = [
   ["--test", "test/unit/**/*.test.js"],
   ["--test", "test/integration/**/*.test.js"],
   ["--test", "--test-concurrency=1", "test/acceptance/**/*.test.js"],
+  ["scripts/run-ui-tests.mjs"],
 ];
 
 const nodeVersionDiagnostic = unsupportedNodeVersionDiagnostic(

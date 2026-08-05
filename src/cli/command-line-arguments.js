@@ -40,6 +40,9 @@ const LIFECYCLE_ROUTES = Object.freeze([
 // 解析器只决定显式路由和输入位置；应用请求的领域含义仍由既有应用服务校验。
 export function parseCommandLine(arguments_) {
   if (!Array.isArray(arguments_)) throw invalidCli("arguments_not_array");
+  if (arguments_[0] === "serve") {
+    return parseServeCommand(arguments_.slice(1));
+  }
   if (
     arguments_[0] === "debug" &&
     arguments_[1] === "audit"
@@ -68,6 +71,28 @@ export function parseCommandLine(arguments_) {
     }
   }
   throw invalidCli("unsupported_command");
+}
+
+function parseServeCommand(arguments_) {
+  const options = parseOptions(
+    arguments_,
+    new Set(["--config", "--port"]),
+    invalidCli,
+  );
+  const portValue = options.get("--port");
+  return {
+    kind: "serve",
+    config_path: requireOption(options, "--config", invalidCli),
+    port:
+      portValue === undefined
+        ? undefined
+        : parsePositiveInteger(
+            "--port",
+            portValue,
+            65_535,
+            invalidCli,
+          ),
+  };
 }
 
 function parseDeliveryRead(arguments_) {
@@ -221,13 +246,18 @@ function validateSubjectId(label, value, errorFactory) {
   }
 }
 
-function parsePositiveInteger(option, value, maximum = Number.MAX_SAFE_INTEGER) {
+function parsePositiveInteger(
+  option,
+  value,
+  maximum = Number.MAX_SAFE_INTEGER,
+  errorFactory = invalidAudit,
+) {
   if (!/^[1-9][0-9]*$/.test(value)) {
-    throw invalidAudit("invalid_positive_integer", { option });
+    throw errorFactory("invalid_positive_integer", { option });
   }
   const parsed = Number(value);
   if (!Number.isSafeInteger(parsed) || parsed > maximum) {
-    throw invalidAudit("integer_out_of_range", { option, maximum });
+    throw errorFactory("integer_out_of_range", { option, maximum });
   }
   return parsed;
 }

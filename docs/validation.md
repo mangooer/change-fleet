@@ -142,9 +142,9 @@ same bounded audit facts.
 The first UI WorkItem may add one exact pinned `@playwright/test` development dependency and an
 explicit Chromium install step. Its `test:ui` gate is required when browser assets, view models,
 HTTP behavior, or local-browser security change. Documentation-only and unrelated domain changes
-do not launch or download a browser. Missing browser infrastructure is reported as unavailable,
-not passed, and generated screenshots, traces, reports, and browser binaries stay outside Git and
-control state.
+do not launch or download a browser. Missing `@playwright/test` or the pinned Chromium binary must
+fail the selected Repository gate closed rather than report pass; generated screenshots, traces,
+reports, and browser binaries stay outside Git and control state.
 
 Decision 0017 requires deterministic tests for CandidateCheckpoint identity and persistence,
 immutable failed validation evidence, restart and zero-Runtime repository or combined resume,

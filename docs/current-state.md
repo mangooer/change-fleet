@@ -7,8 +7,10 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 
 ## Current Baseline
 
-- WI-0001 through WI-0008 and WI-0010 through WI-0013 are landed. WI-0009 remains unfinished;
-  v3 is abandoned with an immutable, unaccepted Candidate that may be reused only as Git input.
+- WI-0001 through WI-0008 and WI-0010 through WI-0013 are landed. WI-0009 is implemented in the
+  current workspace and ready for controller-owned review/publication; the landed baseline still
+  excludes it until that publication occurs. V3 remains abandoned history with an immutable,
+  unaccepted Candidate that may be reused only as Git input.
 - Agent Runtimes own semantic work. ChangeFleet owns cross-repository authorization, revisions,
   scheduling, exact Git and Bundle subjects, evidence, recovery, and human gates.
 
@@ -96,21 +98,22 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 ## Known Limitations
 
 - Git URLs, remote workers, merge, deployment, service graph, and stacked ChangeSets are deferred.
-  Console commit `12a7036` has security, lockfile, and real-Chromium blockers.
 - Native-Windows single-Repository use passed; other hosts and paid multi-Repository work are unverified.
 - Codex SDK usage is aggregate-only; effective model and universal host read-denial remain unknown.
 - The old WI-0009 attempt and v2 remain abandoned history. V3 produced exact Candidate `bb5ed6c`
   but no Bundle: its UI gate falsely skipped unavailable Chromium and its combined check required
   a `candidate_id` field that the validation manifest deliberately does not contain. V3 is closed;
-  the Candidate is reusable source material, not an accepted baseline.
+  the Candidate is reusable source material, not an accepted baseline. The current successor
+  corrects both issues, adds the bounded local review/delivery console, and passes the full
+  Repository check on this branch.
 - Runtime Kit, Codex App Server, another Provider, Linear, pricing, dashboards, and continuous
   context enforcement are deferred.
 
 ## Next Recommended Task
 
-Create a WI-0009 successor from the current exact `main` baseline. Its Agent should reuse
-the immutable `bb5ed6c` diff, make unavailable Chromium fail the Repository gate, and validate only
-the documented manifest identity fields in the control-owned combined check.
+Submit the WI-0009 successor branch for controller-owned review/publication. If separately
+authorized later, verify the landed subject's real GitHub self-iteration delivery rather than this
+local deterministic fixture path.
 
 ## Maintenance Contract
 
