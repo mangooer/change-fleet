@@ -10,6 +10,9 @@ Accepted: 2026-08-05
 
 Supersedes in part: Decision 0017 treatment of bounded revision feedback as unqualified Runtime input
 
+Superseded in part by: [Proposal 0021](0021-conversation-first-planning-and-stage-scoped-feedback.md)
+placement of assessment on the outcome that handles feedback
+
 Depends on: Decisions 0001, 0002, 0005, 0010, and 0017
 
 Blocks: Reliable replanning of `changefleet-runtime-guidance-normalization`

@@ -8,6 +8,8 @@ Source: Repository Design Proposal 0020
 
 Supersedes in part: Decision 0017 treatment of bounded revision feedback as unqualified Runtime input
 
+Superseded in part by: Decision 0023 placement of assessment on the outcome that handles feedback
+
 ## Decision
 
 Human `request_revision` feedback is bounded review input, not automatic fact or command. A revised

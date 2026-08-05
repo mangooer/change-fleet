@@ -28,7 +28,7 @@ Application adapters
 
 Application operations
   typed commands and queries
-  authorization, idempotency, exact subjects, human gates, durable results
+  authorization, idempotency, exact message approval, human gates, durable results
 
 Change Control
   ChangeIntent and ChangePlan revisions
@@ -97,7 +97,7 @@ copied into catalog state.
 
 Owns current aggregate state and references to immutable evidence:
 
-- ChangeIntent, RepositorySelection, RepositoryHarnessSelection, and ChangePlan revisions;
+- ChangeIntent, RepositorySelection, RepositoryHarnessSelection, and confirmed ChangePlan revisions;
 - WorkUnit state;
 - current CandidateCheckpoint and validation-attempt references;
 - scope decisions;
@@ -145,15 +145,15 @@ It receives:
 - authorized Repository catalog;
 - read-only repository access;
 - exact-base repository-native Harness plus any confirmed frozen overlay;
-- current plan or bounded current decision feedback.
+- current confirmed plan, current conversation input, or bounded current decision feedback.
 
 It returns typed proposals:
 
 - normalized ChangeIntent;
-- ChangePlan;
+- conversation message with an optional exact structured plan payload;
 - repository scope expansion;
 - decision request;
-- plan revision;
+- typed requirement to replace an invalidated confirmed plan;
 - explicit blocker.
 
 Core validates identity and policy, not whether the semantic plan is clever.
@@ -176,10 +176,10 @@ It does not replay complete revision, attempt, transcript, diff, or log history.
 rebuildable view, not an aggregate or recovery authority.
 
 Revision feedback is evidence for semantic reconciliation, not controller-certified truth. The
-planning adapter asks the Runtime to compare every finding with confirmed intent, exact Git, and
-repository-native authority, then return one bounded `adopt | adapt | decline` assessment. The
-domain validates exact finding coverage; the human confirmation gate decides whether that assessed
-Plan is acceptable.
+handling Runtime compares every finding with confirmed intent, exact Git, and repository-native
+authority, then returns one bounded `adopt | adapt | decline` assessment. The domain validates exact
+coverage. Correction remains under the confirmed Plan unless the outcome identifies a typed
+contract invalidation; a new Plan exists only after exact approval of a later planning message.
 
 ### AgentRuntimeAdapter
 

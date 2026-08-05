@@ -1,6 +1,6 @@
 # Repository Design Proposal Index
 
-Updated: 2026-08-04
+Updated: 2026-08-05
 
 These proposals govern development of the ChangeFleet repository itself. They are repository
 Harness artifacts, not ChangeFleet Runtime outputs and not artifacts written into registered user
@@ -30,7 +30,8 @@ preserve chronological reasoning and are not current truth merely because they e
 | [0017](0017-durable-codex-runtime-home-and-pre-candidate-retry.md) | Durable Codex Runtime Home and pre-Candidate retry | `accepted; revised in part` | Decision 0019 remains for blocked, empty-result, and retry semantics; Proposal 0018 supersedes its Provider Home mechanism | [WI-0012](../work-items/WI-0012-durable-codex-runtime-home-and-pre-candidate-retry.md), `done` |
 | [0018](0018-provider-environment-ownership-and-pre-candidate-retry-correction.md) | Provider environment ownership and pre-Candidate retry correction | `accepted` | Recorded by Decision 0020; Provider host state belongs to the Harness or operator while ChangeFleet retains deterministic retry controls | [WI-0012](../work-items/WI-0012-durable-codex-runtime-home-and-pre-candidate-retry.md), `done` |
 | [0019](0019-provider-owned-host-permissions-and-multi-repository-workspaces.md) | Provider-owned host permissions and multi-Repository workspaces | `accepted` | Recorded by Decision 0021; worktrees isolate development state while trusted local host permissions belong to the Runtime and operator | [WI-0013](../work-items/WI-0013-provider-owned-host-permissions-and-multi-repository-workspaces.md), `done` |
-| [0020](0020-explicit-revision-feedback-assessment.md) | Explicit Agent assessment of revision feedback | `accepted` | Recorded by Decision 0022; human findings are review claims assessed before Plan confirmation | [WI-0014](../work-items/WI-0014-explicit-revision-feedback-assessment.md), `done` |
+| [0020](0020-explicit-revision-feedback-assessment.md) | Explicit Agent assessment of revision feedback | `accepted; revised in part` | Decision 0022 remains for assessment; Proposal 0021 moves it to the handling outcome | [WI-0014](../work-items/WI-0014-explicit-revision-feedback-assessment.md), `done` |
+| [0021](0021-conversation-first-planning-and-stage-scoped-feedback.md) | Conversation-first planning and stage-scoped feedback | `accepted` | Recorded by Decision 0023; retains Decision 0022 assessment while moving it to the handling stage | First implementation ChangeSet pending |
 
 ## Status Rules
 

@@ -27,7 +27,8 @@ projection.
 | [0019](0019-durable-codex-runtime-home-and-pre-candidate-retry.md) | Blocked and empty-result handling with clean exact-base retry | Accepted; Provider Home mechanism revised by 0020 |
 | [0020](0020-provider-environment-ownership-boundary.md) | Provider environment ownership outside ChangeFleet | Accepted |
 | [0021](0021-provider-owned-host-permissions-and-multi-repository-workspaces.md) | Provider-owned host permissions outside multi-Repository workspace control | Accepted |
-| [0022](0022-explicit-revision-feedback-assessment.md) | Explicit Agent assessment of bounded revision feedback | Accepted |
+| [0022](0022-explicit-revision-feedback-assessment.md) | Explicit Agent assessment of bounded revision feedback | Accepted; assessment placement revised by 0023 |
+| [0023](0023-conversation-first-planning-and-stage-scoped-feedback.md) | Conversation-first planning, exact approval, and stage-scoped feedback | Accepted |
 
 Changing one of these boundaries requires a proposal. When a decision is superseded, preserve this
 record and point to the later accepted authority.

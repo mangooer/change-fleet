@@ -26,9 +26,8 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
   replace them and dirty checkout files are excluded.
 - Optional confirmed Repository Harness policies may freeze contained Git-ignored Codex resources
   as immutable ChangeSet input; they are never reread live, written back, or delivered.
-- Replanning continues the same ChangeSet with superseded attempts preserved. Human revision
-  feedback is bounded review input, not automatic truth; each revised Plan records the Agent's
-  `adopt | adapt | decline` assessment before human confirmation.
+- Exact approval of a planning message creates a Plan revision. Ordinary correction stays under it;
+  feedback is assessed, and only contract invalidation returns to planning.
 - WorkUnits may run in parallel; delivery to one `repository_id + target_ref` is serialized, and
   cross-repository compensation never promises universal atomic rollback.
 - GitHub delivery publishes exact Candidates to human-merged PRs and records bounded results.
@@ -70,8 +69,9 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
   [0019](decisions/0019-durable-codex-runtime-home-and-pre-candidate-retry.md) clean pre-Candidate
   retry; [0020](decisions/0020-provider-environment-ownership-boundary.md) external Provider
   environment ownership; [0021](decisions/0021-provider-owned-host-permissions-and-multi-repository-workspaces.md)
-  Provider-owned host permissions; and [0022](decisions/0022-explicit-revision-feedback-assessment.md)
-  explicit feedback assessment.
+  Provider-owned host permissions; [0022](decisions/0022-explicit-revision-feedback-assessment.md)
+  explicit feedback assessment; and [0023](decisions/0023-conversation-first-planning-and-stage-scoped-feedback.md)
+  conversation-first planning and stage-scoped correction.
 
 ## Repository Design Proposals
 
@@ -86,8 +86,10 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 - Accepted [0019](proposals/0019-provider-owned-host-permissions-and-multi-repository-workspaces.md)
   distinguishes development worktrees from OS security. Landed WI-0013 adds explicit trusted-local
   `host_user`; mandatory strong Sandbox enforcement is no longer a first-version prerequisite.
-- Accepted [0020](proposals/0020-explicit-revision-feedback-assessment.md) requires every revised
-  Plan to expose how its Agent assessed each human finding. WI-0014 implements this bootstrap fix.
+- Accepted [0020](proposals/0020-explicit-revision-feedback-assessment.md) requires explicit Agent
+  assessment; Proposal 0021 moves it from mandatory replanning to the handling outcome.
+- Accepted [0021](proposals/0021-conversation-first-planning-and-stage-scoped-feedback.md) records
+  this boundary; implementation is pending.
 
 ## Open Questions
 
@@ -106,9 +108,8 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 
 ## Next Recommended Task
 
-Plan the guidance-normalization successor from a base containing Decision 0022. Before confirmation,
-verify that it exposes one assessment for every current finding and reconciles the landed WI-0009
-Git fact with repository-native authority.
+Create and plan the first Proposal 0021 implementation ChangeSet from its accepted exact baseline.
+The current guidance-normalization output remains unconfirmed and uses obsolete planning semantics.
 
 ## Maintenance Contract
 

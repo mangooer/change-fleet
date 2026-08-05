@@ -42,7 +42,7 @@ ChangeFleet provides the deterministic control boundary around autonomous Agent 
 Given a confirmed change intent and an explicitly registered Project, ChangeFleet should:
 
 1. let an Agent inspect only authorized repositories;
-2. normalize the intent and propose a versioned, code-informed ChangePlan;
+2. discuss a code-informed plan and version it only when an exact Agent message is approved;
 3. route low-risk plans automatically and high-risk or expanded scope to human confirmation;
 4. execute repository-scoped WorkUnits in isolated Git workspaces;
 5. preserve plan revisions and abandoned attempts without duplicating the ChangeSet;
@@ -61,7 +61,7 @@ branch is evidence or execution detail within that subject.
 - Support one ChangeSet spanning one or more registered Git repositories.
 - Keep Project configuration minimal and human-reviewable.
 - Accept both discussed design intent and terse one-line requests through one intake pipeline.
-- Make intent normalization, impact analysis, planning, and plan revision explicit.
+- Make intent normalization, impact analysis, exact plan approval, and later plan revision explicit.
 - Allow Agent-native subagents, tools, skills, code discovery, and reasoning.
 - Freeze repository scope, target refs, base SHAs, and Candidate identity.
 - Support safe parallel WorkUnit execution and target-specific integration serialization.
@@ -267,7 +267,13 @@ rebuilds current Run context, and preserves prior attempts.
 
 ### ChangePlan
 
-`ChangePlan` is a versioned, code-informed execution proposal containing:
+Before approval, an Agent's plan is a conversation message and linked Run artifact. An approvable
+message carries an exact logical id, content digest, and structured plan content, but it is not a
+`ChangePlanRevision`. Human approval binds that exact message and atomically creates the next
+confirmed Plan revision. The first confirmed Plan is revision 1. A later revision exists only after
+a previously confirmed execution contract is deliberately replaced.
+
+`ChangePlan` is the versioned, code-informed confirmed execution contract containing:
 
 - the ChangeIntent revision it implements;
 - selected repositories and components;
@@ -290,7 +296,7 @@ A ChangeSet is the aggregate root for one confirmed intent. It owns:
 - ChangeIntent revisions;
 - RepositorySelectionRevisions;
 - RepositoryHarnessSelectionRevisions;
-- ChangePlan revisions;
+- confirmed ChangePlan revisions;
 - WorkUnits and their dependencies;
 - execution attempts;
 - post-Provider Candidate checkpoints and validation attempts;
@@ -426,7 +432,8 @@ raw request or discussion draft
   -> normalized ChangeIntent
   -> confirmed Repository selection and exact branch freeze
   -> authorized repository discovery
-  -> ChangePlan
+  -> planning conversation
+  -> exact plan-message approval and ChangePlan
   -> risk and scope decision
   -> execution
 ```
@@ -458,9 +465,10 @@ A WorkUnit executes only after its repository, target ref, base SHA, and plan re
 During execution:
 
 - implementation-detail changes may continue without human interruption;
+- user guidance, test failures, and ordinary review correction continue under the confirmed Plan;
 - repository scope expansion produces a typed decision request;
 - branch, target, or planning-visibility changes produce a typed Repository selection request;
-- invalidated design assumptions produce a new plan revision;
+- invalidated design assumptions return to planning; exact approval produces the new plan revision;
 - existing useful changes may be reused when their exact identity remains valid;
 - abandoned attempts remain immutable history;
 - a blocker pauses the ChangeSet without manufacturing terminal failure.
@@ -601,13 +609,13 @@ Review receives:
 Review does not inherit private execute reasoning as authority.
 
 A `request_revision` decision binds the exact Bundle and carries a concise bounded summary plus
-bounded actionable findings. Only the current feedback enters later planning and execution
-projections; full review artifacts and superseded decisions remain linked history. Feedback is a
-reviewer's bounded claim, not an automatic fact or command. A revised ChangePlan records exactly
-one bounded `adopt | adapt | decline` assessment and rationale for every current finding. Core
-validates coverage and bounds, not semantic truth. Human confirmation binds the resulting Plan and
-its assessments; execution follows that confirmed subject and blocks if new exact evidence makes
-the task unsound.
+bounded actionable findings. It normally starts a correction Run under the current confirmed Plan
+and may produce a new Candidate and Bundle revision. Only a typed authority change or materially
+invalidated design assumption returns the ChangeSet to planning. Feedback is a reviewer's bounded
+claim, not an automatic fact or command. The handling planning message or correction Run records
+exactly one bounded `adopt | adapt | decline` assessment and rationale for every current finding.
+Core validates coverage and bounds, not semantic truth. A planning assessment enters a ChangePlan
+only when the exact message is approved; raw feedback never becomes execution authority.
 
 ## 12. Recovery, Audit, And Rollback
 
@@ -863,12 +871,14 @@ on Windows only, a resolved `.cmd` or `.bat` may use one reviewed argv-preservin
 requested executable, resolved locator, adapter, and effective invocation recorded as evidence.
 Shell strings, operators, redirection, substitution, and implicit command parsing remain rejected.
 
-Bundle `request_revision` decisions carry bounded current feedback for the next planning and
-execution projection. The planning Runtime must assess each current finding as `adopt`, `adapt`, or
-`decline`; it may not silently treat human text or repository prose as truth. Checkpoints, host
-locators, validation output, full review artifacts, and superseded feedback remain outside default
-Runtime context. This stage does not add automatic truth scoring, UI recovery, Provider-session
-resume, generic import, automatic retry policy, or GitHub write authority.
+Bundle `request_revision` decisions carry bounded current feedback into a correction Run under the
+confirmed Plan by default. The handling Runtime must assess each finding as `adopt`, `adapt`, or
+`decline`; it may not silently treat human text or repository prose as truth. A true contract
+invalidation returns to planning conversation, and only exact message approval creates a new Plan
+revision. Checkpoints, host locators, validation output, full review artifacts, and superseded
+feedback remain outside default Runtime context. This stage does not add automatic truth scoring,
+UI recovery, Provider-session resume, generic import, automatic retry policy, or GitHub write
+authority.
 
 ## 19. Explicit ChangeSet Closure Stage
 
