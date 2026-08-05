@@ -69,6 +69,53 @@ export class RunStore {
     );
   }
 
+  async writeJsonArtifact(runId, label, value) {
+    // 对话正文等语义证据单独保存；ChangeSet 聚合只持有经过哈希校验的引用。
+    invariant(
+      typeof label === "string" && /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/u.test(label),
+      "INVALID_ARTIFACT_LABEL",
+      "Run artifact label is invalid",
+    );
+    const content = `${canonicalStringify(value)}\n`;
+    const hash = createHash("sha256").update(content).digest("hex");
+    const relativePath = `artifacts/${label}-${hash}.json`;
+    await writeIfMissing(
+      path.join(this.runDirectory(runId), relativePath),
+      content,
+    );
+    return {
+      run_id: runId,
+      artifact_ref: relativePath,
+      sha256: hash,
+      bytes: Buffer.byteLength(content),
+    };
+  }
+
+  async readJsonArtifact(reference) {
+    invariant(
+      reference && typeof reference === "object",
+      "INVALID_ARTIFACT_REFERENCE",
+      "Run artifact reference is required",
+    );
+    const runId = reference.run_id;
+    const relativePath = reference.artifact_ref;
+    const artifactsRoot = path.join(this.runDirectory(runId), "artifacts");
+    const resolved = path.resolve(this.runDirectory(runId), relativePath);
+    invariant(
+      typeof relativePath === "string" &&
+        resolved.startsWith(`${path.resolve(artifactsRoot)}${path.sep}`),
+      "INVALID_ARTIFACT_REFERENCE",
+      "Run artifact reference must remain inside the Run artifacts directory",
+    );
+    const content = await readFile(resolved, "utf8");
+    invariant(
+      createHash("sha256").update(content).digest("hex") === reference.sha256,
+      "ARTIFACT_DIGEST_MISMATCH",
+      "Run artifact content does not match its recorded digest",
+    );
+    return JSON.parse(content);
+  }
+
   async externalize(runId, value, pathParts = []) {
     if (typeof value === "string") {
       if (Buffer.byteLength(value) <= INLINE_STRING_BYTES) return value;

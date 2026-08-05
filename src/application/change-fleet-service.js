@@ -8,13 +8,15 @@ import {
   createCandidate,
   createCandidateCheckpoint,
   createCandidateBundle,
+  createConfirmedPlan,
   createValidationAttempt,
   createValidationSubject,
   normalizeHumanDecision,
   normalizeChangeSetCloseRequest,
   normalizeId,
   normalizeIntent,
-  normalizePlan,
+  normalizePlanContent,
+  normalizePlanningMessageText,
   normalizeRepositorySelectionRequest,
   normalizeRevisionFeedback,
   normalizeRevisionFeedbackAssessments,
@@ -358,6 +360,9 @@ export class ChangeFleetService {
       current_repository_harness_selection_revision: 1,
       plans: [],
       current_plan_revision: null,
+      planning_message_references: [],
+      current_approvable_plan_message_id: null,
+      legacy_unconfirmed_plans: [],
       work_units: [],
       run_references: [],
       candidate_checkpoints: [],
@@ -564,6 +569,8 @@ export class ChangeFleetService {
           state.current_repository_harness_selection_revision =
             nextHarnessRevision;
           state.current_plan_revision = null;
+          state.current_approvable_plan_message_id = null;
+          state.current_revision_feedback = null;
           for (const request of state.repository_selection_change_requests) {
             if (request.status === "pending") {
               request.status = "resolved_by_revision";
@@ -682,6 +689,8 @@ export class ChangeFleetService {
           state.repository_harness_selection_revisions.push(nextSelection);
           state.current_repository_harness_selection_revision = revision;
           state.current_plan_revision = null;
+          state.current_approvable_plan_message_id = null;
+          state.current_revision_feedback = null;
           state.decisions.push({
             decision_id: this.idFactory("decision"),
             type: "repository_harness_selection_revision",
@@ -824,15 +833,24 @@ export class ChangeFleetService {
     idempotency_key,
     change_set_id,
     agent_profile = null,
+    message = null,
   }) {
     normalizeId("idempotency_key", idempotency_key);
+    const userMessage =
+      message === null
+        ? null
+        : normalizePlanningMessageText(message, "planning.message");
     const agentProfile = normalizeAgentProfile(
       agent_profile ?? this.agentProfile,
     );
     const catalog = await this.controlStore.readCatalog();
     let initialState = await this.controlStore.readChangeSet(change_set_id);
     const project = requireProject(catalog, initialState.project_id);
-    const commandInput = { change_set_id, agent_profile: agentProfile };
+    const commandInput = {
+      change_set_id,
+      agent_profile: agentProfile,
+      message: userMessage,
+    };
     const existing = existingCommand(
       initialState,
       idempotency_key,
@@ -861,7 +879,6 @@ export class ChangeFleetService {
       ...project,
       repositories: selectedRepositories,
     };
-    const nextRevision = initialState.plans.length + 1;
     const planningAttempt =
       initialState.run_references.filter(
         (reference) => reference.operation === "planning",
@@ -972,7 +989,7 @@ export class ChangeFleetService {
         (selection) => selection.repository_id,
       ),
       allowedOutcomes: [
-        "plan_proposed",
+        "conversation_message",
         "repository_selection_change_request",
         "scope_expansion",
         "decision_request",
@@ -980,6 +997,17 @@ export class ChangeFleetService {
       ],
       humanGates: ["multi_repository_plan_confirmation"],
     });
+    const currentMessageReference =
+      initialState.planning_message_references.find(
+        (reference) =>
+          reference.message_id ===
+          initialState.current_approvable_plan_message_id,
+      ) ?? null;
+    const currentApprovableMessage = currentMessageReference
+      ? await this.runStore.readJsonArtifact(
+          currentMessageReference.artifact_reference,
+        )
+      : null;
     const contextProjection = createContextProjection({
       operation: "planning",
       changeSet: initialState,
@@ -994,11 +1022,15 @@ export class ChangeFleetService {
         ),
       },
       requiredEvidence: ["change_plan", "risks", "unverified_boundaries"],
-      historyReferences: initialState.plans.map((plan) => ({
+      historyReferences: initialState.plans.slice(-16).map((plan) => ({
         kind: "plan_revision",
         revision: plan.revision,
         status: plan.status,
       })),
+      planningConversation: {
+        user_message: userMessage,
+        current_approvable_message: currentApprovableMessage,
+      },
     });
     const invocation = {
       operation: "planning",
@@ -1045,6 +1077,14 @@ export class ChangeFleetService {
         completed_at: null,
         outcome: null,
       });
+      if (userMessage !== null) {
+        await this.runStore.appendEvent(runId, {
+          event_id: this.idFactory("event"),
+          type: "planning.input",
+          at: this.now(),
+          payload: { role: "user", text: userMessage },
+        });
+      }
       await this.controlStore.transactChangeSet(change_set_id, (state) => {
         assertChangeSetMutable(state);
         invariant(
@@ -1082,7 +1122,8 @@ export class ChangeFleetService {
     let outcome;
     let providerEvidence = null;
     let repositorySelectionChangeRequest = null;
-    let normalizedPlan = null;
+    let planningMessage = null;
+    let planningMessageArtifact = null;
     let runtimeError = null;
     try {
       const result = await invokeRuntime(this.runtime, invocation, {
@@ -1091,7 +1132,7 @@ export class ChangeFleetService {
       outcome = result.outcome;
       providerEvidence = result.provider_evidence;
       invariant(
-        ["plan_proposed", "repository_selection_change_request"].includes(
+        ["conversation_message", "repository_selection_change_request"].includes(
           outcome.type,
         ),
         "UNEXPECTED_RUNTIME_OUTCOME",
@@ -1101,20 +1142,39 @@ export class ChangeFleetService {
         repositorySelectionChangeRequest =
           normalizeRepositorySelectionChangeRequest(outcome, project);
       } else {
-        // Runtime 输出在 Run 完成前完成规范化，非法计划不能被误记为成功的规划 Run。
-        normalizedPlan = normalizePlan(outcome.plan, {
-          project: planningProject,
-          bases,
-          intentRevision: initialState.current_intent_revision,
-          repositorySelectionRevision: repositorySelection.revision,
-          repositoryHarnessSelectionRevision:
-            repositoryHarnessSelection.revision,
-          revisionFeedback: initialState.current_revision_feedback,
-          revision: nextRevision,
-          createdAt: this.now(),
-        });
-        normalizedPlan.agent_profile = structuredClone(agentProfile);
-        normalizedPlan.planning_run_id = runId;
+        // 规划输出先成为对话消息；只有其中的结构化内容在精确批准后才成为 Plan revision。
+        const text = normalizePlanningMessageText(
+          outcome.message.text,
+          "planning.outcome.message.text",
+        );
+        const planContent =
+          outcome.message.plan === null
+            ? null
+            : normalizePlanContent(outcome.message.plan, {
+                project: planningProject,
+                bases,
+                intentRevision: initialState.current_intent_revision,
+                repositorySelectionRevision: repositorySelection.revision,
+                repositoryHarnessSelectionRevision:
+                  repositoryHarnessSelection.revision,
+                revisionFeedback: initialState.current_revision_feedback,
+              });
+        const contentDigest = sha256({ text, plan_content: planContent });
+        planningMessage = {
+          schema_version: 1,
+          message_id: this.idFactory("planning-message"),
+          role: "assistant",
+          text,
+          plan_content: planContent,
+          content_digest: contentDigest,
+          planning_run_id: runId,
+          created_at: this.now(),
+        };
+        planningMessageArtifact = await this.runStore.writeJsonArtifact(
+          runId,
+          "planning-message",
+          planningMessage,
+        );
       }
     } catch (error) {
       runtimeError = error;
@@ -1173,7 +1233,10 @@ export class ChangeFleetService {
     await this.runStore.update(runId, (run) => {
       run.status = "completed";
       run.completed_at = runCompletedAt;
-      run.outcome = { type: outcome.type };
+      run.outcome = {
+        type: outcome.type,
+        planning_message_id: planningMessage?.message_id ?? null,
+      };
     });
 
     return this.controlStore.transactChangeSet(change_set_id, (state) => {
@@ -1230,27 +1293,145 @@ export class ChangeFleetService {
               request: structuredClone(request),
             };
           }
+          const runReference = state.run_references.find(
+            (reference) => reference.run_id === runId,
+          );
+          invariant(
+            runReference?.status === "running",
+            "RUN_REFERENCE_STATE_MISMATCH",
+            `Planning Run ${runId} has no running reference`,
+          );
+          runReference.status = "completed";
+          const reference = {
+            message_id: planningMessage.message_id,
+            run_id: runId,
+            role: planningMessage.role,
+            content_digest: planningMessage.content_digest,
+            has_plan: planningMessage.plan_content !== null,
+            artifact_reference: structuredClone(planningMessageArtifact),
+            created_at: planningMessage.created_at,
+          };
+          state.planning_message_references.push(reference);
+          // 任一新回复都会使旧批准主体失效；只有新回复携带计划时才出现批准按钮。
+          state.current_approvable_plan_message_id =
+            reference.has_plan ? reference.message_id : null;
+          state.state = reference.has_plan
+            ? "awaiting_plan_confirmation"
+            : state.current_plan_revision === null
+              ? "analyzing"
+              : "replanning";
+          state.updated_at = this.now();
+          return {
+            change_set_id,
+            status: state.state,
+            message: structuredClone(planningMessage),
+            artifact_reference: structuredClone(planningMessageArtifact),
+          };
+        },
+      });
+      return result;
+    });
+  }
+
+  async confirmPlanMessage({
+    idempotency_key,
+    change_set_id,
+    message_id,
+    content_digest,
+    actor = "human",
+  }) {
+    normalizeId("idempotency_key", idempotency_key);
+    normalizeId("change_set_id", change_set_id);
+    normalizeId("message_id", message_id);
+    invariant(
+      typeof content_digest === "string" && /^[0-9a-f]{64}$/u.test(content_digest),
+      "INVALID_PLAN_MESSAGE_DIGEST",
+      "Plan confirmation requires one SHA-256 content digest",
+    );
+    const input = { change_set_id, message_id, content_digest, actor };
+    const initialState = await this.controlStore.readChangeSet(change_set_id);
+    assertChangeSetMutable(initialState);
+    const existing = existingCommand(
+      initialState,
+      idempotency_key,
+      "confirmPlanMessage",
+      input,
+    );
+    if (existing?.status === "completed") return structuredClone(existing.result);
+    const reference = initialState.planning_message_references.find(
+      (item) => item.message_id === message_id,
+    );
+    invariant(
+      initialState.current_approvable_plan_message_id === message_id &&
+        reference?.content_digest === content_digest &&
+        reference.has_plan,
+      "STALE_PLAN_MESSAGE_CONFIRMATION",
+      "Plan confirmation does not bind the current exact planning message",
+    );
+    const [planningMessage, planningRun] = await Promise.all([
+      this.runStore.readJsonArtifact(reference.artifact_reference),
+      this.runStore.read(reference.run_id),
+    ]);
+    invariant(
+      planningMessage.message_id === message_id &&
+        planningMessage.content_digest === content_digest &&
+        planningMessage.plan_content !== null &&
+        sha256({
+          text: planningMessage.text,
+          plan_content: planningMessage.plan_content,
+        }) === content_digest,
+      "PLAN_MESSAGE_SUBJECT_MISMATCH",
+      "Planning message artifact does not match the approval subject",
+    );
+
+    // 确认在一个聚合事务中分配 revision、创建 WorkUnit 并开放执行。
+    return this.controlStore.transactChangeSet(change_set_id, (state) =>
+      applyIdempotentCommand({
+        record: state,
+        idempotencyKey: idempotency_key,
+        command: "confirmPlanMessage",
+        input,
+        perform: () => {
+          assertChangeSetMutable(state);
+          invariant(
+            state.state === "awaiting_plan_confirmation",
+            "INVALID_CHANGE_SET_STATE",
+            `ChangeSet is not awaiting plan confirmation`,
+          );
+          const currentReference = state.planning_message_references.find(
+            (item) => item.message_id === message_id,
+          );
+          invariant(
+            state.current_approvable_plan_message_id === message_id &&
+              currentReference?.content_digest === content_digest,
+            "STALE_PLAN_MESSAGE_CONFIRMATION",
+            "Plan confirmation subject changed before the transaction committed",
+          );
+          normalizeRevisionFeedbackAssessments(
+            planningMessage.plan_content.revision_feedback_assessments,
+            state.current_revision_feedback,
+          );
+          const planRevision =
+            state.plans.reduce(
+              (maximum, plan) => Math.max(maximum, plan.revision),
+              0,
+            ) + 1;
           const priorPlan = currentPlan(state);
           if (priorPlan) priorPlan.status = "superseded";
-          for (const workUnit of state.work_units.filter(
-            (unit) => unit.plan_revision === state.current_plan_revision,
-          )) {
-            if (!["candidate_ready", "failed", "blocked"].includes(workUnit.state)) {
-              workUnit.state = "superseded";
-            }
-          }
-          const plan = structuredClone(normalizedPlan);
+          const plan = createConfirmedPlan(planningMessage.plan_content, {
+            revision: planRevision,
+            confirmedAt: this.now(),
+            agentProfile: planningRun.agent_profile,
+            planningRunId: planningRun.run_id,
+            sourceMessageId: message_id,
+            sourceContentDigest: content_digest,
+          });
           state.plans.push(plan);
-          state.current_plan_revision = plan.revision;
-          if (state.current_revision_feedback) {
-            // 当前反馈既驱动本轮规划，也继续约束由该规划产生的执行上下文。
-            state.current_revision_feedback.applies_to_plan_revision =
-              plan.revision;
-          }
+          state.current_plan_revision = planRevision;
           state.work_units.push(
             ...plan.work_units.map((workUnit) => ({
               ...workUnit,
-              plan_revision: plan.revision,
+              plan_revision: planRevision,
               state: "pending",
               workspace: null,
               run_references: [],
@@ -1260,75 +1441,25 @@ export class ChangeFleetService {
               last_error: null,
             })),
           );
-          const runReference = state.run_references.find(
-            (reference) => reference.run_id === runId,
-          );
-          invariant(
-            runReference?.status === "running",
-            "RUN_REFERENCE_STATE_MISMATCH",
-            `Planning Run ${runId} has no running reference`,
-          );
-          runReference.plan_revision = plan.revision;
-          runReference.status = "completed";
-          state.state = "awaiting_plan_confirmation";
-          state.updated_at = this.now();
-          return {
-            change_set_id,
-            plan_revision: plan.revision,
-            plan: structuredClone(plan),
-          };
-        },
-      });
-      return result;
-    });
-  }
-
-  async confirmPlanRevision({
-    idempotency_key,
-    change_set_id,
-    plan_revision,
-    actor = "human",
-  }) {
-    // 确认绑定当前精确 revision，旧页面上的批准不能套用到新计划。
-    return this.controlStore.transactChangeSet(change_set_id, (state) =>
-      applyIdempotentCommand({
-        record: state,
-        idempotencyKey: idempotency_key,
-        command: "confirmPlanRevision",
-        input: { change_set_id, plan_revision, actor },
-        perform: () => {
-          assertChangeSetMutable(state);
-          invariant(
-            state.state === "awaiting_plan_confirmation",
-            "INVALID_CHANGE_SET_STATE",
-            `ChangeSet is not awaiting plan confirmation`,
-          );
-          invariant(
-            state.current_plan_revision === plan_revision,
-            "STALE_PLAN_CONFIRMATION",
-            `Plan revision ${plan_revision} is not current`,
-          );
-          const plan = currentPlan(state);
-          // 旧控制快照可以读取，但带当前反馈却没有逐项评估的旧计划不能在新契约下被确认。
-          normalizeRevisionFeedbackAssessments(
-            plan.revision_feedback_assessments,
-            state.current_revision_feedback?.applies_to_plan_revision ===
-              plan.revision
-              ? state.current_revision_feedback
-              : null,
-          );
-          plan.status = "confirmed";
-          plan.confirmed_at = this.now();
+          state.current_approvable_plan_message_id = null;
+          state.current_revision_feedback = null;
           state.decisions.push({
             decision_id: this.idFactory("decision"),
             type: "plan_confirmation",
-            plan_revision,
+            plan_revision: planRevision,
+            source_message_id: message_id,
+            source_content_digest: content_digest,
             actor,
             decided_at: this.now(),
           });
           state.state = "ready";
           state.updated_at = this.now();
-          return { change_set_id, plan_revision, status: "confirmed" };
+          return {
+            change_set_id,
+            plan_revision: planRevision,
+            status: "confirmed",
+            plan: structuredClone(plan),
+          };
         },
       }),
     );
@@ -1441,7 +1572,22 @@ export class ChangeFleetService {
           },
         );
         if (ready.state === "pending") {
-          await this.executeWorkUnit(change_set_id, ready.work_unit_id);
+          const executionResult = await this.executeWorkUnit(
+            change_set_id,
+            ready.work_unit_id,
+          );
+          if (executionResult?.status === "plan_invalidation_required") {
+            return this.controlStore.transactChangeSet(change_set_id, (state) => {
+              const result = {
+                change_set_id,
+                status: "replanning",
+                plan_revision: executionResult.plan_revision,
+                run_id: executionResult.run_id,
+              };
+              completeCommand(state, idempotency_key, result, this.now());
+              return structuredClone(result);
+            });
+          }
         } else {
           await this.resumeWorkUnitValidation(
             change_set_id,
@@ -1494,6 +1640,8 @@ export class ChangeFleetService {
       await this.controlStore.writeBundle(bundle);
       return this.controlStore.transactChangeSet(change_set_id, (state) => {
         state.bundles.push(bundle);
+        // 反馈已由本轮 correction Run 逐项评估；历史仍保留在 review Decision 与 Run evidence。
+        state.current_revision_feedback = null;
         resolveValidationBlockers(state, {
           validationSubjectHash: subject.validation_subject_hash,
           resolvedAt: this.now(),
@@ -1776,16 +1924,25 @@ export class ChangeFleetService {
                   bundle_revision,
                   bundle_hash,
                   ...structuredClone(normalizedFeedback),
-                  applies_to_plan_revision: null,
+                  applies_to_plan_revision: state.current_plan_revision,
                   decided_at: record.decided_at,
                 }
               : null;
-          state.state =
-            normalizedDecision === "accept"
-              ? "delivery_ready"
-              : normalizedDecision === "request_revision"
-                ? "replanning"
-                : "done";
+          if (normalizedDecision === "request_revision") {
+            // Bundle 纠正默认沿用已确认 Plan；Candidate 和验证主体会由新的执行尝试重建。
+            for (const workUnit of unitsForCurrentPlan(state)) {
+              workUnit.state = "pending";
+              workUnit.workspace = null;
+              workUnit.candidate_checkpoint_id = null;
+              workUnit.validation_attempt_ids = [];
+              workUnit.candidate = null;
+              workUnit.last_error = null;
+            }
+            state.state = "ready";
+          } else {
+            state.state =
+              normalizedDecision === "accept" ? "delivery_ready" : "done";
+          }
           state.updated_at = this.now();
           return structuredClone(record);
         },
@@ -2161,7 +2318,8 @@ export class ChangeFleetService {
       "REPOSITORY_HARNESS_SELECTION_MISMATCH",
       `WorkUnit ${workUnitId} does not match the current Harness selection`,
     );
-    const workspaceId = `${changeSetId}.${plan.revision}.${workUnitId}`;
+    const attempt = workUnit.run_references.length + 1;
+    const workspaceId = `${changeSetId}.${plan.revision}.${workUnitId}.${attempt}`;
     let workspace = await this.repositoryWorker.prepareWorkspace({
       repository,
       targetRef: workUnit.target_ref,
@@ -2197,7 +2355,6 @@ export class ChangeFleetService {
       overlayResources: frozenOverlayHarness,
     });
     const runId = this.idFactory("run");
-    const attempt = workUnit.run_references.length + 1;
     const run = {
       schema_version: 1,
       run_id: runId,
@@ -2267,6 +2424,7 @@ export class ChangeFleetService {
       allowedOutcomes: [
         "implementation_completed",
         "implementation_blocked",
+        "plan_invalidation_required",
       ],
       humanGates: [],
     });
@@ -2292,7 +2450,7 @@ export class ChangeFleetService {
         paths: [workspace.workspace_path],
       },
       requiredEvidence: ["structured_outcome", "candidate", "repository_check"],
-      historyReferences: workUnit.run_references.map((reference) => ({
+      historyReferences: workUnit.run_references.slice(-16).map((reference) => ({
         kind: "run",
         run_id: reference.run_id,
         status: reference.status,
@@ -2330,12 +2488,25 @@ export class ChangeFleetService {
       outcome = result.outcome;
       providerEvidence = result.provider_evidence;
       invariant(
-        ["implementation_completed", "implementation_blocked"].includes(
-          outcome.type,
-        ),
+        [
+          "implementation_completed",
+          "implementation_blocked",
+          "plan_invalidation_required",
+        ].includes(outcome.type),
         "UNEXPECTED_RUNTIME_OUTCOME",
         `Execution returned unsupported outcome ${outcome.type}`,
       );
+      outcome = {
+        ...outcome,
+        revision_feedback_assessments:
+          normalizeRevisionFeedbackAssessments(
+            outcome.revision_feedback_assessments,
+            currentState.current_revision_feedback?.applies_to_plan_revision ===
+              plan.revision
+              ? currentState.current_revision_feedback
+              : null,
+          ),
+      };
       await this.runStore.appendEvent(runId, {
         event_id: this.idFactory("event"),
         type: "runtime.outcome",
@@ -2357,7 +2528,12 @@ export class ChangeFleetService {
       await this.runStore.update(runId, (current) => {
         current.status = "completed";
         current.completed_at = runCompletedAt;
-        current.outcome = { type: outcome.type };
+        current.outcome = {
+          type: outcome.type,
+          revision_feedback_assessments: structuredClone(
+            outcome.revision_feedback_assessments,
+          ),
+        };
       });
       await this.controlStore.transactChangeSet(changeSetId, (current) => {
         const unit = unitsForCurrentPlan(current).find(
@@ -2397,6 +2573,41 @@ export class ChangeFleetService {
       );
       await this.blockWorkUnit(changeSetId, workUnitId, error);
       throw error;
+    }
+
+    if (outcome.type === "plan_invalidation_required") {
+      await this.controlStore.transactChangeSet(changeSetId, (current) => {
+        const currentPlanRecord = currentPlan(current);
+        invariant(
+          currentPlanRecord?.revision === plan.revision,
+          "STALE_PLAN_INVALIDATION",
+          "Execution invalidation no longer refers to the current Plan",
+        );
+        currentPlanRecord.status = "invalidated";
+        for (const unit of unitsForCurrentPlan(current)) {
+          if (unit.state !== "candidate_ready") unit.state = "superseded";
+        }
+        current.current_approvable_plan_message_id = null;
+        current.state = "replanning";
+        current.decisions.push({
+          decision_id: this.idFactory("decision"),
+          type: "plan_invalidation",
+          plan_revision: plan.revision,
+          run_id: runId,
+          code: outcome.blocker.code,
+          message: outcome.blocker.message,
+          revision_feedback_assessments: structuredClone(
+            outcome.revision_feedback_assessments,
+          ),
+          decided_at: this.now(),
+        });
+        current.updated_at = this.now();
+      });
+      return {
+        status: "plan_invalidation_required",
+        plan_revision: plan.revision,
+        run_id: runId,
+      };
     }
 
     let checkpointPersisted = false;
@@ -3289,7 +3500,7 @@ function assertRepositorySelectionRevisionAllowed(state, expectedRevision) {
     "Current Repository selection revision must be a positive integer",
   );
   invariant(
-    ["analyzing", "awaiting_plan_confirmation", "replanning"].includes(
+    ["analyzing", "awaiting_plan_confirmation", "replanning", "ready"].includes(
       state.state,
     ),
     "INVALID_CHANGE_SET_STATE",
@@ -3312,7 +3523,7 @@ function assertRepositoryHarnessSelectionRevisionAllowed(
     "Current Repository Harness selection revision must be positive",
   );
   invariant(
-    ["analyzing", "awaiting_plan_confirmation", "replanning"].includes(
+    ["analyzing", "awaiting_plan_confirmation", "replanning", "ready"].includes(
       state.state,
     ),
     "INVALID_CHANGE_SET_STATE",

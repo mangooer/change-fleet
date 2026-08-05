@@ -3,7 +3,7 @@ import { invariant } from "./errors.js";
 
 // Runtime 只接收当前操作所需投影；完整历史留在控制存储中按引用读取。
 export const CONTROL_CONTRACT_VERSION = 3;
-export const CONTEXT_PROJECTION_VERSION = 5;
+export const CONTEXT_PROJECTION_VERSION = 6;
 const RUNTIME_EXCLUDED_DECISION_TYPES = new Set([
   "bundle_review",
   "legacy_candidate_recovery",
@@ -52,6 +52,7 @@ export function createContextProjection({
   capability,
   requiredEvidence,
   historyReferences = [],
+  planningConversation = null,
 }) {
   return {
     schema_version: CONTEXT_PROJECTION_VERSION,
@@ -80,7 +81,27 @@ export function createContextProjection({
     revision_feedback: projectRevisionFeedback(
       changeSet.current_revision_feedback,
     ),
+    // 只投影本轮输入和当前可批准消息；更早对话只能通过 Run 引用按需审计。
+    planning_conversation: projectPlanningConversation(planningConversation),
     history_references: historyReferences,
+  };
+}
+
+function projectPlanningConversation(conversation) {
+  if (!conversation) return null;
+  return {
+    user_message: conversation.user_message ?? null,
+    current_approvable_message:
+      conversation.current_approvable_message === null
+        ? null
+        : {
+            message_id: conversation.current_approvable_message.message_id,
+            content_digest:
+              conversation.current_approvable_message.content_digest,
+            text: conversation.current_approvable_message.text,
+            plan_content:
+              conversation.current_approvable_message.plan_content,
+          },
   };
 }
 

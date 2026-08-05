@@ -92,7 +92,7 @@ describe("read-only Runtime audit queries", () => {
       completed: 2,
     });
     assert.deepEqual(changeAudit.payload.outcomes.planning, {
-      plan_proposed: 1,
+      conversation_message: 1,
     });
     assert.deepEqual(changeAudit.payload.outcomes.work_units, {
       candidate_ready: 1,
@@ -327,14 +327,15 @@ async function createAuditFixture(testContext, name, RuntimeClass) {
     project_id: "project",
     intent: { objective: "Audit one exact Repository change" },
   });
-  await service.planChangeSet({
+  const planned = await service.planChangeSet({
     idempotency_key: "plan",
     change_set_id: "change",
   });
-  await service.confirmPlanRevision({
+  await service.confirmPlanMessage({
     idempotency_key: "confirm",
     change_set_id: "change",
-    plan_revision: 1,
+    message_id: planned.message.message_id,
+    content_digest: planned.message.content_digest,
   });
   return { root, controlRoot, options, service, runtime, plan };
 }

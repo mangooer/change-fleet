@@ -52,8 +52,8 @@ test(
       model: process.env.CHANGEFLEET_CODEX_MODEL ?? "gpt-5.4",
       reasoning:
         process.env.CHANGEFLEET_CODEX_REASONING ?? "medium",
-      permissions: "operation_scoped",
-      network_access: false,
+      permissions: "host_user",
+      network_access: true,
       skills: [],
       credential_profile_id: "selected-local-codex",
     };
@@ -120,13 +120,14 @@ test(
       idempotency_key: "plan",
       change_set_id: "real-change",
     });
-    assert.equal(planned.plan.work_units.length, 1);
-    assert.equal(planned.plan.work_units[0].repository_id, "api");
-    assert.equal(planned.plan.work_units[0].base_sha, selectedBase);
-    await service.confirmPlanRevision({
+    assert.equal(planned.message.plan_content.work_units.length, 1);
+    assert.equal(planned.message.plan_content.work_units[0].repository_id, "api");
+    assert.equal(planned.message.plan_content.work_units[0].base_sha, selectedBase);
+    await service.confirmPlanMessage({
       idempotency_key: "confirm",
       change_set_id: "real-change",
-      plan_revision: planned.plan_revision,
+      message_id: planned.message.message_id,
+      content_digest: planned.message.content_digest,
     });
     let execution;
     try {

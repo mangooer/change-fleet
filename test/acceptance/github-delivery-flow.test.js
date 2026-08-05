@@ -312,10 +312,11 @@ async function driveToDeliveryReady(fixture, changeSetId) {
     idempotency_key: `plan-${changeSetId}`,
     change_set_id: changeSetId,
   });
-  await fixture.service.confirmPlanRevision({
+  await fixture.service.confirmPlanMessage({
     idempotency_key: `confirm-${changeSetId}`,
     change_set_id: changeSetId,
-    plan_revision: planned.plan_revision,
+    message_id: planned.message.message_id,
+    content_digest: planned.message.content_digest,
   });
   const execution = await fixture.service.executeChangeSet({
     idempotency_key: `execute-${changeSetId}`,

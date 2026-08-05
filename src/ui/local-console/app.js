@@ -137,6 +137,7 @@ function renderDetail() {
     return;
   }
   const bundle = state.exact.bundle;
+  const planningMessage = state.exact.planning_message;
   const delivery = state.exact.delivery;
   const publishAttempt = bundle
     ? attemptStore.get(`publish:${state.exact.change_set_id}:${bundle.bundle_id}`)
@@ -178,6 +179,27 @@ function renderDetail() {
         )}</pre>
       </article>
     </div>
+    <section class="section stack">
+      <div class="row">
+        <h3>Planning Conversation</h3>
+        ${planningMessage ? '<span class="pill">exact approval subject</span>' : ""}
+      </div>
+      ${
+        planningMessage
+          ? `
+            <div class="summary-box">
+              <p>${escapeHtml(planningMessage.text)}</p>
+              <p>Message <code>${escapeHtml(planningMessage.message_id)}</code></p>
+              <p>Digest <code>${escapeHtml(planningMessage.content_digest)}</code></p>
+              <pre>${escapeHtml(JSON.stringify(planningMessage.plan, null, 2))}</pre>
+              <div class="actions">
+                <button id="confirm-plan" type="button">Approve Exact Plan Message</button>
+              </div>
+            </div>
+          `
+          : '<div class="summary-box muted">No plan message is currently awaiting approval.</div>'
+      }
+    </section>
     <section class="section stack">
       <div class="row">
         <h3>Bundle Subject</h3>
@@ -281,6 +303,9 @@ function renderDetail() {
   `;
 
   document
+    .querySelector("#confirm-plan")
+    ?.addEventListener("click", () => void confirmPlanMessage());
+  document
     .querySelector("#accept-bundle")
     ?.addEventListener("click", () => void decideBundle("accept"));
   document
@@ -292,6 +317,32 @@ function renderDetail() {
   document
     .querySelector("#refresh-delivery")
     ?.addEventListener("click", () => void refreshDelivery());
+}
+
+async function confirmPlanMessage() {
+  const message = state.exact?.planning_message;
+  if (!message) return;
+  if (
+    !globalThis.confirm(
+      `Approve exact plan message ${message.message_id}\n${message.content_digest}`,
+    )
+  ) {
+    return;
+  }
+  const attemptKey = `plan:${state.exact.change_set_id}:${message.message_id}:${message.content_digest}`;
+  const attemptId = ensureAttempt(attemptKey);
+  await runMutation("plan approval", async () => {
+    await apiPost(
+      `/api/local/v0/changesets/${encodeURIComponent(state.exact.change_set_id)}/plan-confirmation`,
+      {
+        idempotency_key: attemptId,
+        message_id: message.message_id,
+        content_digest: message.content_digest,
+        actor: "human",
+      },
+    );
+    attemptStore.delete(attemptKey);
+  });
 }
 
 async function decideBundle(decision) {

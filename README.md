@@ -196,10 +196,18 @@ node ./bin/changefleet.js changeset show <change_set_id> --config changefleet.js
 node ./bin/changefleet.js serve --config changefleet.json [--port 4311]
 ```
 
+`changeset plan` may include a bounded `message` string to continue the planning conversation. Its
+result is an Agent message with optional `plan_content`, not a Plan revision. `changeset plan
+confirm` accepts `idempotency_key`, `change_set_id`, `message_id`, `content_digest`, and `actor`;
+only that exact approval creates the first or next confirmed Plan revision. The local console reads
+the same linked message artifact and delegates its approval button to the same application
+operation.
+
 A `request_revision` Bundle decision also requires `feedback.summary` and 1-20 bounded
 `feedback.findings`, each with a stable `finding_id` and concise `text`. Only that current bounded
-feedback is projected to the next planning and execution calls; prior review artifacts stay linked
-outside Runtime context.
+feedback is projected to correction execution under the current confirmed Plan. Each correction
+Run assesses every finding as `adopt`, `adapt`, or `decline`. Only a typed Plan invalidation returns
+to planning; prior review and conversation artifacts stay linked outside Runtime context.
 
 `changeset close` accepts only `idempotency_key`, `change_set_id`, `actor`, and a `reason` with one
 of `no_longer_needed`, `restart_on_new_base`, `route_abandoned`, `duplicate`, or `other` plus a

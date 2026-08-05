@@ -17,7 +17,7 @@ Blocks: Confirmation of the current `changefleet-runtime-guidance-normalization-
 
 Decision: [Decision 0023](../decisions/0023-conversation-first-planning-and-stage-scoped-feedback.md)
 
-Implementation tracking: First implementation ChangeSet pending from the accepted exact baseline
+Implementation tracking: [WI-0015](../work-items/WI-0015-conversation-first-planning-and-stage-scoped-feedback.md), `done`
 
 ## Context
 

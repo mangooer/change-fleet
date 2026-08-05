@@ -197,13 +197,14 @@ async function bootstrap(service, apiPath, webPath) {
       acceptance_criteria: ["Both repositories contain feature.txt"],
     },
   });
-  await service.planChangeSet({
+  const planned = await service.planChangeSet({
     idempotency_key: "plan-1",
     change_set_id: "change-1",
   });
-  await service.confirmPlanRevision({
+  await service.confirmPlanMessage({
     idempotency_key: "confirm-1",
     change_set_id: "change-1",
-    plan_revision: 1,
+    message_id: planned.message.message_id,
+    content_digest: planned.message.content_digest,
   });
 }

@@ -3,6 +3,7 @@ import { describe, test } from "node:test";
 
 import {
   commandFingerprint,
+  createConfirmedPlan,
   createCandidate,
   createCandidateCheckpoint,
   createCandidateBundle,
@@ -10,6 +11,7 @@ import {
   createValidationSubject,
   normalizeChangeSetCloseRequest,
   normalizePlan,
+  normalizePlanContent,
   normalizeRepositorySelectionRequest,
   normalizeRevisionFeedback,
 } from "../../src/domain/model.js";
@@ -58,6 +60,29 @@ const bases = {
 };
 
 describe("domain model", () => {
+  test("keeps normalized planning content revision-free until exact confirmation", () => {
+    const content = normalizePlanContent(planInput(), {
+      project,
+      bases,
+      intentRevision: 1,
+      repositorySelectionRevision: 1,
+      repositoryHarnessSelectionRevision: 1,
+    });
+    assert.equal("revision" in content, false);
+    assert.equal("status" in content, false);
+    const plan = createConfirmedPlan(content, {
+      revision: 1,
+      confirmedAt: "2026-08-05T00:00:00.000Z",
+      agentProfile: { profile_id: "profile" },
+      planningRunId: "run-1",
+      sourceMessageId: "message-1",
+      sourceContentDigest: "a".repeat(64),
+    });
+    assert.equal(plan.revision, 1);
+    assert.equal(plan.status, "confirmed");
+    assert.equal(plan.source_message_id, "message-1");
+  });
+
   test("normalizes the exact authorized two-node plan", () => {
     const plan = normalizePlan(planInput(), {
       project,

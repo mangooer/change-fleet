@@ -211,10 +211,11 @@ async function createFixture(root) {
     idempotency_key: "plan",
     change_set_id: "change",
   });
-  await service.confirmPlanRevision({
+  await service.confirmPlanMessage({
     idempotency_key: "confirm",
     change_set_id: "change",
-    plan_revision: plan.plan_revision,
+    message_id: plan.message.message_id,
+    content_digest: plan.message.content_digest,
   });
   await service.executeChangeSet({
     idempotency_key: "execute",
@@ -222,6 +223,7 @@ async function createFixture(root) {
   });
   const queryService = new ChangeSetViewService({
     controlStore: service.controlStore,
+    runStore: service.runStore,
     auditQueryService: new RuntimeAuditQueryService({
       controlStore: service.controlStore,
       runStore: service.runStore,

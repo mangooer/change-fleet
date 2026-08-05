@@ -80,10 +80,15 @@ async function createFixture(testContext) {
     });
   }
   const planned = await service.readChangeSet("change-2");
-  await service.confirmPlanRevision({
+  const planReference = planned.planning_message_references.find(
+    (reference) =>
+      reference.message_id === planned.current_approvable_plan_message_id,
+  );
+  await service.confirmPlanMessage({
     idempotency_key: "confirm-change-2",
     change_set_id: "change-2",
-    plan_revision: planned.current_plan_revision,
+    message_id: planReference.message_id,
+    content_digest: planReference.content_digest,
   });
   await service.executeChangeSet({
     idempotency_key: "execute-change-2",
@@ -97,6 +102,7 @@ async function createFixture(testContext) {
   return {
     viewService: new ChangeSetViewService({
       controlStore: service.controlStore,
+      runStore: service.runStore,
       auditQueryService: queryService,
     }),
   };

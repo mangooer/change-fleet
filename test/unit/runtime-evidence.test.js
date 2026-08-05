@@ -118,8 +118,8 @@ describe("Runtime identity and evidence", () => {
     assert.equal(PLANNING_OUTCOME_SCHEMA.additionalProperties, false);
     assert.equal(EXECUTION_OUTCOME_SCHEMA.additionalProperties, false);
     const planOutcome = {
-      type: "plan_proposed",
-      plan: { work_units: [{}] },
+      type: "conversation_message",
+      message: { text: "ready", plan: { work_units: [{}] } },
       request: null,
     };
     assert.equal(
@@ -128,8 +128,8 @@ describe("Runtime identity and evidence", () => {
     );
     assert.throws(() =>
       assertStructuredOutcome("planning", {
-        type: "plan_proposed",
-        plan: null,
+        type: "conversation_message",
+        message: null,
         request: null,
       }),
     );
@@ -139,6 +139,7 @@ describe("Runtime identity and evidence", () => {
         summary: "done",
         changed_paths: [1],
         blocker: null,
+        revision_feedback_assessments: [],
       }),
     );
     const blockedOutcome = {
@@ -149,6 +150,7 @@ describe("Runtime identity and evidence", () => {
         code: "sandbox_unavailable",
         message: "sandbox setup was cancelled",
       },
+      revision_feedback_assessments: [],
     };
     assert.equal(
       assertStructuredOutcome("execution", blockedOutcome),

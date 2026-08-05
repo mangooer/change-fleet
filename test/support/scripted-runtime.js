@@ -56,8 +56,12 @@ export class ScriptedRuntime {
         ) ?? [];
       return {
         outcome: {
-          type: "plan_proposed",
-          plan,
+          type: "conversation_message",
+          message: {
+            text: "The deterministic fixture produced an approvable plan.",
+            plan,
+          },
+          request: null,
         },
         provider_evidence: testProviderEvidence(),
       };
@@ -82,8 +86,11 @@ export class ScriptedRuntime {
     }
     if (this.executionOutcome) {
       // 测试可显式模拟阻塞或空实现；生产 Runtime 仍由严格 schema 约束。
+      const outcome = structuredClone(this.executionOutcome);
+      outcome.revision_feedback_assessments ??=
+        feedbackAssessments(invocation);
       return {
-        outcome: structuredClone(this.executionOutcome),
+        outcome,
         provider_evidence: testProviderEvidence(),
       };
     }
@@ -101,10 +108,23 @@ export class ScriptedRuntime {
         summary: `implemented ${repositoryId}`,
         changed_paths: ["feature.txt"],
         blocker: null,
+        revision_feedback_assessments: feedbackAssessments(invocation),
       },
       provider_evidence: testProviderEvidence(),
     };
   }
+}
+
+function feedbackAssessments(invocation) {
+  return (
+    invocation.context_projection.revision_feedback?.findings.map(
+      (finding) => ({
+        finding_id: finding.finding_id,
+        disposition: "adopt",
+        rationale: "The deterministic fixture adopts the reviewed finding",
+      }),
+    ) ?? []
+  );
 }
 
 function testProviderEvidence() {

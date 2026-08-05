@@ -15,6 +15,7 @@ const FEEDBACK_FINDING_BYTES = 2 * 1024;
 const FEEDBACK_TOTAL_BYTES = 16 * 1024;
 const FEEDBACK_ASSESSMENT_RATIONALE_BYTES = 1024;
 const FEEDBACK_ASSESSMENT_TOTAL_BYTES = 16 * 1024;
+const PLANNING_MESSAGE_BYTES = 16 * 1024;
 const FEEDBACK_ASSESSMENT_DISPOSITIONS = new Set([
   "adopt",
   "adapt",
@@ -217,7 +218,7 @@ export function normalizeCommand(input, label = "command") {
   };
 }
 
-export function normalizePlan(
+export function normalizePlanContent(
   input,
   {
     project,
@@ -226,8 +227,6 @@ export function normalizePlan(
     repositorySelectionRevision,
     repositoryHarnessSelectionRevision,
     revisionFeedback = null,
-    revision,
-    createdAt,
   },
 ) {
   invariant(
@@ -319,13 +318,10 @@ export function normalizePlan(
   );
 
   return {
-    revision,
     intent_revision: intentRevision,
     repository_selection_revision: repositorySelectionRevision,
     repository_harness_selection_revision:
       repositoryHarnessSelectionRevision,
-    created_at: createdAt,
-    status: "proposed",
     rationale: normalizeOptionalString(input.rationale),
     // 人类反馈是待评估的审查主张；计划必须逐项记录判断，不能把它静默当成事实或忽略。
     revision_feedback_assessments: normalizeRevisionFeedbackAssessments(
@@ -336,6 +332,65 @@ export function normalizePlan(
     combined_check: normalizeCommand(input.combined_check, "combined_check"),
     risks: normalizeStringArray(input.risks),
     unverified_boundaries: normalizeStringArray(input.unverified_boundaries),
+  };
+}
+
+export function createConfirmedPlan(
+  content,
+  {
+    revision,
+    confirmedAt,
+    agentProfile,
+    planningRunId,
+    sourceMessageId,
+    sourceContentDigest,
+  },
+) {
+  // Plan revision 只在人工确认精确消息时创建；规划消息本身不占用 revision。
+  invariant(
+    Number.isSafeInteger(revision) && revision > 0,
+    "INVALID_PLAN_REVISION",
+    "A confirmed ChangePlan requires one positive revision",
+  );
+  normalizeId("planning_run_id", planningRunId);
+  normalizeId("source_message_id", sourceMessageId);
+  invariant(
+    typeof sourceContentDigest === "string" &&
+      /^[0-9a-f]{64}$/u.test(sourceContentDigest),
+    "INVALID_PLAN_MESSAGE_DIGEST",
+    "A confirmed ChangePlan requires the exact planning message digest",
+  );
+  return {
+    revision,
+    ...structuredClone(content),
+    created_at: confirmedAt,
+    status: "confirmed",
+    confirmed_at: confirmedAt,
+    agent_profile: structuredClone(agentProfile),
+    planning_run_id: planningRunId,
+    source_message_id: sourceMessageId,
+    source_content_digest: sourceContentDigest,
+  };
+}
+
+export function normalizePlanningMessageText(value, label = "message") {
+  // 单次对话输入和输出都必须有界；完整历史留在 Run artifact，不进入启动上下文。
+  return boundedUtf8String(
+    label,
+    value,
+    PLANNING_MESSAGE_BYTES,
+    "INVALID_PLANNING_MESSAGE",
+  );
+}
+
+// 旧调用者可继续规范化已持久化的历史 Plan；新规划流程必须使用 normalizePlanContent。
+export function normalizePlan(input, options) {
+  const content = normalizePlanContent(input, options);
+  return {
+    revision: options.revision,
+    ...content,
+    created_at: options.createdAt,
+    status: "proposed",
   };
 }
 

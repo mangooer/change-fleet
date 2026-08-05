@@ -10,7 +10,7 @@ const AUDIT_DETAIL_ROWS = 10;
 
 // 该读模型只为本地 review/delivery console 提供有界投影；它不暴露 transcript、diff、日志或原始证据正文。
 export class ChangeSetViewService {
-  constructor({ controlStore, auditQueryService }) {
+  constructor({ controlStore, runStore, auditQueryService }) {
     invariant(
       controlStore && typeof controlStore.readChangeSet === "function",
       "INVALID_OPERATOR_APPLICATION",
@@ -22,12 +22,18 @@ export class ChangeSetViewService {
       "ChangeSet view service requires catalog reads",
     );
     invariant(
+      runStore && typeof runStore.readJsonArtifact === "function",
+      "INVALID_OPERATOR_APPLICATION",
+      "ChangeSet view service requires linked Run artifact reads",
+    );
+    invariant(
       auditQueryService &&
         typeof auditQueryService.getChangeSetAudit === "function",
       "INVALID_OPERATOR_APPLICATION",
       "ChangeSet view service requires an audit query service",
     );
     this.controlStore = controlStore;
+    this.runStore = runStore;
     this.auditQueryService = auditQueryService;
   }
 
@@ -54,9 +60,19 @@ export class ChangeSetViewService {
       this.controlStore.readChangeSet(changeSetId),
       this.controlStore.readCatalog(),
     ]);
+    const messageReference = state.planning_message_references.find(
+      (reference) =>
+        reference.message_id === state.current_approvable_plan_message_id,
+    );
+    const planningMessage = messageReference
+      ? await this.runStore.readJsonArtifact(
+          messageReference.artifact_reference,
+        )
+      : null;
     return projectExactChangeSet(
       state,
       catalog.projects?.[state.project_id] ?? null,
+      planningMessage,
     );
   }
 
@@ -119,7 +135,7 @@ function projectListEntry(state) {
   };
 }
 
-function projectExactChangeSet(state, project) {
+function projectExactChangeSet(state, project, planningMessage) {
   const currentSelection =
     state.repository_selection_revisions.find(
       (revision) =>
@@ -149,6 +165,15 @@ function projectExactChangeSet(state, project) {
     repositories: (currentSelection?.repositories ?? []).map((selection) =>
       projectRepository(selection, project),
     ),
+    planning_message:
+      planningMessage === null
+        ? null
+        : {
+            message_id: planningMessage.message_id,
+            content_digest: planningMessage.content_digest,
+            text: planningMessage.text,
+            plan: projectPlanContent(planningMessage.plan_content),
+          },
     plan:
       currentPlan === null
         ? null
@@ -222,6 +247,31 @@ function projectExactChangeSet(state, project) {
             }),
           },
     delivery: createDeliveryProjection(state),
+  };
+}
+
+function projectPlanContent(plan) {
+  if (plan === null) return null;
+  return {
+    rationale: plan.rationale,
+    risks: [...plan.risks],
+    unverified_boundaries: [...plan.unverified_boundaries],
+    work_units: plan.work_units.map((unit) => ({
+      work_unit_id: unit.work_unit_id,
+      repository_id: unit.repository_id,
+      task: unit.task,
+      dependencies: [...unit.dependencies],
+      target_ref: unit.target_ref,
+      base_sha: unit.base_sha,
+      repository_check: {
+        command_id: unit.repository_check.command_id,
+        timeout_ms: unit.repository_check.timeout_ms,
+      },
+    })),
+    combined_check: {
+      command_id: plan.combined_check.command_id,
+      timeout_ms: plan.combined_check.timeout_ms,
+    },
   };
 }
 

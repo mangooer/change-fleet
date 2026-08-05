@@ -93,12 +93,12 @@ describe("ChangeSet Repository selection", () => {
       idempotency_key: "plan",
       change_set_id: "change",
     });
-    assert.equal(planned.plan.work_units[0].base_sha, selectedSha);
+    assert.equal(planned.message.plan_content.work_units[0].base_sha, selectedSha);
     assert.equal(
-      planned.plan.work_units[0].target_ref,
+      planned.message.plan_content.work_units[0].target_ref,
       "refs/heads/main",
     );
-    assert.equal(planned.plan.repository_selection_revision, 1);
+    assert.equal(planned.message.plan_content.repository_selection_revision, 1);
     const invocation = runtime.invocations[0];
     assert.equal(
       invocation.control_contract.repository_selection_revision,
@@ -219,22 +219,22 @@ describe("ChangeSet Repository selection", () => {
       ),
       ["superseded", "current"],
     );
-    assert.equal(revisedState.plans[0].status, "superseded");
-    assert.equal(revisedState.work_units[0].state, "superseded");
+    assert.deepEqual(revisedState.plans, []);
+    assert.deepEqual(revisedState.work_units, []);
+    assert.equal(revisedState.current_approvable_plan_message_id, null);
 
     runtime.plan = oneRepositoryPlan("web", combinedCheck);
     const replanned = await service.planChangeSet({
       idempotency_key: "plan-2",
       change_set_id: "change",
     });
-    assert.equal(replanned.plan_revision, 2);
-    assert.equal(replanned.plan.work_units[0].repository_id, "web");
+    assert.equal(replanned.message.plan_content.work_units[0].repository_id, "web");
     assert.equal(
-      replanned.plan.work_units[0].repository_selection_revision,
+      replanned.message.plan_content.work_units[0].repository_selection_revision,
       2,
     );
     assert.equal(
-      replanned.plan.work_units[0]
+      replanned.message.plan_content.work_units[0]
         .repository_harness_selection_revision,
       2,
     );
@@ -247,6 +247,13 @@ describe("ChangeSet Repository selection", () => {
       }),
       { code: "STALE_REPOSITORY_SELECTION_REVISION" },
     );
+    const confirmed = await service.confirmPlanMessage({
+      idempotency_key: "confirm-plan-2",
+      change_set_id: "change",
+      message_id: replanned.message.message_id,
+      content_digest: replanned.message.content_digest,
+    });
+    assert.equal(confirmed.plan_revision, 1);
   });
 
   test("persists an Agent selection request without granting it authority", async (t) => {
@@ -259,6 +266,7 @@ describe("ChangeSet Repository selection", () => {
         return {
           outcome: {
             type: "repository_selection_change_request",
+            message: null,
             request: {
               planning_repository_ids: ["api"],
               repository_selections: [
