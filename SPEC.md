@@ -197,7 +197,9 @@ A Project is a logical product, business system, or bounded code domain. It has:
 - a stable id;
 - a human-readable name;
 - a free-form description;
-- an explicit set of Repository bindings.
+- an explicit set of Repository bindings;
+- a minimal verification policy defining the admission floor and bounded attempt-timeout defaults
+  and maximum.
 
 A Project is not required to match one Git repository. Shared repositories may eventually
 participate in more than one Project, but the first slice may reject ambiguous registration until a
@@ -282,6 +284,7 @@ a previously confirmed execution contract is deliberately replaced.
 - WorkUnits and dependency ordering;
 - expected file, API, schema, or behavior boundaries;
 - repository and combined validation;
+- a preliminary Candidate verification expectation, rationale, and typed escalation triggers;
 - delivery order;
 - discard, revert, rollout, or compensation expectations;
 - unresolved risks and required decisions.
@@ -300,6 +303,7 @@ A ChangeSet is the aggregate root for one confirmed intent. It owns:
 - WorkUnits and their dependencies;
 - execution attempts;
 - post-Provider Candidate checkpoints and validation attempts;
+- immutable Candidate-bound verification admission decisions;
 - repository Candidates;
 - CandidateBundle revisions;
 - validation evidence;
@@ -353,6 +357,12 @@ bounded immutable evidence. A passing current attempt creates the ordinary Candi
 interrupted attempt leaves the checkpoint available for exact preflight and resume without another
 Runtime invocation.
 
+Before repository validation, ChangeFleet records one immutable admission decision for the exact
+checkpoint. The deterministic first implementation resolves `basic`, `deterministic`, or
+`independent_review` from the frozen Project policy, confirmed Plan expectation, optional
+operator elevation, reported-path divergence, and explicit unverified boundaries. It fails closed
+when independent review is selected until a read-only Verification Runtime is implemented.
+
 ### CandidateBundle
 
 A CandidateBundle is an immutable, versioned manifest containing the exact Candidates reviewed as
@@ -370,13 +380,16 @@ It also records:
 
 Human review and acceptance bind to the complete bundle manifest, not merely one repository SHA.
 
-### Initial Combined Validation Invocation
+### Deterministic Validation Invocation
 
-In the first slice, a confirmed ChangePlan defines one combined validation command using a stable
-command id, executable, argument array, and timeout. Native executables are invoked directly from a
-control-owned validation directory. On Windows only, an exactly resolved `.cmd` or `.bat` may use
-the accepted argv-preserving adapter; callers never supply a command string or generic shell mode.
-ChangeFleet supplies one immutable JSON manifest through `CHANGEFLEET_VALIDATION_MANIFEST`.
+A confirmed ChangePlan defines repository and combined checks using a stable command id,
+executable, argument array, coverage rationale, and a default attempt timeout. Command id,
+executable, arguments, and coverage rationale form semantic check identity; timeout is an
+attempt-scoped resource and is excluded from that identity. Native executables are invoked directly
+from the repository workspace or a control-owned combined-validation directory. On Windows only,
+an exactly resolved `.cmd` or `.bat` may use the accepted argv-preserving adapter; callers never
+supply a command string or generic shell mode. ChangeFleet supplies one immutable JSON manifest
+through `CHANGEFLEET_VALIDATION_MANIFEST` for combined validation.
 
 The manifest contains the ChangeSet and plan revision, exact Candidate identities, host workspace
 locators, and a canonical validation-subject hash. The subject hash excludes host paths and binds
@@ -588,12 +601,20 @@ Combined validation may include:
 Core records structure, identity, command, exit status, evidence reference, and unverified
 boundaries. Agent Runtimes and repository Harness select semantically appropriate checks.
 
+Final deterministic admission binds each exact CandidateCheckpoint. `basic` and `deterministic`
+continue without another Runtime; `independent_review` is a fail-closed boundary until the optional
+Verification Runtime slice is implemented. The Plan expectation is preliminary and cannot waive a
+Project minimum or an explicit operator elevation.
+
 A successful command is evidence only for the exact subject and behavior it exercised.
 Spawn failure, timeout, nonzero exit, output overflow, cancellation, and postflight mutation also
-produce bounded immutable attempt evidence. Repository validation may resume only from a matching
-current CandidateCheckpoint after ownership, HEAD, cleanliness, ancestry, changed-path, revision,
-Harness, and source-Run preflight. Combined validation may resume over the unchanged current
-Candidate set. Neither resume path invokes an Agent Runtime or changes the confirmed command.
+produce bounded immutable attempt evidence. Each attempt records semantic check identity,
+requested and effective timeout, frozen maximum, environment identity where observable, duration,
+outcome, and EvidenceStore reference. Repository validation may resume only from a matching current
+CandidateCheckpoint after ownership, HEAD, cleanliness, ancestry, changed-path, revision, Harness,
+and source-Run preflight. Combined validation may resume over the unchanged current Candidate set.
+Neither resume path invokes an Agent Runtime or changes semantic check identity. A retry may change
+only its timeout within the frozen Project maximum without a Plan revision.
 
 Review receives:
 

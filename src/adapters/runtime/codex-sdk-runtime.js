@@ -300,7 +300,8 @@ function buildPrompt(invocation) {
           "Return either conversation_message with message populated and request null, or repository_selection_change_request with request populated and message null.",
           // 领域内核允许授权仓库的非空子集，但同一仓库只能形成一个 WorkUnit；仓库内任务必须在规划阶段合并。
           "A plan may use a non-empty subset of authorized repositories, but it must return at most one WorkUnit for each repository_id; combine all tasks for the same Repository into that single WorkUnit.",
-          "Commands in checks must be non-interactive argv-style commands that can run in the supplied repository or combined validation environment.",
+          "Commands in checks must be non-interactive argv-style commands that can run in the supplied repository or combined validation environment. Give every check a concise coverage_rationale; timeout_ms is an attempt default rather than check identity.",
+          "Set verification_expectation to basic only for an obvious low-risk deterministic fast path, deterministic for selected behavioral checks, or independent_review when semantic uncertainty already requires it. Include concise rationale and only typed escalation_triggers.",
         ].join(" ")
       : [
           `CURRENT WORKUNIT TASK: ${invocation.context_projection.work_unit.task}`,

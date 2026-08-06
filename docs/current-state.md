@@ -1,15 +1,17 @@
 # Current State
 
-Updated: 2026-08-05
+Updated: 2026-08-06
 
 This projects accepted direction, implementation, active gaps, and the next task. `SPEC.md` owns
 the contract; Decisions own rationale; WorkItems and Git own implementation evidence.
 
 ## Current Baseline
 
-- WI-0001 through WI-0015 are complete. WI-0009 entered `main` through merge commit `f8fd77f`;
+- WI-0001 through WI-0016 are complete. WI-0009 entered `main` through merge commit `f8fd77f`;
   WI-0015 implements conversation-first planning and stage-scoped feedback. Abandoned predecessor
   attempts remain audit history rather than current authority.
+- WI-0016 directly implemented deterministic Candidate admission and attempt budgets without a
+  self-iteration ChangeSet.
 - Agent Runtimes own semantic work. ChangeFleet owns cross-repository authorization, revisions,
   scheduling, exact Git and Bundle subjects, evidence, recovery, and human gates.
 
@@ -46,6 +48,9 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
   while an explicit AgentProfile selects Provider-owned host or constrained permissions.
 - Execution may report a strict blocked result. Base-equal or empty implementation output is not a
   CandidateCheckpoint and cannot enter validation or review.
+- Candidate verification is risk-adaptive. The first deterministic slice now freezes Project
+  policy, records exact-checkpoint admission, and separates timeout budgets from check identity;
+  optional Verification Runtimes and focused correction remain unimplemented.
 
 ## Accepted Decisions
 
@@ -72,26 +77,16 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
   environment ownership; [0021](decisions/0021-provider-owned-host-permissions-and-multi-repository-workspaces.md)
   Provider-owned host permissions; [0022](decisions/0022-explicit-revision-feedback-assessment.md)
   explicit feedback assessment; and [0023](decisions/0023-conversation-first-planning-and-stage-scoped-feedback.md)
-  conversation-first planning and stage-scoped correction.
+  conversation-first planning and stage-scoped correction; [0024](decisions/0024-risk-adaptive-candidate-verification.md)
+  risk-adaptive Candidate verification and optional independent review.
 
 ## Repository Design Proposals
 
 - The [Proposal Index](proposals/INDEX.md) owns chronology; Decisions retain superseded, rejected,
   and deferred boundaries.
-- Accepted [0014](proposals/0014-local-review-and-delivery-console.md) restarts independently; old
-  Candidate `12a7036` remains history. Landed WI-0011 implements Proposal 0016 human closure.
-- Accepted [0018](proposals/0018-provider-environment-ownership-and-pre-candidate-retry-correction.md)
-  supersedes Proposal 0017's Provider Home mechanism. Landed WI-0012 removes that code while
-  retaining blocked, empty-result, and exact retry semantics. V2 closed on its obsolete base; v3
-  started from the accepted WI-0012 baseline.
-- Accepted [0019](proposals/0019-provider-owned-host-permissions-and-multi-repository-workspaces.md)
-  distinguishes development worktrees from OS security. Landed WI-0013 adds explicit trusted-local
-  `host_user`; mandatory strong Sandbox enforcement is no longer a first-version prerequisite.
-- Accepted [0020](proposals/0020-explicit-revision-feedback-assessment.md) requires explicit Agent
-  assessment; Proposal 0021 moves it from mandatory replanning to the handling outcome.
-- Accepted [0021](proposals/0021-conversation-first-planning-and-stage-scoped-feedback.md) records
-  this boundary. Landed WI-0015 implements exact planning-message approval, same-Plan correction,
-  typed Plan invalidation, and deterministic retirement of incompatible unconfirmed v5 records.
+- Accepted Proposals through 0021 are landed through WI-0015. Accepted
+  [0022](proposals/0022-risk-adaptive-candidate-verification.md) is recorded by Decision 0024 and
+  has its first deterministic slice completed through WI-0016.
 
 ## Open Questions
 
@@ -103,15 +98,15 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 - Git URLs, remote workers, merge, deployment, service graph, and stacked ChangeSets are deferred.
 - Native-Windows single-Repository use passed; other hosts and paid multi-Repository work are unverified.
 - Codex SDK usage is aggregate-only; effective model and universal host read-denial remain unknown.
-- Historical WI-0009 retries remain linked audit history; eager current authority no longer carries
-  their incident-by-incident recovery narrative.
+- Dynamic Candidate-selected check sets, independent Verification Runtime, correction, focused
+  re-review, and their UI states remain deferred after the deterministic first slice.
 - Runtime Kit, Codex App Server, another Provider, Linear, pricing, dashboards, and continuous
   context enforcement are deferred.
 
 ## Next Recommended Task
 
-Create the next ordinary ChangeSet through the conversation-first lifecycle and resume
-self-iteration without reviving either abandoned bootstrap ChangeSet.
+Confirm the second Decision 0024 implementation boundary, then create one WorkItem for an optional
+read-only Verification Runtime. Keep correction, focused re-review, and UI work outside that slice.
 
 ## Maintenance Contract
 

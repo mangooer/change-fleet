@@ -152,6 +152,7 @@ export function createTwoRepositoryPlan(combinedCheckScript) {
       "-e",
       `const fs=require('node:fs');const value=fs.readFileSync('feature.txt','utf8');if(!value.includes('${repositoryId}'))process.exit(2)`,
     ],
+    coverage_rationale: `Checks the delivered ${repositoryId} behavior`,
     timeout_ms: 10_000,
   });
   return {
@@ -176,10 +177,16 @@ export function createTwoRepositoryPlan(combinedCheckScript) {
       command_id: "combined-check",
       executable: process.execPath,
       argv: [combinedCheckScript],
+      coverage_rationale: "Checks the combined repository contract",
       timeout_ms: 10_000,
     },
     risks: ["The repositories must remain coherent"],
     unverified_boundaries: [],
+    verification_expectation: {
+      mode: "deterministic",
+      rationale: "The selected behavioral checks cover the planned change.",
+      escalation_triggers: ["scope_divergence"],
+    },
   };
 }
 
@@ -196,12 +203,18 @@ export function createOneRepositoryPlan(combinedCheckScript) {
           command_id: "api-check",
           executable: process.execPath,
           argv: ["-e", "const fs=require('node:fs');if(!fs.readFileSync('feature.txt','utf8').includes('api'))process.exit(2)"],
+          coverage_rationale: "Checks the delivered API behavior",
           timeout_ms: 10_000,
         },
       },
     ],
-    combined_check: { command_id: "combined-check", executable: process.execPath, argv: [combinedCheckScript], timeout_ms: 10_000 },
+    combined_check: { command_id: "combined-check", executable: process.execPath, argv: [combinedCheckScript], coverage_rationale: "Checks the combined repository contract", timeout_ms: 10_000 },
     risks: [],
     unverified_boundaries: [],
+    verification_expectation: {
+      mode: "deterministic",
+      rationale: "The selected behavioral checks cover the planned change.",
+      escalation_triggers: ["scope_divergence"],
+    },
   };
 }

@@ -117,6 +117,15 @@ describe("Runtime identity and evidence", () => {
   test("publishes strict operation schemas and validates tagged branches", () => {
     assert.equal(PLANNING_OUTCOME_SCHEMA.additionalProperties, false);
     assert.equal(EXECUTION_OUTCOME_SCHEMA.additionalProperties, false);
+    const planSchema =
+      PLANNING_OUTCOME_SCHEMA.properties.message.anyOf[0].properties.plan.anyOf[0];
+    assert.equal(planSchema.required.includes("verification_expectation"), true);
+    assert.equal(
+      planSchema.properties.combined_check.required.includes(
+        "coverage_rationale",
+      ),
+      true,
+    );
     const planOutcome = {
       type: "conversation_message",
       message: { text: "ready", plan: { work_units: [{}] } },

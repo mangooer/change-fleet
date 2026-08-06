@@ -59,7 +59,7 @@ describe("Runtime context admission", () => {
       enabled: false,
       skills: [],
     });
-    assert.equal(projection.schema_version, 6);
+    assert.equal(projection.schema_version, 7);
     assert.equal(controlContract.repository_selection_revision, 1);
     assert.equal(
       controlContract.repository_harness_selection_revision,
@@ -89,6 +89,12 @@ describe("Runtime context admission", () => {
           transcript: "must-not-project",
         },
       },
+      verificationPolicy: {
+        minimum_mode: "basic",
+        default_attempt_timeout_ms: 120_000,
+        max_attempt_timeout_ms: 600_000,
+        escalation_triggers: ["scope_divergence"],
+      },
     });
     assert.deepEqual(result.planning_conversation, {
       user_message: "Revise the current proposal.",
@@ -100,6 +106,7 @@ describe("Runtime context admission", () => {
       },
     });
     assert.equal(JSON.stringify(result).includes("must-not-project"), false);
+    assert.equal(result.verification_policy.minimum_mode, "basic");
   });
 
   test("projects only bounded current feedback and excludes finalization internals", () => {

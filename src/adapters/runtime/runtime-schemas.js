@@ -9,9 +9,30 @@ const COMMAND_SCHEMA = Object.freeze({
     command_id: { type: "string" },
     executable: { type: "string" },
     argv: STRING_ARRAY_SCHEMA,
+    coverage_rationale: { type: "string" },
     timeout_ms: { type: "integer", minimum: 1 },
   },
-  required: ["command_id", "executable", "argv", "timeout_ms"],
+  required: ["command_id", "executable", "argv", "coverage_rationale"],
+  additionalProperties: false,
+});
+
+const VERIFICATION_EXPECTATION_SCHEMA = Object.freeze({
+  type: "object",
+  properties: {
+    mode: {
+      type: "string",
+      enum: ["basic", "deterministic", "independent_review"],
+    },
+    rationale: { type: "string" },
+    escalation_triggers: {
+      type: "array",
+      items: {
+        type: "string",
+        enum: ["scope_divergence", "unverified_boundaries"],
+      },
+    },
+  },
+  required: ["mode", "rationale", "escalation_triggers"],
   additionalProperties: false,
 });
 
@@ -57,6 +78,7 @@ const PLAN_SCHEMA = Object.freeze({
       },
     },
     combined_check: COMMAND_SCHEMA,
+    verification_expectation: VERIFICATION_EXPECTATION_SCHEMA,
     risks: STRING_ARRAY_SCHEMA,
     unverified_boundaries: STRING_ARRAY_SCHEMA,
   },
@@ -65,6 +87,7 @@ const PLAN_SCHEMA = Object.freeze({
     "revision_feedback_assessments",
     "work_units",
     "combined_check",
+    "verification_expectation",
     "risks",
     "unverified_boundaries",
   ],

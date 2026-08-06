@@ -183,6 +183,9 @@ function projectExactChangeSet(state, project, planningMessage) {
             rationale: currentPlan.rationale,
             risks: [...currentPlan.risks],
             unverified_boundaries: [...currentPlan.unverified_boundaries],
+            verification_expectation: structuredClone(
+              currentPlan.verification_expectation,
+            ),
             work_units: currentPlan.work_units.map((unit) => ({
               work_unit_id: unit.work_unit_id,
               repository_id: unit.repository_id,
@@ -190,13 +193,17 @@ function projectExactChangeSet(state, project, planningMessage) {
               dependencies: [...unit.dependencies],
               target_ref: unit.target_ref,
               base_sha: unit.base_sha,
-              repository_check: {
-                command_id: unit.repository_check.command_id,
-                timeout_ms: unit.repository_check.timeout_ms,
+                repository_check: {
+                  command_id: unit.repository_check.command_id,
+                  coverage_rationale:
+                    unit.repository_check.coverage_rationale,
+                  timeout_ms: unit.repository_check.timeout_ms,
               },
             })),
             combined_check: {
               command_id: currentPlan.combined_check.command_id,
+              coverage_rationale:
+                currentPlan.combined_check.coverage_rationale,
               timeout_ms: currentPlan.combined_check.timeout_ms,
             },
           },
@@ -237,6 +244,17 @@ function projectExactChangeSet(state, project, planningMessage) {
                 base_sha: bundleCandidate.base_sha,
                 candidate_sha: bundleCandidate.candidate_sha,
                 changed_paths: [...(candidate?.changed_paths ?? [])],
+                verification_admission:
+                  candidate?.verification_admission_id === null ||
+                  candidate?.verification_admission_id === undefined
+                    ? null
+                    : structuredClone(
+                        (state.verification_admissions ?? []).find(
+                          (admission) =>
+                            admission.admission_id ===
+                            candidate.verification_admission_id,
+                        ) ?? null,
+                      ),
                 repository_evidence: {
                   evidence_id: bundleCandidate.repository_evidence.evidence_id,
                   evidence_hash:
@@ -256,6 +274,7 @@ function projectPlanContent(plan) {
     rationale: plan.rationale,
     risks: [...plan.risks],
     unverified_boundaries: [...plan.unverified_boundaries],
+    verification_expectation: structuredClone(plan.verification_expectation),
     work_units: plan.work_units.map((unit) => ({
       work_unit_id: unit.work_unit_id,
       repository_id: unit.repository_id,
@@ -265,11 +284,13 @@ function projectPlanContent(plan) {
       base_sha: unit.base_sha,
       repository_check: {
         command_id: unit.repository_check.command_id,
+        coverage_rationale: unit.repository_check.coverage_rationale,
         timeout_ms: unit.repository_check.timeout_ms,
       },
     })),
     combined_check: {
       command_id: plan.combined_check.command_id,
+      coverage_rationale: plan.combined_check.coverage_rationale,
       timeout_ms: plan.combined_check.timeout_ms,
     },
   };

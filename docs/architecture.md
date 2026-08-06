@@ -318,14 +318,19 @@ types, workspace names, review lifecycle, or `ProjectRuntime`.
 
 After Provider implementation completes, `CandidateFinalizer` removes and verifies frozen Harness
 overlays, publishes the exact Git subject, and persists a CandidateCheckpoint before starting a
-repository check. Each validation attempt appends immutable evidence; passing current evidence
-creates the ordinary Candidate.
+repository check. It records one immutable deterministic admission for that checkpoint from the
+frozen Project policy, confirmed Plan expectation, optional operator elevation, and exact final
+facts. `basic` or `deterministic` admission continues; `independent_review` fails closed until the
+separate Verification Runtime slice exists. Each validation attempt appends immutable evidence;
+passing current evidence creates the ordinary Candidate.
 
 Resume is a deterministic application operation with a new caller idempotency key. It rechecks
 current revisions, source Run, workspace ownership, clean exact HEAD, ancestry, changed paths, and
-the unchanged confirmed command before repository or combined validation. It never calls the Agent
-Runtime. A separate human-gated legacy operation may construct only the exact pre-checkpoint shape
-after the same proof and records distinct recovery provenance.
+the unchanged semantic check before repository or combined validation. A caller may change only an
+attempt timeout within the frozen Project maximum; requested and effective budgets remain immutable
+attempt evidence. Resume never calls the Agent Runtime. A separate human-gated legacy operation may
+construct only the exact pre-checkpoint shape after the same proof and records distinct recovery
+provenance.
 
 ### BundleAssembler
 
@@ -481,8 +486,9 @@ On restart:
 
 An exact current CandidateCheckpoint may resume repository validation, and an unchanged current
 Candidate set may resume combined validation, without a Runtime call. Failed attempts remain
-immutable evidence. Private pre-checkpoint recovery requires an explicit exact human gate and never
-becomes generic commit or workspace import.
+immutable evidence. An operational retry may use a different bounded timeout while preserving the
+same semantic check and exact subject. Private pre-checkpoint recovery requires an explicit exact
+human gate and never becomes generic commit or workspace import.
 
 Provider-native context may optimize continuation but is not lifecycle authority.
 The first real adapter abandons an incomplete Provider session after controller loss and starts a

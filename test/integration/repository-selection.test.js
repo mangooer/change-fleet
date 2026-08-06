@@ -356,6 +356,7 @@ function oneRepositoryPlan(repositoryId, combinedCheckScript) {
           command_id: `${repositoryId}-check`,
           executable: process.execPath,
           argv: ["-e", "process.exit(0)"],
+          coverage_rationale: `Checks the ${repositoryId} change`,
           timeout_ms: 10_000,
         },
       },
@@ -364,9 +365,15 @@ function oneRepositoryPlan(repositoryId, combinedCheckScript) {
       command_id: "combined-check",
       executable: process.execPath,
       argv: [combinedCheckScript],
+      coverage_rationale: "Checks the combined contract",
       timeout_ms: 10_000,
     },
     risks: [],
     unverified_boundaries: [],
+    verification_expectation: {
+      mode: "deterministic",
+      rationale: "The selected behavioral checks cover the change.",
+      escalation_triggers: ["scope_divergence"],
+    },
   };
 }

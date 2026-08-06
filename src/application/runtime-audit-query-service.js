@@ -5,7 +5,11 @@ import {
   normalizeLocale,
 } from "../domain/diagnostics.js";
 import { ChangeFleetError, invariant } from "../domain/errors.js";
-import { createValidationSubject, normalizeId } from "../domain/model.js";
+import {
+  candidateIdentity,
+  createValidationSubject,
+  normalizeId,
+} from "../domain/model.js";
 import {
   MAX_AUDIT_RUN_ROWS,
   USAGE_TOKEN_FIELDS,
@@ -223,10 +227,15 @@ export class RuntimeAuditQueryService {
       });
       if (item.candidate) validateRepositoryValidationSubject(record, item.candidate);
       if (item.bundle) validateCombinedValidationSubject(record, state, item.bundle);
+      if (item.attempt) {
+        validateValidationAttemptSubject(record, item.attempt, state);
+      }
       records.push({ ...item, record });
     }
     const uniqueRecords = deduplicateEvidence(records);
-    const rows = uniqueRecords.map(({ record }) => validationRow(record));
+    const rows = uniqueRecords.map(({ record, attempt }) =>
+      validationRow(record, attempt),
+    );
     const lifecycleFailures = (state.blockers ?? [])
       .filter((blocker) =>
         [
@@ -236,7 +245,7 @@ export class RuntimeAuditQueryService {
       )
       .map((blocker) => blocker.code);
     const outcomes = countValues(rows.map((row) => row.status));
-    if (lifecycleFailures.length > 0) {
+    if (lifecycleFailures.length > 0 && outcomes.failed === undefined) {
       outcomes.failed = 1;
     }
     if (rows.length === 0 && lifecycleFailures.length === 0) {
@@ -601,6 +610,16 @@ function runDetailRow(payload) {
 
 function collectValidationReferences(state) {
   const requested = [];
+  for (const attempt of state.validation_attempts ?? []) {
+    requested.push({
+      reference: attempt.evidence,
+      expected_kind: attempt.kind,
+      label: `Validation attempt ${attempt.validation_attempt_id}`,
+      attempt,
+      candidate: null,
+      bundle: null,
+    });
+  }
   for (const candidate of state.candidates ?? []) {
     if (!candidate.repository_evidence) continue;
     requested.push({
@@ -608,6 +627,7 @@ function collectValidationReferences(state) {
       expected_kind: "repository_validation",
       label: `Repository validation for ${candidate.candidate_id}`,
       candidate,
+      attempt: null,
     });
   }
   for (const bundle of state.bundles ?? []) {
@@ -617,6 +637,7 @@ function collectValidationReferences(state) {
         expected_kind: "repository_validation",
         label: `Bundle repository validation for ${candidate.candidate_id}`,
         candidate,
+        attempt: null,
       });
     }
     requested.push({
@@ -625,6 +646,7 @@ function collectValidationReferences(state) {
       label: `Combined validation for ${bundle.bundle_id}`,
       candidate: null,
       bundle,
+      attempt: null,
     });
   }
   return requested;
@@ -641,14 +663,14 @@ function deduplicateEvidence(records) {
       "One evidence id resolved to different immutable content",
       { evidence_id: item.record.evidence_id },
     );
-    unique.set(item.record.evidence_id, item);
+    if (existing === undefined) unique.set(item.record.evidence_id, item);
   }
   return [...unique.values()].sort((left, right) =>
     left.record.evidence_id.localeCompare(right.record.evidence_id),
   );
 }
 
-function validationRow(record) {
+function validationRow(record, attempt = null) {
   const command = record.payload?.command ?? null;
   const postflight = record.payload?.postflight ?? null;
   invariant(
@@ -675,9 +697,35 @@ function validationRow(record) {
     subject: structuredClone(record.subject),
     status,
     duration_ms:
-      Number.isSafeInteger(command?.duration_ms) && command.duration_ms >= 0
+      Number.isSafeInteger(attempt?.duration_ms) && attempt.duration_ms >= 0
+        ? attempt.duration_ms
+        : Number.isSafeInteger(command?.duration_ms) && command.duration_ms >= 0
         ? command.duration_ms
         : null,
+    attempt:
+      attempt === null
+        ? null
+        : {
+            validation_attempt_id: attempt.validation_attempt_id,
+            attempt: attempt.attempt,
+            recorded_status: attempt.status,
+            error_code: attempt.error_code,
+            check_identity: structuredClone(attempt.check_identity ?? null),
+            requested_budget: structuredClone(
+              attempt.requested_budget ?? null,
+            ),
+            effective_budget: structuredClone(
+              attempt.effective_budget ?? null,
+            ),
+            budget_source: attempt.budget_source ?? null,
+            budget_limit: structuredClone(attempt.budget_limit ?? null),
+            environment_identity: structuredClone(
+              attempt.environment_identity ?? null,
+            ),
+            started_at: attempt.started_at ?? null,
+            completed_at: attempt.completed_at ?? attempt.created_at ?? null,
+            duration_ms: attempt.duration_ms ?? null,
+          },
   };
 }
 
@@ -693,6 +741,60 @@ function validateRepositoryValidationSubject(record, candidate) {
   );
 }
 
+function validateValidationAttemptSubject(record, attempt, state) {
+  const identity = {
+    kind: attempt.kind,
+    subject_id: attempt.subject_id,
+    attempt: attempt.attempt,
+    evidence_id: attempt.evidence.evidence_id,
+  };
+  if (attempt.check_identity !== undefined && attempt.check_identity !== null) {
+    identity.check_identity_hash = attempt.check_identity.check_identity_hash;
+    identity.effective_budget = attempt.effective_budget;
+  }
+  invariant(
+    stableId("validation-attempt", identity) === attempt.validation_attempt_id,
+    "AUDIT_SOURCE_IDENTITY_MISMATCH",
+    "Validation attempt identity does not match its immutable fields",
+    { validation_attempt_id: attempt.validation_attempt_id },
+  );
+  if (attempt.kind === "repository_validation") {
+    const checkpoint = (state.candidate_checkpoints ?? []).find(
+      (item) => item.checkpoint_id === attempt.subject_id,
+    );
+    invariant(
+      checkpoint !== undefined,
+      "AUDIT_REQUIRED_REFERENCE_INVALID",
+      "Repository validation attempt does not bind an available checkpoint",
+      { validation_attempt_id: attempt.validation_attempt_id },
+    );
+    validateRepositoryValidationSubject(record, checkpoint);
+  } else {
+    invariant(
+      record.subject?.validation_subject_hash === attempt.subject_id,
+      "AUDIT_SOURCE_IDENTITY_MISMATCH",
+      "Combined validation attempt does not bind its evidence subject",
+      { validation_attempt_id: attempt.validation_attempt_id },
+    );
+  }
+  if (attempt.check_identity !== undefined && attempt.check_identity !== null) {
+    invariant(
+      sha256(attempt.check_identity) === sha256(record.payload?.check_identity) &&
+        sha256({
+          requested: attempt.requested_budget,
+          effective: attempt.effective_budget,
+          source: attempt.budget_source,
+          limit: attempt.budget_limit,
+        }) === sha256(record.payload?.attempt_budget) &&
+        sha256(attempt.environment_identity) ===
+          sha256(record.payload?.environment_identity),
+      "AUDIT_SOURCE_IDENTITY_MISMATCH",
+      "Validation attempt metadata does not match immutable evidence",
+      { validation_attempt_id: attempt.validation_attempt_id },
+    );
+  }
+}
+
 function validateCombinedValidationSubject(record, state, bundle) {
   const plan = state.plans.find(
     (candidate) => candidate.revision === bundle.plan_revision,
@@ -704,17 +806,48 @@ function validateCombinedValidationSubject(record, state, bundle) {
     { bundle_id: bundle.bundle_id, plan_revision: bundle.plan_revision },
   );
   const expected = createValidationSubject(state, plan, bundle.candidates);
+  const legacyExpected = createLegacyValidationSubject(
+    state,
+    plan,
+    bundle.candidates,
+  );
+  const evidenceSubjectHash = record.subject?.validation_subject_hash;
   invariant(
-    record.subject?.validation_subject_hash ===
-      expected.validation_subject_hash &&
+    [expected.validation_subject_hash, legacyExpected.validation_subject_hash].includes(
+      evidenceSubjectHash,
+    ) &&
       record.payload?.manifest?.validation_subject_hash ===
-        expected.validation_subject_hash &&
+        evidenceSubjectHash &&
       record.payload?.manifest?.change_set_id === state.change_set_id &&
       record.payload?.manifest?.plan_revision === bundle.plan_revision,
     "AUDIT_SOURCE_IDENTITY_MISMATCH",
     "Combined validation evidence does not bind the CandidateBundle subject",
     { evidence_id: record.evidence_id, bundle_id: bundle.bundle_id },
   );
+}
+
+function createLegacyValidationSubject(changeSet, plan, candidates) {
+  // v6 及更早版本把 timeout 放进检查身份；这里只为读取既有不可变证据重建旧哈希。
+  const subject = {
+    schema_version: 1,
+    change_set_id: changeSet.change_set_id,
+    plan_revision: plan.revision,
+    candidates: candidates
+      .map(candidateIdentity)
+      .sort((left, right) =>
+        left.repository_id.localeCompare(right.repository_id),
+      ),
+    required_check: {
+      command_id: plan.combined_check.command_id,
+      executable: plan.combined_check.executable,
+      argv: [...plan.combined_check.argv],
+      timeout_ms: plan.combined_check.timeout_ms,
+    },
+  };
+  return {
+    ...subject,
+    validation_subject_hash: sha256(subject),
+  };
 }
 
 function validateRuntimeEvidence(run, record) {

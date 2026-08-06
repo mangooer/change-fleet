@@ -24,7 +24,15 @@ export class CombinedValidator {
     this.clock = clock;
   }
 
-  async validate({ subject, candidates, repositories, command }) {
+  async validate({
+    subject,
+    candidates,
+    repositories,
+    command,
+    checkIdentity,
+    attemptBudget,
+    environmentIdentity,
+  }) {
     const validationDirectory = path.join(
       this.validationsRoot,
       subject.validation_subject_hash,
@@ -96,6 +104,9 @@ export class CombinedValidator {
         validation_subject_hash: subject.validation_subject_hash,
       },
       payload: {
+        check_identity: checkIdentity,
+        attempt_budget: attemptBudget,
+        environment_identity: environmentIdentity,
         manifest_hash: sha256(manifestBytes),
         manifest: canonicalize(manifest),
         preflight: errorProjection(preflightError),

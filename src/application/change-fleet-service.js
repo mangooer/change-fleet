@@ -29,6 +29,18 @@ import {
 import { normalizeAgentProfile } from "../domain/agent-profile.js";
 import { createRuntimeInvocationEvidence } from "../domain/runtime-evidence.js";
 import {
+  admissionModeAtLeast,
+  assertValidationAttemptBudgetRequestsMatchPlan,
+  createCheckIdentity,
+  createVerificationAdmissionDecision,
+  normalizeOperatorAdmissionMode,
+  normalizeValidationAttemptBudgetRequests,
+  normalizeVerificationPolicy,
+  resolveValidationAttemptBudget,
+  selectValidationAttemptBudgetRequest,
+  validationEnvironmentIdentity,
+} from "../domain/verification.js";
+import {
   HARNESS_SELECTION_MODES,
   createExactBaseHarnessSelection,
   createOverlayHarnessSelection,
@@ -160,6 +172,9 @@ export class ChangeFleetService {
     const normalizedProject = {
       project_id: project.project_id,
       description: optionalString(project.description),
+      verification_policy: normalizeVerificationPolicy(
+        project.verification_policy,
+      ),
       repositories,
       registered_at: this.now(),
     };
@@ -173,6 +188,9 @@ export class ChangeFleetService {
         default_target_ref: repository.default_target_ref,
       })),
     };
+    if (project.verification_policy !== undefined) {
+      fingerprintInput.verification_policy = normalizedProject.verification_policy;
+    }
 
     return this.controlStore.transactCatalog((catalog) =>
       applyIdempotentCommand({
@@ -348,6 +366,7 @@ export class ChangeFleetService {
       schema_version: CONTROL_SCHEMA_VERSION,
       change_set_id,
       project_id,
+      verification_policy: structuredClone(project.verification_policy),
       state: "analyzing",
       intents: [normalizedIntent],
       current_intent_revision: 1,
@@ -366,6 +385,7 @@ export class ChangeFleetService {
       work_units: [],
       run_references: [],
       candidate_checkpoints: [],
+      verification_admissions: [],
       validation_attempts: [],
       candidates: [],
       bundles: [],
@@ -1031,6 +1051,7 @@ export class ChangeFleetService {
         user_message: userMessage,
         current_approvable_message: currentApprovableMessage,
       },
+      verificationPolicy: initialState.verification_policy,
     });
     const invocation = {
       operation: "planning",
@@ -1436,6 +1457,7 @@ export class ChangeFleetService {
               workspace: null,
               run_references: [],
               candidate_checkpoint_id: null,
+              verification_admission_id: null,
               validation_attempt_ids: [],
               candidate: null,
               last_error: null,
@@ -1465,11 +1487,28 @@ export class ChangeFleetService {
     );
   }
 
-  async executeChangeSet({ idempotency_key, change_set_id }) {
+  async executeChangeSet({
+    idempotency_key,
+    change_set_id,
+    verification_admission_mode = null,
+    validation_attempt_budgets = [],
+  }) {
     // 单一 scheduler 所有者负责恢复和派发，防止多控制器重复执行 WorkUnit。
     normalizeId("idempotency_key", idempotency_key);
     normalizeId("change_set_id", change_set_id);
+    const operatorAdmissionMode = normalizeOperatorAdmissionMode(
+      verification_admission_mode,
+    );
+    const attemptBudgetRequests =
+      normalizeValidationAttemptBudgetRequests(validation_attempt_budgets);
+    // 缺省请求保持旧命令指纹，升级后重放既有幂等键不会因新增可选字段而冲突。
     const commandInput = { change_set_id };
+    if (operatorAdmissionMode !== null) {
+      commandInput.verification_admission_mode = operatorAdmissionMode;
+    }
+    if (attemptBudgetRequests.length > 0) {
+      commandInput.validation_attempt_budgets = attemptBudgetRequests;
+    }
     const initialState = await this.controlStore.readChangeSet(change_set_id);
     const initialCommand = existingCommand(
       initialState,
@@ -1543,6 +1582,10 @@ export class ChangeFleetService {
           "PLAN_CONFIRMATION_REQUIRED",
           "Current plan is not confirmed",
         );
+        assertValidationAttemptBudgetRequestsMatchPlan(
+          attemptBudgetRequests,
+          plan,
+        );
         const currentUnits = unitsForCurrentPlan(state);
         const incomplete = currentUnits.filter(
           (unit) => unit.state !== "candidate_ready",
@@ -1575,6 +1618,7 @@ export class ChangeFleetService {
           const executionResult = await this.executeWorkUnit(
             change_set_id,
             ready.work_unit_id,
+            { operatorAdmissionMode, attemptBudgetRequests },
           );
           if (executionResult?.status === "plan_invalidation_required") {
             return this.controlStore.transactChangeSet(change_set_id, (state) => {
@@ -1592,6 +1636,7 @@ export class ChangeFleetService {
           await this.resumeWorkUnitValidation(
             change_set_id,
             ready.work_unit_id,
+            { operatorAdmissionMode, attemptBudgetRequests },
           );
         }
       }
@@ -1627,6 +1672,14 @@ export class ChangeFleetService {
         candidates,
         repositories,
         command: plan.combined_check,
+        projectPolicy: beforeValidation.verification_policy,
+        budgetRequest: selectValidationAttemptBudgetRequest(
+          attemptBudgetRequests,
+          {
+            kind: "combined_validation",
+            commandId: plan.combined_check.command_id,
+          },
+        ),
       });
       const stateForBundle =
         await this.controlStore.readChangeSet(change_set_id);
@@ -2283,7 +2336,11 @@ export class ChangeFleetService {
     });
   }
 
-  async executeWorkUnit(changeSetId, workUnitId) {
+  async executeWorkUnit(
+    changeSetId,
+    workUnitId,
+    { operatorAdmissionMode = null, attemptBudgetRequests = [] } = {},
+  ) {
     // 先创建 Run 再标记 running，崩溃最多留下孤立记录，不留下无来源派发。
     const state = await this.controlStore.readChangeSet(changeSetId);
     const catalog = await this.controlStore.readCatalog();
@@ -2530,6 +2587,8 @@ export class ChangeFleetService {
         current.completed_at = runCompletedAt;
         current.outcome = {
           type: outcome.type,
+          // 只保留有界路径声明用于和最终 Git 主体做确定性比对，不保存 Agent 推理。
+          reported_changed_paths: [...outcome.changed_paths].sort(),
           revision_feedback_assessments: structuredClone(
             outcome.revision_feedback_assessments,
           ),
@@ -2685,7 +2744,10 @@ export class ChangeFleetService {
         current.updated_at = this.now();
       });
       checkpointPersisted = true;
-      return this.resumeWorkUnitValidation(changeSetId, workUnitId);
+      return this.resumeWorkUnitValidation(changeSetId, workUnitId, {
+        operatorAdmissionMode,
+        attemptBudgetRequests,
+      });
     } catch (error) {
       if (!checkpointPersisted) {
         await this.failWorkUnit(changeSetId, workUnitId, error);
@@ -2694,7 +2756,11 @@ export class ChangeFleetService {
     }
   }
 
-  async resumeWorkUnitValidation(changeSetId, workUnitId) {
+  async resumeWorkUnitValidation(
+    changeSetId,
+    workUnitId,
+    { operatorAdmissionMode = null, attemptBudgetRequests = [] } = {},
+  ) {
     // 恢复只消费持久化 Checkpoint，不创建 Run，也不调用 Runtime。
     const state = await this.controlStore.readChangeSet(changeSetId);
     const plan = currentPlan(state);
@@ -2741,21 +2807,116 @@ export class ChangeFleetService {
       "CANDIDATE_CHECKPOINT_RUN_MISMATCH",
       "CandidateCheckpoint source Run is not the exact completed implementation",
     );
+    let admission = (state.verification_admissions ?? []).find(
+      (item) => item.admission_id === workUnit.verification_admission_id,
+    );
+    if (admission) {
+      invariant(
+        operatorAdmissionMode === null ||
+          admissionModeAtLeast(admission.mode, operatorAdmissionMode),
+        "VERIFICATION_ADMISSION_ALREADY_DECIDED",
+        "The immutable admission decision cannot be elevated after validation began",
+      );
+    } else {
+      admission = createVerificationAdmissionDecision({
+        checkpointId: checkpoint.checkpoint_id,
+        projectPolicy: state.verification_policy,
+        planExpectation: plan.verification_expectation,
+        operatorMode: operatorAdmissionMode,
+        sourceReportedChangedPaths:
+          sourceRun.outcome.reported_changed_paths ?? checkpoint.changed_paths,
+        actualChangedPaths: checkpoint.changed_paths,
+        unverifiedBoundaries: plan.unverified_boundaries,
+        createdAt: this.now(),
+      });
+      await this.controlStore.transactChangeSet(changeSetId, (current) => {
+        const unit = unitsForCurrentPlan(current).find(
+          (item) => item.work_unit_id === workUnitId,
+        );
+        invariant(
+          unit?.candidate_checkpoint_id === checkpoint.checkpoint_id &&
+            unit.verification_admission_id === null,
+          "CANDIDATE_CHECKPOINT_STATE_MISMATCH",
+          "CandidateCheckpoint changed before verification admission",
+        );
+        current.verification_admissions.push(admission);
+        unit.verification_admission_id = admission.admission_id;
+        current.updated_at = this.now();
+      });
+    }
+    if (admission.mode === "independent_review") {
+      await this.controlStore.transactChangeSet(changeSetId, (current) => {
+        const unit = unitsForCurrentPlan(current).find(
+          (item) => item.work_unit_id === workUnitId,
+        );
+        unit.state = "verification_pending";
+        unit.last_error = {
+          code: "INDEPENDENT_VERIFICATION_REQUIRED",
+          message: "Independent verification is required but not implemented in this slice",
+          verification_admission_id: admission.admission_id,
+        };
+        current.state = "blocked";
+        if (
+          !current.blockers.some(
+            (blocker) =>
+              blocker.code === "INDEPENDENT_VERIFICATION_REQUIRED" &&
+              blocker.verification_admission_id === admission.admission_id &&
+              blocker.resolved_at === undefined,
+          )
+        ) {
+          current.blockers.push({
+            code: "INDEPENDENT_VERIFICATION_REQUIRED",
+            work_unit_id: workUnitId,
+            checkpoint_id: checkpoint.checkpoint_id,
+            verification_admission_id: admission.admission_id,
+          });
+        }
+        current.updated_at = this.now();
+      });
+      throw new ChangeFleetError(
+        "INDEPENDENT_VERIFICATION_REQUIRED",
+        "Independent verification is required for the exact CandidateCheckpoint",
+        { verification_admission_id: admission.admission_id },
+      );
+    }
     const catalog = await this.controlStore.readCatalog();
     const project = requireProject(catalog, state.project_id);
     const repository = project.repositories.find(
       (item) => item.repository_id === checkpoint.repository_id,
     );
     const attemptNumber = workUnit.validation_attempt_ids.length + 1;
+    const checkIdentity = createCheckIdentity(workUnit.repository_check);
+    const budgetRequest = selectValidationAttemptBudgetRequest(
+      attemptBudgetRequests,
+      {
+        kind: "repository_validation",
+        workUnitId,
+        commandId: workUnit.repository_check.command_id,
+      },
+    );
+    const attemptBudget = resolveValidationAttemptBudget({
+      command: workUnit.repository_check,
+      projectPolicy: state.verification_policy,
+      request: budgetRequest,
+    });
+    const environmentIdentity = validationEnvironmentIdentity();
+    const startedAt = this.now();
 
     let repositoryEvidence;
     try {
       repositoryEvidence = await this.validateRepositoryCandidate({
         repository,
         candidate: checkpoint,
-        command: workUnit.repository_check,
+        command: {
+          ...workUnit.repository_check,
+          timeout_ms: attemptBudget.effective.timeout_ms,
+        },
+        checkIdentity,
+        attemptBudget,
+        environmentIdentity,
       });
     } catch (error) {
+      const completedAt = this.now();
       const evidence = error.details?.evidence ?? null;
       const attempt = evidence
         ? createValidationAttempt({
@@ -2765,7 +2926,14 @@ export class ChangeFleetService {
             status: "failed",
             evidence,
             errorCode: error.code ?? "UNEXPECTED_ERROR",
-            createdAt: this.now(),
+            checkIdentity,
+            requestedBudget: attemptBudget.requested,
+            effectiveBudget: attemptBudget.effective,
+            budgetSource: attemptBudget.source,
+            budgetLimit: attemptBudget.limit,
+            environmentIdentity,
+            startedAt,
+            completedAt,
           })
         : null;
       await this.controlStore.transactChangeSet(changeSetId, (current) => {
@@ -2799,13 +2967,21 @@ export class ChangeFleetService {
       throw error;
     }
 
+    const completedAt = this.now();
     const attempt = createValidationAttempt({
       kind: "repository_validation",
       subjectId: checkpoint.checkpoint_id,
       attempt: attemptNumber,
       status: "passed",
       evidence: repositoryEvidence,
-      createdAt: this.now(),
+      checkIdentity,
+      requestedBudget: attemptBudget.requested,
+      effectiveBudget: attemptBudget.effective,
+      budgetSource: attemptBudget.source,
+      budgetLimit: attemptBudget.limit,
+      environmentIdentity,
+      startedAt,
+      completedAt,
     });
     const candidate = createCandidate({
       repositoryId: checkpoint.repository_id,
@@ -2816,6 +2992,7 @@ export class ChangeFleetService {
       workspacePath: checkpoint.workspace_path,
       changedPaths: checkpoint.changed_paths,
       repositoryEvidence,
+      verificationAdmissionId: admission.admission_id,
     });
     await this.controlStore.transactChangeSet(changeSetId, (current) => {
       const unit = unitsForCurrentPlan(current).find(
@@ -2844,7 +3021,14 @@ export class ChangeFleetService {
     return candidate;
   }
 
-  async validateRepositoryCandidate({ repository, candidate, command }) {
+  async validateRepositoryCandidate({
+    repository,
+    candidate,
+    command,
+    checkIdentity,
+    attemptBudget,
+    environmentIdentity,
+  }) {
     // 包括 spawn 失败在内的每次尝试都先写 Evidence，再把引用附到控制聚合。
     let preflightError = null;
     try {
@@ -2881,6 +3065,9 @@ export class ChangeFleetService {
         candidate_sha: candidate.candidate_sha,
       },
       payload: {
+        check_identity: checkIdentity,
+        attempt_budget: attemptBudget,
+        environment_identity: environmentIdentity,
         preflight: validationErrorProjection(preflightError),
         command:
           commandResult ?? {
@@ -2938,6 +3125,8 @@ export class ChangeFleetService {
     candidates,
     repositories,
     command,
+    projectPolicy,
+    budgetRequest,
   }) {
     const before = await this.controlStore.readChangeSet(changeSetId);
     const attemptNumber =
@@ -2946,20 +3135,42 @@ export class ChangeFleetService {
           attempt.kind === "combined_validation" &&
           attempt.subject_id === subject.validation_subject_hash,
       ).length + 1;
+    const checkIdentity = createCheckIdentity(command);
+    const attemptBudget = resolveValidationAttemptBudget({
+      command,
+      projectPolicy,
+      request: budgetRequest,
+    });
+    const environmentIdentity = validationEnvironmentIdentity();
+    const startedAt = this.now();
     try {
       const evidence = await this.combinedValidator.validate({
         subject,
         candidates,
         repositories,
-        command,
+        command: {
+          ...command,
+          timeout_ms: attemptBudget.effective.timeout_ms,
+        },
+        checkIdentity,
+        attemptBudget,
+        environmentIdentity,
       });
+      const completedAt = this.now();
       const attempt = createValidationAttempt({
         kind: "combined_validation",
         subjectId: subject.validation_subject_hash,
         attempt: attemptNumber,
         status: "passed",
         evidence,
-        createdAt: this.now(),
+        checkIdentity,
+        requestedBudget: attemptBudget.requested,
+        effectiveBudget: attemptBudget.effective,
+        budgetSource: attemptBudget.source,
+        budgetLimit: attemptBudget.limit,
+        environmentIdentity,
+        startedAt,
+        completedAt,
       });
       await this.controlStore.transactChangeSet(changeSetId, (state) => {
         state.validation_attempts.push(attempt);
@@ -2971,6 +3182,7 @@ export class ChangeFleetService {
       });
       return evidence;
     } catch (error) {
+      const completedAt = this.now();
       const evidence = error.details?.evidence ?? null;
       const attempt = evidence
         ? createValidationAttempt({
@@ -2980,7 +3192,14 @@ export class ChangeFleetService {
             status: "failed",
             evidence,
             errorCode: error.code ?? "UNEXPECTED_ERROR",
-            createdAt: this.now(),
+            checkIdentity,
+            requestedBudget: attemptBudget.requested,
+            effectiveBudget: attemptBudget.effective,
+            budgetSource: attemptBudget.source,
+            budgetLimit: attemptBudget.limit,
+            environmentIdentity,
+            startedAt,
+            completedAt,
           })
         : null;
       await this.controlStore.transactChangeSet(changeSetId, (state) => {

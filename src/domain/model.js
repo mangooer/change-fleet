@@ -5,6 +5,11 @@ import {
   stableId,
 } from "./canonical-json.js";
 import { invariant } from "./errors.js";
+import {
+  createCheckIdentity,
+  normalizeVerificationExpectation,
+  normalizeVerificationPolicy,
+} from "./verification.js";
 
 // 领域模块保持纯函数：只验证输入与构造稳定身份，不读取 Git、文件或当前时间。
 const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
@@ -200,22 +205,36 @@ export function normalizeRepositorySelectionRequest(
   };
 }
 
-export function normalizeCommand(input, label = "command") {
+export function normalizeCommand(
+  input,
+  label = "command",
+  { defaultTimeoutMs = 120_000, maxTimeoutMs = 600_000 } = {},
+) {
   invariant(
     input && typeof input === "object",
     "INVALID_COMMAND",
     `${label} is required`,
   );
-  return {
+  const command = {
     command_id: normalizeId(`${label}.command_id`, input.command_id),
     executable: requireString(`${label}.executable`, input.executable),
     argv: normalizeStringArray(input.argv),
+    coverage_rationale: requireString(
+      `${label}.coverage_rationale`,
+      input.coverage_rationale,
+    ),
     timeout_ms: normalizePositiveInteger(
       `${label}.timeout_ms`,
       input.timeout_ms,
-      120_000,
+      defaultTimeoutMs,
     ),
   };
+  invariant(
+    command.timeout_ms <= maxTimeoutMs,
+    "VALIDATION_ATTEMPT_BUDGET_EXCEEDED",
+    `${label}.timeout_ms exceeds the Project validation maximum`,
+  );
+  return command;
 }
 
 export function normalizePlanContent(
@@ -255,6 +274,9 @@ export function normalizePlanContent(
 
   const authorizedRepositories = new Set(
     project.repositories.map((repository) => repository.repository_id),
+  );
+  const verificationPolicy = normalizeVerificationPolicy(
+    project.verification_policy,
   );
   const seenUnits = new Set();
   const seenRepositories = new Set();
@@ -303,6 +325,10 @@ export function normalizePlanContent(
       repository_check: normalizeCommand(
         workUnit.repository_check,
         `${workUnitId}.repository_check`,
+        {
+          defaultTimeoutMs: verificationPolicy.default_attempt_timeout_ms,
+          maxTimeoutMs: verificationPolicy.max_attempt_timeout_ms,
+        },
       ),
     };
   });
@@ -329,7 +355,13 @@ export function normalizePlanContent(
       revisionFeedback,
     ),
     work_units: workUnits,
-    combined_check: normalizeCommand(input.combined_check, "combined_check"),
+    combined_check: normalizeCommand(input.combined_check, "combined_check", {
+      defaultTimeoutMs: verificationPolicy.default_attempt_timeout_ms,
+      maxTimeoutMs: verificationPolicy.max_attempt_timeout_ms,
+    }),
+    verification_expectation: normalizeVerificationExpectation(
+      input.verification_expectation,
+    ),
     risks: normalizeStringArray(input.risks),
     unverified_boundaries: normalizeStringArray(input.unverified_boundaries),
   };
@@ -403,7 +435,8 @@ export function createValidationSubject(changeSet, plan, candidates) {
     change_set_id: changeSet.change_set_id,
     plan_revision: plan.revision,
     candidates: exactCandidates,
-    required_check: plan.combined_check,
+    // 尝试超时不属于语义检查身份，因此预算变化不会制造新的验证主体。
+    required_check: createCheckIdentity(plan.combined_check),
   };
   return {
     ...subject,
@@ -420,6 +453,7 @@ export function createCandidate({
   workspacePath,
   changedPaths,
   repositoryEvidence,
+  verificationAdmissionId = null,
 }) {
   const identity = {
     repository_id: repositoryId,
@@ -434,6 +468,10 @@ export function createCandidate({
     workspace_path: workspacePath,
     changed_paths: [...changedPaths].sort(),
     repository_evidence: repositoryEvidence,
+    verification_admission_id:
+      verificationAdmissionId === null
+        ? null
+        : normalizeId("verification_admission_id", verificationAdmissionId),
   };
 }
 
@@ -511,7 +549,14 @@ export function createValidationAttempt({
   status,
   evidence,
   errorCode = null,
-  createdAt,
+  checkIdentity,
+  requestedBudget,
+  effectiveBudget,
+  budgetSource,
+  budgetLimit,
+  environmentIdentity,
+  startedAt,
+  completedAt,
 }) {
   // 聚合只保存有界尝试索引；完整输出继续由不可变 EvidenceStore 外置。
   invariant(
@@ -527,21 +572,102 @@ export function createValidationAttempt({
   validateEvidenceReference(evidence, "validation attempt evidence");
   const normalizedAttempt = requirePositiveInteger("attempt", attempt);
   const normalizedSubjectId = normalizeId("validation_subject_id", subjectId);
+  invariant(
+    checkIdentity?.check_identity_hash ===
+      createCheckIdentity(checkIdentity).check_identity_hash,
+    "INVALID_VALIDATION_ATTEMPT",
+    "Validation attempt check identity is invalid",
+  );
+  validateAttemptBudgetMetadata({
+    requestedBudget,
+    effectiveBudget,
+    budgetSource,
+    budgetLimit,
+    environmentIdentity,
+  });
+  const startedMs = Date.parse(requireString("started_at", startedAt));
+  const completedMs = Date.parse(requireString("completed_at", completedAt));
+  invariant(
+    Number.isFinite(startedMs) && Number.isFinite(completedMs) && completedMs >= startedMs,
+    "INVALID_VALIDATION_ATTEMPT",
+    "Validation attempt timestamps are invalid",
+  );
   return {
     validation_attempt_id: stableId("validation-attempt", {
       kind,
       subject_id: normalizedSubjectId,
       attempt: normalizedAttempt,
       evidence_id: evidence.evidence_id,
+      check_identity_hash: checkIdentity.check_identity_hash,
+      effective_budget: effectiveBudget,
     }),
     kind,
     subject_id: normalizedSubjectId,
     attempt: normalizedAttempt,
     status,
     evidence: structuredClone(evidence),
+    check_identity: structuredClone(checkIdentity),
+    requested_budget: structuredClone(requestedBudget),
+    effective_budget: structuredClone(effectiveBudget),
+    budget_source: requireString("budget_source", budgetSource),
+    budget_limit: structuredClone(budgetLimit),
+    environment_identity: structuredClone(environmentIdentity),
+    started_at: startedAt,
+    completed_at: completedAt,
+    duration_ms: completedMs - startedMs,
     error_code: errorCode === null ? null : normalizeId("error_code", errorCode),
-    created_at: requireString("created_at", createdAt),
+    created_at: completedAt,
   };
+}
+
+function validateAttemptBudgetMetadata({
+  requestedBudget,
+  effectiveBudget,
+  budgetSource,
+  budgetLimit,
+  environmentIdentity,
+}) {
+  // 尝试记录必须自足，审计读取不需要重新解释当时的 Project 或 Plan 默认值。
+  invariant(
+    requestedBudget &&
+      Object.keys(requestedBudget).length === 1 &&
+      (requestedBudget.timeout_ms === null ||
+        (Number.isSafeInteger(requestedBudget.timeout_ms) &&
+          requestedBudget.timeout_ms > 0)),
+    "INVALID_VALIDATION_ATTEMPT",
+    "Validation attempt requested budget is invalid",
+  );
+  invariant(
+    effectiveBudget &&
+      Object.keys(effectiveBudget).length === 1 &&
+      Number.isSafeInteger(effectiveBudget.timeout_ms) &&
+      effectiveBudget.timeout_ms > 0,
+    "INVALID_VALIDATION_ATTEMPT",
+    "Validation attempt effective budget is invalid",
+  );
+  invariant(
+    ["operator", "plan_default", "project_default"].includes(budgetSource),
+    "INVALID_VALIDATION_ATTEMPT",
+    "Validation attempt budget source is invalid",
+  );
+  invariant(
+    budgetLimit &&
+      Object.keys(budgetLimit).length === 1 &&
+      Number.isSafeInteger(budgetLimit.max_timeout_ms) &&
+      budgetLimit.max_timeout_ms >= effectiveBudget.timeout_ms,
+    "INVALID_VALIDATION_ATTEMPT",
+    "Validation attempt budget limit is invalid",
+  );
+  invariant(
+    environmentIdentity &&
+      ["platform", "architecture", "controller_node_version"].every(
+        (key) =>
+          typeof environmentIdentity[key] === "string" &&
+          environmentIdentity[key].length > 0,
+      ),
+    "INVALID_VALIDATION_ATTEMPT",
+    "Validation attempt environment identity is invalid",
+  );
 }
 
 export function createCandidateBundle({
@@ -587,6 +713,7 @@ export function createCandidateBundle({
       ...candidateIdentity(candidate),
       candidate_id: candidate.candidate_id,
       repository_evidence: candidate.repository_evidence,
+      verification_admission_id: candidate.verification_admission_id,
     })),
     combined_validation_evidence: combinedEvidence,
     missing_work_units: [],

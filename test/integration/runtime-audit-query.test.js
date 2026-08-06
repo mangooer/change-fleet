@@ -98,6 +98,15 @@ describe("read-only Runtime audit queries", () => {
       candidate_ready: 1,
     });
     assert.deepEqual(changeAudit.payload.outcomes.validation, { passed: 2 });
+    assert.equal(changeAudit.payload.validation.referenced_count, 2);
+    assert.equal(
+      changeAudit.payload.validation.rows.every(
+        (row) =>
+          row.attempt?.effective_budget?.timeout_ms === 10_000 &&
+          typeof row.attempt.check_identity?.check_identity_hash === "string",
+      ),
+      true,
+    );
     assert.deepEqual(changeAudit.payload.outcomes.human_review, { accept: 1 });
     assert.equal(changeAudit.payload.outcomes.delivery.reason, "not_started");
     assert.equal(runAudit.payload.usage.canonical.coverage, "aggregate_only");

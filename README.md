@@ -86,7 +86,8 @@ owns the exact-base and immutable local-overlay boundary.
 
 Repository Design Proposals and Development WorkItems govern this repository. They are not
 ChangeFleet Runtime outputs. Runtime coordination uses ChangeSet, ChangePlanRevision, WorkUnit,
-Run, CandidateCheckpoint, ValidationAttempt, Candidate, and CandidateBundle records.
+Run, CandidateCheckpoint, VerificationAdmissionDecision, ValidationAttempt, Candidate, and
+CandidateBundle records.
 
 ## Product Vocabulary
 
@@ -96,6 +97,8 @@ Run, CandidateCheckpoint, ValidationAttempt, Candidate, and CandidateBundle reco
 - **ChangePlan**: a versioned, code-informed proposal for repositories, ordering, and checks.
 - **WorkUnit**: one repository-scoped execution unit within a ChangeSet.
 - **CandidateCheckpoint**: an exact published Git subject awaiting or resuming validation.
+- **VerificationAdmissionDecision**: the immutable deterministic verification mode for one exact
+  CandidateCheckpoint.
 - **Candidate**: one immutable repository result identified by base and candidate SHAs.
 - **CandidateBundle**: the exact set of Candidates reviewed as one coherent change.
 - **DeliveryTarget**: the repository branch or integration destination for one Candidate.

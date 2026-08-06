@@ -167,6 +167,16 @@ only route back to planning. Migration must deterministically retire incompatibl
 Plan records. This shared domain, store, Runtime, CLI, and UI contract selects the Node.js 24 full
 deterministic check and one authorized real Provider planning flow.
 
+Decision 0024's first deterministic slice requires direct domain tests for admission precedence,
+fast-path bounds, immutable identity, check identity, and attempt-budget maxima; store migration
+tests for frozen Project policy and legacy Plans; and exact CandidateCheckpoint integration proving
+bounded timeout retry without a Plan revision or Runtime invocation. Audit tests must bind attempt
+metadata to immutable EvidenceStore content and keep it outside ordinary Runtime context. Because
+this slice changes shared domain, schema, store, lifecycle, recovery, and audit contracts, its final
+stable subject runs the Node.js 24 full deterministic check. A real Provider, browser, GitHub write,
+or independent Verification Runtime gate is excluded because those boundaries are unchanged or
+explicitly deferred.
+
 Decision 0018 requires close-only tests for exact request fields, bounded reasons, idempotent replay,
 quiescent unfinished states, active Run or command rejection, begun-delivery rejection, and terminal
 rejection. Restart and audit checks must prove that prior Runtime usage and all immutable subjects

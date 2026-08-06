@@ -3,7 +3,7 @@ import { invariant } from "./errors.js";
 
 // Runtime 只接收当前操作所需投影；完整历史留在控制存储中按引用读取。
 export const CONTROL_CONTRACT_VERSION = 3;
-export const CONTEXT_PROJECTION_VERSION = 6;
+export const CONTEXT_PROJECTION_VERSION = 7;
 const RUNTIME_EXCLUDED_DECISION_TYPES = new Set([
   "bundle_review",
   "legacy_candidate_recovery",
@@ -53,6 +53,7 @@ export function createContextProjection({
   requiredEvidence,
   historyReferences = [],
   planningConversation = null,
+  verificationPolicy = null,
 }) {
   return {
     schema_version: CONTEXT_PROJECTION_VERSION,
@@ -60,6 +61,8 @@ export function createContextProjection({
     change_set_id: changeSet.change_set_id,
     confirmed_intent: changeSet.intents.at(-1),
     current_plan: plan,
+    verification_policy:
+      verificationPolicy === null ? null : structuredClone(verificationPolicy),
     // 只投影当前选择，不把已废弃 revision 历史灌入 Agent 上下文。
     repository_selection: repositorySelection,
     repository_harness_selection: repositoryHarnessSelection,

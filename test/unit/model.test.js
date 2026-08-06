@@ -15,11 +15,13 @@ import {
   normalizeRepositorySelectionRequest,
   normalizeRevisionFeedback,
 } from "../../src/domain/model.js";
+import { createCheckIdentity } from "../../src/domain/verification.js";
 
 const command = {
   command_id: "check",
   executable: "node",
   argv: ["-e", "process.exit(0)"],
+  coverage_rationale: "Covers the planned behavior",
   timeout_ms: 1_000,
 };
 
@@ -43,6 +45,11 @@ function planInput(overrides = {}) {
       },
     ],
     combined_check: { ...command, command_id: "combined" },
+    verification_expectation: {
+      mode: "deterministic",
+      rationale: "The behavioral checks cover this plan.",
+      escalation_triggers: ["scope_divergence"],
+    },
     ...overrides,
   };
 }
@@ -398,7 +405,18 @@ describe("domain model", () => {
         evidence_hash: "c".repeat(64),
       },
       errorCode: "COMMAND_SPAWN_FAILED",
-      createdAt: "2026-08-04T00:00:01.000Z",
+      checkIdentity: createCheckIdentity(command),
+      requestedBudget: { timeout_ms: null },
+      effectiveBudget: { timeout_ms: 1_000 },
+      budgetSource: "plan_default",
+      budgetLimit: { max_timeout_ms: 10_000 },
+      environmentIdentity: {
+        platform: "test",
+        architecture: "test",
+        controller_node_version: "test",
+      },
+      startedAt: "2026-08-04T00:00:00.000Z",
+      completedAt: "2026-08-04T00:00:01.000Z",
     });
     assert.equal(attempt.subject_id, checkpoint.checkpoint_id);
     assert.equal(attempt.status, "failed");

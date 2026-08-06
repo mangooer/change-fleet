@@ -24,6 +24,7 @@ describe("post-Provider Candidate finalization recovery", () => {
       command_id: "late-check",
       executable: commandName,
       argv: [],
+      coverage_rationale: "Checks the exact recovered Candidate",
       timeout_ms: 300,
     };
     const binRoot = path.join(fixture.root, "bin");
@@ -115,11 +116,23 @@ describe("post-Provider Candidate finalization recovery", () => {
       }),
       { code: "REPOSITORY_VALIDATION_FAILED" },
     );
-    await writePassingLauncher(binRoot, commandName);
+    await writeLauncher(
+      binRoot,
+      commandName,
+      "setTimeout(() => process.exit(0), 500);",
+    );
 
     const result = await reopened.executeChangeSet({
       idempotency_key: "execute-resume",
       change_set_id: "change-1",
+      validation_attempt_budgets: [
+        {
+          kind: "repository_validation",
+          work_unit_id: "api-unit",
+          command_id: "late-check",
+          timeout_ms: 2_000,
+        },
+      ],
     });
     const recovered = await reopened.readChangeSet("change-1");
     assert.equal(result.bundle_revision, 1);
@@ -138,7 +151,77 @@ describe("post-Provider Candidate finalization recovery", () => {
     assert.equal(repositoryEvidence[2].payload.command.timed_out, true);
     assert.equal(repositoryEvidence[3].payload.command.output_overflow, true);
     assert.equal(repositoryEvidence[4].payload.command.exit_code, 7);
+    const repositoryAttempts = recovered.validation_attempts.filter(
+      (attempt) => attempt.kind === "repository_validation",
+    );
+    assert.deepEqual(repositoryAttempts.at(-1).requested_budget, {
+      timeout_ms: 2_000,
+    });
+    assert.deepEqual(repositoryAttempts.at(-1).effective_budget, {
+      timeout_ms: 2_000,
+    });
+    assert.equal(
+      new Set(
+        repositoryAttempts.map(
+          (attempt) => attempt.check_identity.check_identity_hash,
+        ),
+      ).size,
+      1,
+    );
+    assert.equal(recovered.current_plan_revision, 1);
     assert.equal(noRuntime.invocations.length, 0);
+  });
+
+  test("records a basic fast path without another Runtime invocation", async (t) => {
+    const fixture = await createFixture(t, "basic-admission");
+    fixture.plan.verification_expectation = {
+      mode: "basic",
+      rationale: "The fixture is an obvious bounded deterministic change.",
+      escalation_triggers: ["scope_divergence"],
+    };
+    const runtime = new ScriptedRuntime({ plan: fixture.plan });
+    const service = await bootstrap(fixture, runtime);
+
+    const result = await service.executeChangeSet({
+      idempotency_key: "execute-basic",
+      change_set_id: "change-1",
+    });
+    const state = await service.readChangeSet("change-1");
+
+    assert.equal(result.bundle_revision, 1);
+    assert.equal(state.verification_admissions.length, 1);
+    assert.equal(state.verification_admissions[0].mode, "basic");
+    assert.equal(
+      runtime.invocations.filter((invocation) => invocation.operation === "execution")
+        .length,
+      1,
+    );
+  });
+
+  test("persists independent-review admission and fails closed in this slice", async (t) => {
+    const fixture = await createFixture(t, "independent-admission");
+    const runtime = new ScriptedRuntime({ plan: fixture.plan });
+    const service = await bootstrap(fixture, runtime);
+
+    await assert.rejects(
+      service.executeChangeSet({
+        idempotency_key: "execute-independent",
+        change_set_id: "change-1",
+        verification_admission_mode: "independent_review",
+      }),
+      { code: "INDEPENDENT_VERIFICATION_REQUIRED" },
+    );
+    const state = await service.readChangeSet("change-1");
+    assert.equal(state.verification_admissions.length, 1);
+    assert.equal(state.verification_admissions[0].mode, "independent_review");
+    assert.equal(state.work_units[0].state, "verification_pending");
+    assert.equal(state.candidates.length, 0);
+    assert.equal(state.validation_attempts.length, 0);
+    assert.equal(
+      runtime.invocations.filter((invocation) => invocation.operation === "execution")
+        .length,
+      1,
+    );
   });
 
   test("requires an exact human gate for a private pre-checkpoint record", async (t) => {
@@ -148,6 +231,7 @@ describe("post-Provider Candidate finalization recovery", () => {
       command_id: "legacy-check",
       executable: commandName,
       argv: [],
+      coverage_rationale: "Checks the exact legacy Candidate",
       timeout_ms: 10_000,
     };
     const binRoot = path.join(fixture.root, "bin");
