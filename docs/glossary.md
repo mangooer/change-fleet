@@ -149,3 +149,9 @@ One bounded `triage` or `deep_review` result from a read-only Verification Runti
 exact CandidateCheckpoint, admission decision, Run, and any Runner-executed additional checks. Its
 verdict may permit Candidate creation, require correction, record non-blocking notes, or request a
 human decision. It is not Bundle acceptance and cannot edit the reviewed Git subject.
+
+An initial `changes_required` review may source one bounded same-Plan correction sequence. The
+correction is an ordinary `Run` with operation `correction`, not a new aggregate: it records exact
+finding assessments and, after publication, the real old-to-new Candidate delta. One later
+`focused` VerificationReview binds that source review and correction Run. Another blocking result
+or unresolved choice requires human judgment and cannot recursively start another correction.

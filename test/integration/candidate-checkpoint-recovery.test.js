@@ -285,26 +285,169 @@ describe("post-Provider Candidate finalization recovery", () => {
     );
   });
 
-  test("persists blocking findings without creating a Candidate", async (t) => {
+  test("corrects adopted findings under the same Plan and binds one focused review", async (t) => {
+    const fixture = await createFixture(t, "verification-correction");
+    const sourceFinding = blockingVerificationOutcome("correctness-adopted");
+    const runtime = new ScriptedRuntime({
+      plan: fixture.plan,
+      verificationOutcomes: [sourceFinding, passingVerificationOutcome()],
+      correctionFileContent: "api corrected implementation\n",
+      correctionOutcome: {
+        type: "implementation_completed",
+        summary: "Applied the exact accepted review finding.",
+        changed_paths: ["feature.txt"],
+        blocker: null,
+      },
+    });
+    const service = await bootstrap(fixture, runtime);
+
+    const result = await service.executeChangeSet({
+      idempotency_key: "execute-corrected-review",
+      change_set_id: "change-1",
+      verification_admission_mode: "independent_review",
+    });
+    const state = await service.readChangeSet("change-1");
+    const unit = state.work_units[0];
+    const [initialReview, focusedReview] = state.verification_reviews;
+    const correctionInvocation = runtime.invocations.find(
+      (invocation) => invocation.operation === "correction",
+    );
+    const focusedInvocation = runtime.invocations
+      .filter((invocation) => invocation.operation === "verification")
+      .at(-1);
+
+    assert.equal(result.bundle_revision, 1);
+    assert.equal(state.current_plan_revision, 1);
+    assert.equal(state.candidate_checkpoints.length, 2);
+    assert.notEqual(
+      state.candidate_checkpoints[0].candidate_sha,
+      state.candidate_checkpoints[1].candidate_sha,
+    );
+    assert.equal(unit.correction_run_references.length, 1);
+    assert.equal(unit.correction_run_references[0].status, "completed");
+    assert.equal(initialReview.review_scope, "initial");
+    assert.equal(initialReview.verdict, "changes_required");
+    assert.equal(focusedReview.review_scope, "focused");
+    assert.equal(focusedReview.source_review_id, initialReview.review_id);
+    assert.equal(
+      focusedReview.correction_run_id,
+      unit.correction_run_references[0].run_id,
+    );
+    assert.equal(unit.candidate.verification_review_id, focusedReview.review_id);
+    assert.equal(
+      correctionInvocation.context_projection.correction.source_review.findings[0]
+        .finding_id,
+      "correctness-adopted",
+    );
+    assert.equal(
+      focusedInvocation.context_projection.verification.focus.correction.run_id,
+      unit.correction_run_references[0].run_id,
+    );
+    assert.deepEqual(
+      focusedInvocation.context_projection.verification.focus.correction
+        .actual_changed_paths,
+      ["feature.txt"],
+    );
+    assert.equal(
+      focusedInvocation.context_projection.verification.focus.source_review
+        .candidate.candidate_sha,
+      state.candidate_checkpoints[0].candidate_sha,
+    );
+    assert.equal(
+      correctionInvocation.context_projection.correction.source_review
+        .validation_attempts[0].kind,
+      "repository_validation",
+    );
+    assert.equal(
+      runtime.invocations.filter((invocation) => invocation.operation === "execution")
+        .length,
+      1,
+    );
+    assert.equal(
+      runtime.invocations.filter((invocation) => invocation.operation === "correction")
+        .length,
+      1,
+    );
+    assert.equal(
+      runtime.invocations.filter((invocation) => invocation.operation === "verification")
+        .length,
+      2,
+    );
+  });
+
+  test("preserves the exact checkpoint when every finding is explicitly declined", async (t) => {
+    const fixture = await createFixture(t, "verification-no-change-correction");
+    const findingId = "correctness-declined";
+    const runtime = new ScriptedRuntime({
+      plan: fixture.plan,
+      verificationOutcomes: [
+        blockingVerificationOutcome(findingId),
+        passingVerificationOutcome(),
+      ],
+      correctionOutcome: {
+        type: "implementation_completed",
+        summary: "The exact finding was assessed and requires no Git change.",
+        changed_paths: [],
+        blocker: null,
+        revision_feedback_assessments: [
+          {
+            finding_id: findingId,
+            disposition: "decline",
+            rationale: "The exact Candidate already satisfies the confirmed contract.",
+          },
+        ],
+      },
+    });
+    const service = await bootstrap(fixture, runtime);
+
+    await service.executeChangeSet({
+      idempotency_key: "execute-no-change-correction",
+      change_set_id: "change-1",
+      verification_admission_mode: "independent_review",
+    });
+    const state = await service.readChangeSet("change-1");
+    const unit = state.work_units[0];
+    const correctionRun = await service.runStore.read(
+      unit.correction_run_references[0].run_id,
+    );
+
+    assert.equal(state.candidate_checkpoints.length, 1);
+    assert.equal(state.verification_admissions.length, 1);
+    assert.equal(state.verification_reviews.length, 2);
+    assert.equal(state.verification_reviews[1].review_scope, "focused");
+    assert.equal(
+      state.verification_reviews[1].checkpoint_id,
+      state.candidate_checkpoints[0].checkpoint_id,
+    );
+    assert.equal(
+      unit.candidate.candidate_sha,
+      state.candidate_checkpoints[0].candidate_sha,
+    );
+    assert.deepEqual(correctionRun.outcome.revision_feedback_assessments, [
+      {
+        finding_id: findingId,
+        disposition: "decline",
+        rationale: "The exact Candidate already satisfies the confirmed contract.",
+      },
+    ]);
+    assert.deepEqual(correctionRun.outcome.actual_changed_paths, []);
+    assert.equal(correctionRun.outcome.no_change, true);
+  });
+
+  test("routes one unresolved focused review to a human without another correction", async (t) => {
     const fixture = await createFixture(t, "verification-blocking");
     const runtime = new ScriptedRuntime({
       plan: fixture.plan,
-      verificationOutcome: {
-        type: "verification_completed",
-        review_depth: "deep_review",
-        verdict: "changes_required",
-        summary: "The implementation violates the confirmed output contract.",
-        findings: [
-          {
-            finding_id: "correctness-1",
-            category: "correctness",
-            message: "The exact Candidate writes the wrong public value.",
-            path: "feature.txt",
-          },
-        ],
-        notes: [],
-        human_decision: null,
-        requested_checks: [],
+      verificationOutcomes: [
+        blockingVerificationOutcome("correctness-initial"),
+        blockingVerificationOutcome("correctness-focused"),
+      ],
+      correctionFileContent: "api still disputed\n",
+      correctionOutcome: {
+        type: "implementation_completed",
+        summary: "Applied the first finding but the focused reviewer still disagrees.",
+        changed_paths: ["feature.txt"],
+        blocker: null,
       },
     });
     const service = await bootstrap(fixture, runtime);
@@ -315,12 +458,151 @@ describe("post-Provider Candidate finalization recovery", () => {
         change_set_id: "change-1",
         verification_admission_mode: "independent_review",
       }),
-      { code: "VERIFICATION_CHANGES_REQUIRED" },
+      { code: "VERIFICATION_FOCUSED_REVIEW_UNRESOLVED" },
     );
     const state = await service.readChangeSet("change-1");
-    assert.equal(state.verification_reviews[0].verdict, "changes_required");
-    assert.equal(state.work_units[0].state, "verification_changes_required");
+    assert.equal(state.state, "decision_required");
+    assert.equal(state.verification_reviews.length, 2);
+    assert.equal(state.verification_reviews[1].review_scope, "focused");
+    assert.equal(
+      state.work_units[0].state,
+      "verification_human_decision_required",
+    );
+    assert.equal(state.work_units[0].correction_run_references.length, 1);
     assert.equal(state.candidates.length, 0);
+    assert.equal(
+      runtime.invocations.filter((invocation) => invocation.operation === "correction")
+        .length,
+      1,
+    );
+    assert.equal(
+      runtime.invocations.filter((invocation) => invocation.operation === "verification")
+        .length,
+      2,
+    );
+  });
+
+  test("abandons an interrupted correction and retries it without repeating execution", async (t) => {
+    const fixture = await createFixture(t, "correction-restart");
+    const interruptedRuntime = new InterruptingCorrectionRuntime({
+      plan: fixture.plan,
+      verificationOutcomes: [
+        blockingVerificationOutcome("correctness-restart"),
+      ],
+    });
+    const service = await bootstrap(fixture, interruptedRuntime);
+    await assert.rejects(
+      service.executeChangeSet({
+        idempotency_key: "execute-interrupted-correction",
+        change_set_id: "change-1",
+        verification_admission_mode: "independent_review",
+      }),
+      { code: "CONTROLLER_INTERRUPTED" },
+    );
+
+    const retryRuntime = new ScriptedRuntime({
+      plan: fixture.plan,
+      verificationOutcomes: [passingVerificationOutcome()],
+      correctionFileContent: "api corrected after restart\n",
+      correctionOutcome: {
+        type: "implementation_completed",
+        summary: "Completed the exact correction after controller restart.",
+        changed_paths: ["feature.txt"],
+        blocker: null,
+      },
+    });
+    const reopened = await open(fixture, retryRuntime);
+    const result = await reopened.executeChangeSet({
+      idempotency_key: "execute-restarted-correction",
+      change_set_id: "change-1",
+    });
+    const state = await reopened.readChangeSet("change-1");
+
+    assert.equal(result.bundle_revision, 1);
+    assert.deepEqual(
+      state.work_units[0].correction_run_references.map((reference) =>
+        reference.status,
+      ),
+      ["abandoned", "completed"],
+    );
+    assert.equal(
+      retryRuntime.invocations.filter((invocation) => invocation.operation === "execution")
+        .length,
+      0,
+    );
+    assert.equal(
+      retryRuntime.invocations.filter((invocation) => invocation.operation === "correction")
+        .length,
+      1,
+    );
+    assert.equal(state.candidates.length, 1);
+    assert.equal(state.verification_reviews.length, 2);
+  });
+
+  test("retries an interrupted focused review without repeating its completed correction", async (t) => {
+    const fixture = await createFixture(t, "focused-review-restart");
+    const interruptedRuntime = new InterruptingFocusedVerificationRuntime({
+      plan: fixture.plan,
+      verificationOutcomes: [
+        blockingVerificationOutcome("correctness-focused-restart"),
+      ],
+      correctionFileContent: "api corrected before focused restart\n",
+      correctionOutcome: {
+        type: "implementation_completed",
+        summary: "Completed the correction before focused review interruption.",
+        changed_paths: ["feature.txt"],
+        blocker: null,
+      },
+    });
+    const service = await bootstrap(fixture, interruptedRuntime);
+    await assert.rejects(
+      service.executeChangeSet({
+        idempotency_key: "execute-interrupted-focused-review",
+        change_set_id: "change-1",
+        verification_admission_mode: "independent_review",
+      }),
+      { code: "CONTROLLER_INTERRUPTED" },
+    );
+
+    const retryRuntime = new ScriptedRuntime({
+      plan: fixture.plan,
+      verificationOutcomes: [passingVerificationOutcome()],
+    });
+    const reopened = await open(fixture, retryRuntime);
+    const result = await reopened.executeChangeSet({
+      idempotency_key: "execute-restarted-focused-review",
+      change_set_id: "change-1",
+    });
+    const state = await reopened.readChangeSet("change-1");
+
+    assert.equal(result.bundle_revision, 1);
+    assert.equal(state.work_units[0].correction_run_references.length, 1);
+    assert.deepEqual(
+      state.work_units[0].verification_run_references.map((reference) => [
+        reference.review_scope,
+        reference.status,
+      ]),
+      [
+        ["initial", "completed"],
+        ["focused", "abandoned"],
+        ["focused", "completed"],
+      ],
+    );
+    assert.equal(
+      retryRuntime.invocations.filter((invocation) => invocation.operation === "execution")
+        .length,
+      0,
+    );
+    assert.equal(
+      retryRuntime.invocations.filter((invocation) => invocation.operation === "correction")
+        .length,
+      0,
+    );
+    assert.equal(
+      retryRuntime.invocations.filter((invocation) => invocation.operation === "verification")
+        .length,
+      1,
+    );
   });
 
   test("fails closed when the read-only Runtime modifies its disposable workspace", async (t) => {
@@ -681,4 +963,80 @@ class InterruptingVerificationRuntime extends ScriptedRuntime {
     }
     return super.invoke(invocation);
   }
+}
+
+class InterruptingCorrectionRuntime extends ScriptedRuntime {
+  constructor(options) {
+    super(options);
+    this.correctionInterrupted = false;
+  }
+
+  async invoke(invocation) {
+    if (
+      invocation.operation === "correction" &&
+      !this.correctionInterrupted
+    ) {
+      this.correctionInterrupted = true;
+      this.invocations.push(structuredClone(invocation));
+      throw new ChangeFleetError(
+        "CONTROLLER_INTERRUPTED",
+        "Simulated controller loss during same-Plan correction",
+      );
+    }
+    return super.invoke(invocation);
+  }
+}
+
+class InterruptingFocusedVerificationRuntime extends ScriptedRuntime {
+  constructor(options) {
+    super(options);
+    this.observedVerificationCount = 0;
+  }
+
+  async invoke(invocation) {
+    if (invocation.operation === "verification") {
+      this.observedVerificationCount += 1;
+      if (this.observedVerificationCount === 2) {
+        this.invocations.push(structuredClone(invocation));
+        throw new ChangeFleetError(
+          "CONTROLLER_INTERRUPTED",
+          "Simulated controller loss during focused re-review",
+        );
+      }
+    }
+    return super.invoke(invocation);
+  }
+}
+
+function blockingVerificationOutcome(findingId) {
+  return {
+    type: "verification_completed",
+    review_depth: "deep_review",
+    verdict: "changes_required",
+    summary: "The exact Candidate has one blocking correctness finding.",
+    findings: [
+      {
+        finding_id: findingId,
+        category: "correctness",
+        message: "The exact Candidate writes the wrong public value.",
+        path: "feature.txt",
+      },
+    ],
+    notes: [],
+    human_decision: null,
+    requested_checks: [],
+  };
+}
+
+function passingVerificationOutcome() {
+  return {
+    type: "verification_completed",
+    review_depth: "triage",
+    verdict: "pass",
+    summary: "The focused review found no remaining blocking issue.",
+    findings: [],
+    notes: [],
+    human_decision: null,
+    requested_checks: [],
+  };
 }

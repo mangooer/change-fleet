@@ -189,8 +189,53 @@ describe("independent verification outcomes", () => {
     });
 
     assert.equal(review.verdict, "pass_with_notes");
+    assert.equal(review.review_scope, "initial");
     assert.equal(review.requested_checks[0].command_id, "verification-compatibility");
     assert.equal(verificationReviewAllowsCandidate(review), true);
+  });
+
+  test("binds one focused review to its source finding and correction Run", () => {
+    const outcome = normalizeVerificationOutcome(
+      {
+        type: "verification_completed",
+        review_depth: "triage",
+        verdict: "pass",
+        summary: "The prior blocking finding is resolved.",
+        findings: [],
+        notes: [],
+        human_decision: null,
+        requested_checks: [],
+      },
+      { projectPolicy: {}, existingCommandIds: [] },
+    );
+    const review = createVerificationReview({
+      admissionId: "admission-focused",
+      checkpoint: verificationCheckpoint(),
+      runId: "run-focused-review",
+      outcome,
+      validationAttemptIds: [],
+      checkStatus: "not_required",
+      reviewScope: "focused",
+      sourceReviewId: "review-source",
+      correctionRunId: "run-correction",
+      createdAt: "2026-08-06T00:00:02.000Z",
+    });
+
+    assert.equal(review.review_scope, "focused");
+    assert.equal(review.source_review_id, "review-source");
+    assert.equal(review.correction_run_id, "run-correction");
+    assert.throws(() =>
+      createVerificationReview({
+        admissionId: "admission-focused",
+        checkpoint: verificationCheckpoint(),
+        runId: "run-focused-invalid",
+        outcome,
+        validationAttemptIds: [],
+        checkStatus: "not_required",
+        reviewScope: "focused",
+        createdAt: "2026-08-06T00:00:03.000Z",
+      }),
+    );
   });
 
   test("rejects optional improvements as blockers and inconsistent verdict branches", () => {

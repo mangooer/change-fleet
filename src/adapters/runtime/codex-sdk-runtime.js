@@ -200,7 +200,7 @@ function assertInvocationCapability(
 ) {
   invariant(
     invocation &&
-      ["planning", "execution", "verification"].includes(
+      ["planning", "execution", "correction", "verification"].includes(
         invocation.operation,
       ) &&
       invocation.capabilities &&
@@ -210,7 +210,7 @@ function assertInvocationCapability(
     "Codex Runtime requires an operation-scoped non-empty path capability",
   );
   invariant(
-    invocation.operation === "execution"
+    ["execution", "correction"].includes(invocation.operation)
       ? invocation.capabilities.mode === "read_write"
       : invocation.capabilities.mode === "read_only",
     "INVALID_RUNTIME_INVOCATION",
@@ -284,7 +284,9 @@ function threadPermissionOptions(profile, operation) {
     };
   }
   return {
-    sandboxMode: operation === "execution" ? "workspace-write" : "read-only",
+    sandboxMode: ["execution", "correction"].includes(operation)
+      ? "workspace-write"
+      : "read-only",
     networkAccessEnabled: false,
     webSearchMode: "disabled",
     approvalPolicy: "never",
@@ -318,9 +320,24 @@ function buildPrompt(invocation) {
           "Return implementation_completed with blocker null after the repository files are ready for controller-owned publication, including revision_feedback_assessments.",
           "If unavailable tools, permissions, missing information, or another blocker prevents inspection, editing, or verification, return implementation_blocked with a bounded blocker code and message; never label an unchanged workspace implementation_completed.",
         ].join(" ");
+  } else if (invocation.operation === "correction") {
+    // 修正提示只处理当前来源 finding，并明确允许有证据的拒绝与零 Git 变更。
+    operationInstruction = [
+      `CURRENT WORKUNIT TASK: ${invocation.context_projection.work_unit.task}`,
+      "This is one bounded correction under the unchanged confirmed Plan, not a new Plan or permission to expand scope.",
+      "Treat every source verification finding as a claim. Return exactly one revision_feedback_assessment for every finding_id using adopt, adapt, or decline with a concise evidence-based rationale.",
+      "Implement adopted or adapted corrections in the supplied writable workspace. A fully declined assessment may leave Git unchanged; never manufacture an empty or unrelated edit.",
+      "Use plan_invalidation_required only when exact workspace evidence proves the confirmed Plan materially unsound. Ordinary disagreement with a finding stays in its assessment.",
+      "Run the WorkUnit repository check before completion when the workspace changed. Do not commit, change refs, or modify ChangeFleet control state.",
+      "Return implementation_completed with blocker null and the complete assessment array, or a bounded implementation_blocked result when work cannot proceed.",
+    ].join(" ");
   } else {
+    const focusedInstruction = invocation.context_projection.verification?.focus
+      ? "This is the single focused re-review. Evaluate only the prior blocking findings, the correction assessments, and the correction delta. Do not start another broad review or introduce unrelated optional work."
+      : "This is the initial independent review.";
     operationInstruction = [
       "Review the exact Candidate in the supplied disposable workspace. Do not edit files, change Git state, commit, or change refs.",
+      focusedInstruction,
       "Inspect the exact base-to-Candidate diff, confirmed intent and Plan, repository-native guidance, completed deterministic evidence, and explicit unverified boundaries.",
       "Choose triage when the bounded facts are sufficient; choose deep_review when semantic inspection is necessary. This is one review depth decision inside this same Run, not a request for another reviewer.",
       "Return exactly verification_completed with one verdict: pass, pass_with_notes, changes_required, or human_decision_required.",

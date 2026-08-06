@@ -297,7 +297,10 @@ export const VERIFICATION_OUTCOME_SCHEMA = Object.freeze({
 export function schemaForOperation(operation) {
   // 未知操作必须在调用 Provider 前失败，不能退回无结构文本。
   if (operation === "planning") return PLANNING_OUTCOME_SCHEMA;
-  if (operation === "execution") return EXECUTION_OUTCOME_SCHEMA;
+  // 修正与执行共享终态结构，但仍以独立 operation 记录权限、成本和生命周期。
+  if (operation === "execution" || operation === "correction") {
+    return EXECUTION_OUTCOME_SCHEMA;
+  }
   if (operation === "verification") return VERIFICATION_OUTCOME_SCHEMA;
   throw new Error(`Unsupported Runtime operation ${operation}`);
 }
@@ -358,7 +361,7 @@ export function assertStructuredOutcome(operation, outcome) {
     return outcome;
   }
   if (
-    operation === "execution" &&
+    ["execution", "correction"].includes(operation) &&
     outcome.type === "implementation_completed" &&
     typeof outcome.summary === "string" &&
     Array.isArray(outcome.changed_paths) &&
@@ -369,7 +372,7 @@ export function assertStructuredOutcome(operation, outcome) {
     return outcome;
   }
   if (
-    operation === "execution" &&
+    ["execution", "correction"].includes(operation) &&
     outcome.type === "implementation_blocked" &&
     typeof outcome.summary === "string" &&
     Array.isArray(outcome.changed_paths) &&
@@ -384,7 +387,7 @@ export function assertStructuredOutcome(operation, outcome) {
     return outcome;
   }
   if (
-    operation === "execution" &&
+    ["execution", "correction"].includes(operation) &&
     outcome.type === "plan_invalidation_required" &&
     typeof outcome.summary === "string" &&
     Array.isArray(outcome.changed_paths) &&

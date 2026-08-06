@@ -7,11 +7,13 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 
 ## Current Baseline
 
-- WI-0001 through WI-0017 are complete. WI-0009 entered `main` through merge commit `f8fd77f`;
+- WI-0001 through WI-0018 are complete. WI-0009 entered `main` through merge commit `f8fd77f`;
   WI-0015 implements conversation-first planning and stage-scoped feedback. Abandoned predecessor
   attempts remain audit history rather than current authority.
 - WI-0016 and WI-0017 directly implement deterministic admission, attempt budgets, and the optional
   read-only Verification Runtime without a self-iteration ChangeSet.
+- WI-0018 implements one bounded same-Plan correction sequence, exact repository revalidation, one
+  focused re-review, restart recovery, and separate correction cost attribution.
 - Agent Runtimes own semantic work. ChangeFleet owns cross-repository authorization, revisions,
   scheduling, exact Git and Bundle subjects, evidence, recovery, and human gates.
 
@@ -50,35 +52,15 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
   CandidateCheckpoint and cannot enter validation or review.
 - Candidate verification freezes policy and exact-checkpoint admission. Its optional read-only
   Runtime binds requested-check evidence and separate usage, and can retry without repeating a
-  passed repository check. Correction and focused re-review remain unimplemented.
+  passed repository check. One initial blocking review may start same-Plan correction; changed or
+  assessed no-change results retain exact checkpoint lineage, and focused disagreement stops at a
+  human gate without another automatic loop.
 
 ## Accepted Decisions
 
-- [0001](decisions/0001-control-plane-boundary.md) sets the control-plane boundary;
-  [0002](decisions/0002-changeset-and-bundle-aggregate.md) the aggregate and Bundle;
-  [0003](decisions/0003-minimal-repository-catalog.md) the catalog; and
-  [0004](decisions/0004-concurrency-delivery-and-compensation.md) concurrency and compensation.
-- [0005](decisions/0005-runtime-context-harness-and-capabilities.md) governs context and Harness;
-  [0006](decisions/0006-first-vertical-slice-implementation-boundary.md) the first stack;
-  [0007](decisions/0007-variable-scope-and-localized-diagnostics.md) variable scope; and
-  [0008](decisions/0008-change-set-repository-selection.md) exact base selection.
-- [0009](decisions/0009-runtime-observability-evidence-boundary.md) governs Runtime evidence;
-  [0010](decisions/0010-first-real-codex-sdk-provider.md) the Codex Provider;
-  [0011](decisions/0011-exact-repository-harness-snapshots-and-local-overlays.md) local Harness; and
-  [0012](decisions/0012-read-only-runtime-audit-projections.md) audit projections.
-- [0013](decisions/0013-local-read-only-audit-entry-point.md) exposes exact audit reads;
-  [0014](decisions/0014-shared-application-commands-and-unified-local-cli.md) shared operations;
-  [0015](decisions/0015-exact-github-pull-request-delivery.md) GitHub delivery; and
-  [0016](decisions/0016-local-review-and-delivery-console.md) the local review console;
-  [0017](decisions/0017-post-provider-candidate-finalization-and-recovery.md) finalization recovery;
-  [0018](decisions/0018-explicit-changeset-closure.md) explicit closure;
-  [0019](decisions/0019-durable-codex-runtime-home-and-pre-candidate-retry.md) clean pre-Candidate
-  retry; [0020](decisions/0020-provider-environment-ownership-boundary.md) external Provider
-  environment ownership; [0021](decisions/0021-provider-owned-host-permissions-and-multi-repository-workspaces.md)
-  Provider-owned host permissions; [0022](decisions/0022-explicit-revision-feedback-assessment.md)
-  explicit feedback assessment; and [0023](decisions/0023-conversation-first-planning-and-stage-scoped-feedback.md)
-  conversation-first planning and stage-scoped correction; [0024](decisions/0024-risk-adaptive-candidate-verification.md)
-  risk-adaptive Candidate verification and optional independent review.
+- The [Decision Index](decisions/README.md) owns the complete rationale map. Latest accepted
+  Decision 0024 defines risk-adaptive Candidate verification, same-Plan correction, bounded focused
+  re-review, and independent cost attribution.
 
 ## Repository Design Proposals
 
@@ -86,7 +68,7 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
   and deferred boundaries.
 - Accepted Proposals through 0021 are landed through WI-0015. Accepted
   [0022](proposals/0022-risk-adaptive-candidate-verification.md) is recorded by Decision 0024 and
-  has its first two slices completed through WI-0016 and WI-0017.
+  has its first three slices completed through WI-0016, WI-0017, and WI-0018.
 
 ## Open Questions
 
@@ -98,15 +80,16 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 - Git URLs, remote workers, merge, deployment, service graph, and stacked ChangeSets are deferred.
 - Native-Windows single-Repository use passed; other hosts and paid multi-Repository work are unverified.
 - Codex SDK usage is aggregate-only; effective model and universal host read-denial remain unknown.
-- Same-Plan correction, focused re-review, Candidate-set-level independent review, and their UI
-  states remain deferred after the read-only per-checkpoint Verification Runtime slice.
+- Candidate-set-level independent review and the new verification, correction, and human-gate UI
+  states remain deferred.
 - Runtime Kit, Codex App Server, another Provider, Linear, pricing, dashboards, and continuous
   context enforcement are deferred.
 
 ## Next Recommended Task
 
-Discuss whether the next Decision 0024 slice should add bounded same-Plan correction and focused
-re-review before any UI work.
+Discuss the minimal shared human-resolution operation and existing-console states for verification
+notes, correction progress, and focused-review disagreement before implementing Decision 0024's
+fourth slice.
 
 ## Maintenance Contract
 

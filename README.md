@@ -216,6 +216,14 @@ feedback is projected to correction execution under the current confirmed Plan. 
 Run assesses every finding as `adopt`, `adapt`, or `decline`. Only a typed Plan invalidation returns
 to planning; prior review and conversation artifacts stay linked outside Runtime context.
 
+An independent Candidate review that returns `changes_required` follows the same rule: ChangeFleet
+starts one bounded correction sequence under the unchanged Plan in the existing writable WorkUnit
+workspace. A changed correction publishes a descendant checkpoint; a fully assessed no-change
+correction preserves the original checkpoint. Exact repository validation then precedes one focused
+read-only re-review. A second blocking verdict or unresolved choice stops at a human gate instead
+of starting another automatic correction. Correction and focused-review Runs are separately
+auditable, while their costs and historical output stay outside ordinary Runtime input.
+
 `changeset close` accepts only `idempotency_key`, `change_set_id`, `actor`, and a `reason` with one
 of `no_longer_needed`, `restart_on_new_base`, `route_abandoned`, `duplicate`, or `other` plus a
 bounded `summary`. It abandons only a quiescent pre-delivery ChangeSet; it does not create, choose,

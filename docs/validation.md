@@ -186,6 +186,19 @@ Node.js 24 full deterministic check and one authorized real Codex Provider flow 
 new Provider operation. Browser and GitHub write gates remain excluded because their behavior is
 unchanged.
 
+Decision 0024's third slice requires strict per-finding correction assessment and focused-review
+lineage tests; deterministic Codex adapter coverage for the writable `correction` operation;
+Real-Git integration for changed and assessed no-change correction, descendant checkpoint identity,
+exact repository revalidation, one focused review, and human escalation without a second automatic
+correction; and restart coverage for interrupted correction and focused review without repeating a
+completed semantic stage. Context tests must expose only current findings, bounded passing evidence
+references, assessments, and exact old-to-new delta. Audit tests separately attribute correction
+and both verification Runs while excluding totals from Runtime input. Store migration moves v8
+records to v9 with empty correction lineage and initial review scope. The final stable subject runs
+the Node.js 24 full deterministic check and one authorized real Codex Provider flow because it adds
+a Provider operation. Browser and GitHub write gates remain excluded because their behavior is
+unchanged.
+
 Decision 0018 requires close-only tests for exact request fields, bounded reasons, idempotent replay,
 quiescent unfinished states, active Run or command rejection, begun-delivery rejection, and terminal
 rejection. Restart and audit checks must prove that prior Runtime usage and all immutable subjects

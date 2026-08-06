@@ -310,6 +310,9 @@ export function createVerificationReview({
   outcome,
   validationAttemptIds,
   checkStatus,
+  reviewScope = "initial",
+  sourceReviewId = null,
+  correctionRunId = null,
   createdAt,
 }) {
   // Review 只保存有界结论和不可变尝试引用；完整 Provider 证据继续留在 Run/EvidenceStore。
@@ -338,6 +341,19 @@ export function createVerificationReview({
     "INVALID_VERIFICATION_REVIEW",
     "Verification check status does not match requested checks",
   );
+  invariant(
+    reviewScope === "initial" || reviewScope === "focused",
+    "INVALID_VERIFICATION_REVIEW",
+    "Verification review scope must be initial or focused",
+  );
+  invariant(
+    reviewScope === "initial"
+      ? sourceReviewId === null && correctionRunId === null
+      : typeof sourceReviewId === "string" &&
+          typeof correctionRunId === "string",
+    "INVALID_VERIFICATION_REVIEW",
+    "Focused verification requires exact source review and correction Run lineage",
+  );
   const subject = {
     repository_id: normalizeCompactId(checkpoint.repository_id),
     target_ref: requiredString("target_ref", checkpoint.target_ref),
@@ -360,6 +376,11 @@ export function createVerificationReview({
     requested_checks: outcome.requested_checks.map(createCheckIdentity),
     validation_attempt_ids: attemptIds,
     check_status: checkStatus,
+    review_scope: reviewScope,
+    source_review_id:
+      sourceReviewId === null ? null : normalizeCompactId(sourceReviewId),
+    correction_run_id:
+      correctionRunId === null ? null : normalizeCompactId(correctionRunId),
   };
   return {
     schema_version: 1,

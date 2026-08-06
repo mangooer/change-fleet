@@ -779,6 +779,7 @@ export class RepositoryWorker {
     repository,
     workspace,
     expectedHead,
+    baseSha = expectedHead,
     message,
   }) {
     await this.assertWorkspaceOwnership(repository, workspace.workspace_path);
@@ -805,6 +806,16 @@ export class RepositoryWorker {
 
     const candidateSha = await resolveCommit(workspace.workspace_path, "HEAD");
     const changedPaths =
+      candidateSha === baseSha
+        ? []
+        : splitLines(
+            await git(workspace.workspace_path, [
+              "diff",
+              "--name-only",
+              `${baseSha}..${candidateSha}`,
+            ]),
+          );
+    const roundChangedPaths =
       candidateSha === expectedHead
         ? []
         : splitLines(
@@ -817,11 +828,14 @@ export class RepositoryWorker {
     const candidate = {
       repository_id: repository.repository_id,
       target_ref: workspace.target_ref,
-      base_sha: expectedHead,
+      base_sha: baseSha,
       candidate_sha: candidateSha,
       workspace_id: workspace.workspace_id,
       workspace_path: workspace.workspace_path,
       changed_paths: changedPaths,
+      // 修正复用原始 base，但聚焦复审还需要本轮旧 Candidate 到新 Candidate 的真实差异。
+      round_changed_paths: roundChangedPaths,
+      // no_change 只比较本轮起点；correction 可以保留原始 Candidate base 身份。
       no_change: candidateSha === expectedHead,
     };
     await this.preflightCandidate({ repository, candidate });

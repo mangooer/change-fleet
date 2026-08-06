@@ -1471,6 +1471,8 @@ export class ChangeFleetService {
               verification_admission_id: null,
               verification_run_references: [],
               verification_review_id: null,
+              correction_run_references: [],
+              correction_source_review_id: null,
               validation_attempt_ids: [],
               candidate: null,
               last_error: null,
@@ -1562,7 +1564,10 @@ export class ChangeFleetService {
             ["ready", "executing", "validating"].includes(state.state) ||
               (state.state === "failed" &&
                 (hasResumableValidation(state) ||
-                  hasRetryableExecution(state))),
+                  hasRetryableExecution(state) ||
+                  hasResumableCorrection(state))) ||
+              (state.state === "blocked" &&
+                hasCorrectableVerification(state)),
             "PLAN_CONFIRMATION_REQUIRED",
             `ChangeSet cannot execute from state ${state.state}`,
           );
@@ -1612,6 +1617,9 @@ export class ChangeFleetService {
               "validation_failed",
               "verification_pending",
               "verification_failed",
+              "verification_changes_required",
+              "correction_pending",
+              "correction_failed",
             ].includes(unit.state) &&
             unit.dependencies.every(
               (dependency) =>
@@ -1631,30 +1639,50 @@ export class ChangeFleetService {
             })),
           },
         );
+        let executionResult = null;
         if (ready.state === "pending") {
-          const executionResult = await this.executeWorkUnit(
+          executionResult = await this.executeWorkUnit(
             change_set_id,
             ready.work_unit_id,
             { operatorAdmissionMode, attemptBudgetRequests },
           );
-          if (executionResult?.status === "plan_invalidation_required") {
-            return this.controlStore.transactChangeSet(change_set_id, (state) => {
-              const result = {
-                change_set_id,
-                status: "replanning",
-                plan_revision: executionResult.plan_revision,
-                run_id: executionResult.run_id,
-              };
-              completeCommand(state, idempotency_key, result, this.now());
-              return structuredClone(result);
-            });
-          }
+        } else if (
+          [
+            "verification_changes_required",
+            "correction_pending",
+            "correction_failed",
+          ].includes(ready.state)
+        ) {
+          // 初审 finding 与恢复中的修正都回到同一 Plan，不经过规划 Runtime。
+          executionResult = await this.executeWorkUnit(
+            change_set_id,
+            ready.work_unit_id,
+            {
+              operatorAdmissionMode,
+              attemptBudgetRequests,
+              correctionReviewId:
+                ready.correction_source_review_id ??
+                ready.verification_review_id,
+            },
+          );
         } else {
-          await this.resumeWorkUnitValidation(
+          executionResult = await this.resumeWorkUnitValidation(
             change_set_id,
             ready.work_unit_id,
             { operatorAdmissionMode, attemptBudgetRequests },
           );
+        }
+        if (executionResult?.status === "plan_invalidation_required") {
+          return this.controlStore.transactChangeSet(change_set_id, (state) => {
+            const result = {
+              change_set_id,
+              status: "replanning",
+              plan_revision: executionResult.plan_revision,
+              run_id: executionResult.run_id,
+            };
+            completeCommand(state, idempotency_key, result, this.now());
+            return structuredClone(result);
+          });
         }
       }
 
@@ -2004,6 +2032,9 @@ export class ChangeFleetService {
               workUnit.state = "pending";
               workUnit.workspace = null;
               workUnit.candidate_checkpoint_id = null;
+              workUnit.verification_admission_id = null;
+              workUnit.verification_review_id = null;
+              workUnit.correction_source_review_id = null;
               workUnit.validation_attempt_ids = [];
               workUnit.candidate = null;
               workUnit.last_error = null;
@@ -2138,6 +2169,7 @@ export class ChangeFleetService {
 
   async recoverInterruptedRuns(changeSetId) {
     // 明确中断可重试；终态 Run 与 running WorkUnit 冲突时阻塞，不能猜测结果。
+    await this.recoverInterruptedCorrectionRuns(changeSetId);
     await this.recoverInterruptedVerificationRuns(changeSetId);
     const state = await this.controlStore.readChangeSet(changeSetId);
     const running = unitsForCurrentPlan(state).filter(
@@ -2217,6 +2249,99 @@ export class ChangeFleetService {
         : "executing";
       current.updated_at = this.now();
     });
+  }
+
+  async recoverInterruptedCorrectionRuns(changeSetId) {
+    // 只放弃没有终态证据的修正；已完成或状态含糊的 Run 必须阻塞，不能重复语义修改。
+    const state = await this.controlStore.readChangeSet(changeSetId);
+    const correcting = unitsForCurrentPlan(state).filter(
+      (unit) => unit.state === "correcting",
+    );
+    if (correcting.length === 0) return;
+    const recovered = [];
+    for (const workUnit of correcting) {
+      const reference = workUnit.correction_run_references.at(-1);
+      const run = reference ? await this.runStore.read(reference.run_id) : null;
+      if (run?.status === "running" && !run.runtime_evidence) {
+        const completedAt = this.now();
+        await this.recordRuntimeEvidence({
+          runId: run.run_id,
+          invocation: null,
+          providerEvidence: null,
+          terminal: {
+            status: "abandoned",
+            outcome_type: "controller_restart",
+            error_code: null,
+            completed_at: completedAt,
+          },
+        });
+        await this.runStore.update(run.run_id, (current) => {
+          current.status = "abandoned";
+          current.completed_at = completedAt;
+          current.outcome = { type: "controller_restart" };
+        });
+        await this.runStore.appendEvent(run.run_id, {
+          event_id: this.idFactory("event"),
+          type: "run.abandoned",
+          at: completedAt,
+          payload: { reason: "controller_restart" },
+        });
+        recovered.push({
+          work_unit_id: workUnit.work_unit_id,
+          run_id: run.run_id,
+          status: "abandoned",
+        });
+      } else {
+        recovered.push({
+          work_unit_id: workUnit.work_unit_id,
+          run_id: reference?.run_id ?? null,
+          status: "blocked",
+        });
+      }
+    }
+    await this.controlStore.transactChangeSet(changeSetId, (current) => {
+      for (const item of recovered) {
+        const unit = unitsForCurrentPlan(current).find(
+          (candidate) => candidate.work_unit_id === item.work_unit_id,
+        );
+        const unitReference = unit.correction_run_references.find(
+          (candidate) => candidate.run_id === item.run_id,
+        );
+        const aggregateReference = current.run_references.find(
+          (candidate) => candidate.run_id === item.run_id,
+        );
+        if (unitReference) unitReference.status = item.status;
+        if (aggregateReference) aggregateReference.status = item.status;
+        if (item.status === "abandoned") {
+          unit.state = "correction_pending";
+          unit.last_error = {
+            code: "CORRECTION_RUN_ABANDONED_AFTER_RESTART",
+            run_id: item.run_id,
+          };
+        } else {
+          unit.state = "blocked";
+          unit.last_error = {
+            code: "AMBIGUOUS_TERMINAL_RUN_RECOVERY",
+            run_id: item.run_id,
+          };
+          current.blockers.push({
+            code: "AMBIGUOUS_TERMINAL_RUN_RECOVERY",
+            work_unit_id: item.work_unit_id,
+            run_id: item.run_id,
+          });
+        }
+      }
+      current.state = recovered.some((item) => item.status === "blocked")
+        ? "decision_required"
+        : "executing";
+      current.updated_at = this.now();
+    });
+    const blocked = recovered.find((item) => item.status === "blocked");
+    invariant(
+      !blocked,
+      "AMBIGUOUS_TERMINAL_RUN_RECOVERY",
+      `Correction Run ${blocked?.run_id} could not be recovered safely`,
+    );
   }
 
   async recoverInterruptedVerificationRuns(changeSetId) {
@@ -2473,7 +2598,11 @@ export class ChangeFleetService {
   async executeWorkUnit(
     changeSetId,
     workUnitId,
-    { operatorAdmissionMode = null, attemptBudgetRequests = [] } = {},
+    {
+      operatorAdmissionMode = null,
+      attemptBudgetRequests = [],
+      correctionReviewId = null,
+    } = {},
   ) {
     // 先创建 Run 再标记 running，崩溃最多留下孤立记录，不留下无来源派发。
     const state = await this.controlStore.readChangeSet(changeSetId);
@@ -2486,10 +2615,45 @@ export class ChangeFleetService {
     const workUnit = unitsForCurrentPlan(state).find(
       (candidate) => candidate.work_unit_id === workUnitId,
     );
+    const correctionReview =
+      correctionReviewId === null
+        ? null
+        : state.verification_reviews.find(
+            (review) => review.review_id === correctionReviewId,
+          );
+    const isCorrection = correctionReview !== null;
+    const correctionCheckpoint = isCorrection
+      ? state.candidate_checkpoints.find(
+          (checkpoint) =>
+            checkpoint.checkpoint_id === workUnit?.candidate_checkpoint_id,
+        )
+      : null;
+    // 修正只能绑定当前 checkpoint 的一次 initial changes_required，focused review 不得递归派发。
     invariant(
-      workUnit?.state === "pending",
+      workUnit &&
+        (isCorrection
+          ? [
+              "verification_changes_required",
+              "correction_pending",
+              "correction_failed",
+            ].includes(workUnit.state) &&
+            correctionReview.verdict === "changes_required" &&
+            (correctionReview.review_scope ?? "initial") === "initial" &&
+            correctionReview.checkpoint_id ===
+              workUnit.candidate_checkpoint_id &&
+            correctionCheckpoint &&
+            workUnit.candidate === null &&
+            (workUnit.correction_source_review_id === null ||
+              workUnit.correction_source_review_id ===
+                correctionReview.review_id) &&
+            !(workUnit.correction_run_references ?? []).some(
+              (reference) =>
+                reference.status === "completed" &&
+                reference.outcome_type === "implementation_completed",
+            )
+          : workUnit.state === "pending"),
       "WORK_UNIT_NOT_READY",
-      `WorkUnit ${workUnitId} is not pending`,
+      `WorkUnit ${workUnitId} is not ready for ${isCorrection ? "correction" : "execution"}`,
     );
     const repository = project.repositories.find(
       (candidate) => candidate.repository_id === workUnit.repository_id,
@@ -2509,14 +2673,32 @@ export class ChangeFleetService {
       "REPOSITORY_HARNESS_SELECTION_MISMATCH",
       `WorkUnit ${workUnitId} does not match the current Harness selection`,
     );
-    const attempt = workUnit.run_references.length + 1;
-    const workspaceId = `${changeSetId}.${plan.revision}.${workUnitId}.${attempt}`;
-    let workspace = await this.repositoryWorker.prepareWorkspace({
-      repository,
-      targetRef: workUnit.target_ref,
-      baseSha: workUnit.base_sha,
-      workspaceId,
-    });
+    const attempt = isCorrection
+      ? (workUnit.correction_run_references ?? []).length + 1
+      : workUnit.run_references.length + 1;
+    const workspaceId = isCorrection
+      ? workUnit.workspace.workspace_id
+      : `${changeSetId}.${plan.revision}.${workUnitId}.${attempt}`;
+    let workspace;
+    if (isCorrection) {
+      // Correction 只复用当前 Checkpoint 的受控执行工作区；不复制验证 worktree，也不 reset 部分修改。
+      await this.repositoryWorker.preflightCandidate({
+        repository,
+        candidate: {
+          ...correctionCheckpoint,
+          workspace_id: workUnit.workspace.workspace_id,
+          workspace_path: workUnit.workspace.workspace_path,
+        },
+      });
+      workspace = structuredClone(workUnit.workspace);
+    } else {
+      workspace = await this.repositoryWorker.prepareWorkspace({
+        repository,
+        targetRef: workUnit.target_ref,
+        baseSha: workUnit.base_sha,
+        workspaceId,
+      });
+    }
     let overlaySnapshot = null;
     if (
       selectedHarness.mode ===
@@ -2531,9 +2713,12 @@ export class ChangeFleetService {
         snapshot: overlaySnapshot,
       });
     }
+    const harnessCommit = isCorrection
+      ? correctionCheckpoint.candidate_sha
+      : workUnit.base_sha;
     const exactBaseHarness = await this.repositoryWorker.discoverHarness(
       repository,
-      workUnit.base_sha,
+      harnessCommit,
     );
     const frozenOverlayHarness = overlayHarnessResources(overlaySnapshot);
     const availableHarness = [
@@ -2551,7 +2736,7 @@ export class ChangeFleetService {
       run_id: runId,
       change_set_id: changeSetId,
       work_unit_id: workUnitId,
-      operation: "execution",
+      operation: isCorrection ? "correction" : "execution",
       attempt,
       status: "running",
       agent_profile: plan.agent_profile,
@@ -2577,24 +2762,54 @@ export class ChangeFleetService {
         (candidate) => candidate.work_unit_id === workUnitId,
       );
       invariant(
-        currentUnit.state === "pending",
+        isCorrection
+          ? [
+              "verification_changes_required",
+              "correction_pending",
+              "correction_failed",
+            ].includes(currentUnit.state) &&
+              currentUnit.candidate_checkpoint_id ===
+                correctionCheckpoint.checkpoint_id &&
+              (currentUnit.correction_source_review_id === null ||
+                currentUnit.correction_source_review_id ===
+                  correctionReview.review_id)
+          : currentUnit.state === "pending",
         "DUPLICATE_DISPATCH",
-        `WorkUnit ${workUnitId} already left pending state`,
+        `WorkUnit ${workUnitId} already left its dispatchable state`,
       );
-      currentUnit.state = "running";
+      currentUnit.state = isCorrection ? "correcting" : "running";
       currentUnit.workspace = workspace;
-      currentUnit.run_references.push({
-        run_id: runId,
-        attempt,
-        status: "running",
-      });
+      if (isCorrection) {
+        currentUnit.correction_source_review_id = correctionReview.review_id;
+        currentUnit.correction_run_references.push({
+          run_id: runId,
+          attempt,
+          source_review_id: correctionReview.review_id,
+          status: "running",
+        });
+      } else {
+        currentUnit.run_references.push({
+          run_id: runId,
+          attempt,
+          status: "running",
+        });
+      }
       current.run_references.push({
         run_id: runId,
-        operation: "execution",
+        operation: isCorrection ? "correction" : "execution",
         plan_revision: plan.revision,
         work_unit_id: workUnitId,
+        ...(isCorrection
+          ? { source_review_id: correctionReview.review_id }
+          : {}),
         status: "running",
       });
+      if (isCorrection) {
+        resolveValidationBlockers(current, {
+          workUnitId,
+          resolvedAt: this.now(),
+        });
+      }
       current.state = "executing";
       current.updated_at = this.now();
     });
@@ -2604,7 +2819,7 @@ export class ChangeFleetService {
       (candidate) => candidate.work_unit_id === workUnitId,
     );
     const controlContract = createControlContract({
-      operation: "execution",
+      operation: isCorrection ? "correction" : "execution",
       changeSetId,
       planRevision: plan.revision,
       repositorySelectionRevision: repositorySelection.revision,
@@ -2620,7 +2835,7 @@ export class ChangeFleetService {
       humanGates: [],
     });
     const contextProjection = createContextProjection({
-      operation: "execution",
+      operation: isCorrection ? "correction" : "execution",
       changeSet: currentState,
       plan,
       repositorySelection,
@@ -2632,6 +2847,10 @@ export class ChangeFleetService {
           branch_ref: selectedRepository.branch_ref,
           target_ref: workUnit.target_ref,
           base_sha: workUnit.base_sha,
+          ...(isCorrection
+            ? { candidate_sha: correctionCheckpoint.candidate_sha }
+            : {}),
+          root_path: workspace.workspace_path,
           harness_selection: harnessSelectionForContext(selectedHarness),
           ...harnessResourcesForContext(availableHarness),
         },
@@ -2640,15 +2859,48 @@ export class ChangeFleetService {
         mode: "read_write",
         paths: [workspace.workspace_path],
       },
-      requiredEvidence: ["structured_outcome", "candidate", "repository_check"],
-      historyReferences: workUnit.run_references.slice(-16).map((reference) => ({
-        kind: "run",
-        run_id: reference.run_id,
-        status: reference.status,
-      })),
+      requiredEvidence: isCorrection
+        ? [
+            "structured_outcome",
+            "finding_assessments",
+            "corrected_candidate",
+            "repository_check",
+          ]
+        : ["structured_outcome", "candidate", "repository_check"],
+      correction: isCorrection
+        ? {
+            // 只投影当前 claim、通过的证据索引和精确旧主体，不回放完整审核历史。
+            source_review: {
+              review_id: correctionReview.review_id,
+              checkpoint_id: correctionReview.checkpoint_id,
+              summary: correctionReview.summary,
+              findings: structuredClone(correctionReview.findings),
+              check_status: correctionReview.check_status,
+              validation_attempts: projectCorrectionValidationAttempts(
+                currentState,
+                correctionReview,
+                correctionCheckpoint,
+              ),
+            },
+            candidate: {
+              repository_id: correctionCheckpoint.repository_id,
+              target_ref: correctionCheckpoint.target_ref,
+              base_sha: correctionCheckpoint.base_sha,
+              candidate_sha: correctionCheckpoint.candidate_sha,
+              changed_paths: [...correctionCheckpoint.changed_paths],
+            },
+          }
+        : null,
+      historyReferences: isCorrection
+        ? []
+        : workUnit.run_references.slice(-16).map((reference) => ({
+            kind: "run",
+            run_id: reference.run_id,
+            status: reference.status,
+          })),
     });
     const invocation = {
-      operation: "execution",
+      operation: isCorrection ? "correction" : "execution",
       agent_profile: plan.agent_profile,
       control_contract: controlContract,
       context_projection: contextProjection,
@@ -2690,12 +2942,15 @@ export class ChangeFleetService {
       outcome = {
         ...outcome,
         revision_feedback_assessments:
+          // Core 只验证逐项覆盖和结构，不替 Agent 判断 finding 是否正确。
           normalizeRevisionFeedbackAssessments(
             outcome.revision_feedback_assessments,
-            currentState.current_revision_feedback?.applies_to_plan_revision ===
-              plan.revision
-              ? currentState.current_revision_feedback
-              : null,
+            isCorrection
+              ? verificationReviewAsRevisionFeedback(correctionReview)
+              : currentState.current_revision_feedback
+                    ?.applies_to_plan_revision === plan.revision
+                ? currentState.current_revision_feedback
+                : null,
           ),
       };
       await this.runStore.appendEvent(runId, {
@@ -2732,7 +2987,11 @@ export class ChangeFleetService {
         const unit = unitsForCurrentPlan(current).find(
           (candidate) => candidate.work_unit_id === workUnitId,
         );
-        unit.run_references.at(-1).status = "completed";
+        const unitReference = isCorrection
+          ? unit.correction_run_references.at(-1)
+          : unit.run_references.at(-1);
+        unitReference.status = "completed";
+        unitReference.outcome_type = outcome.type;
         const reference = current.run_references.find(
           (candidate) => candidate.run_id === runId,
         );
@@ -2754,7 +3013,16 @@ export class ChangeFleetService {
         },
       });
       await this.failRun(runId, error);
-      await this.failWorkUnit(changeSetId, workUnitId, error);
+      if (isCorrection) {
+        await this.failCorrectionWorkUnit(
+          changeSetId,
+          workUnitId,
+          runId,
+          error,
+        );
+      } else {
+        await this.failWorkUnit(changeSetId, workUnitId, error);
+      }
       throw error;
     }
 
@@ -2764,7 +3032,16 @@ export class ChangeFleetService {
         outcome.summary || outcome.blocker.message,
         { blocker_code: outcome.blocker.code },
       );
-      await this.blockWorkUnit(changeSetId, workUnitId, error);
+      if (isCorrection) {
+        await this.blockCorrectionWorkUnit(
+          changeSetId,
+          workUnitId,
+          runId,
+          error,
+        );
+      } else {
+        await this.blockWorkUnit(changeSetId, workUnitId, error);
+      }
       throw error;
     }
 
@@ -2832,46 +3109,93 @@ export class ChangeFleetService {
       const published = await this.repositoryWorker.publishCandidate({
         repository,
         workspace,
-        expectedHead: workUnit.base_sha,
-        message: `ChangeFleet ${changeSetId} ${workUnitId}`,
+        expectedHead: isCorrection
+          ? correctionCheckpoint.candidate_sha
+          : workUnit.base_sha,
+        baseSha: workUnit.base_sha,
+        message: isCorrection
+          ? `ChangeFleet ${changeSetId} ${workUnitId} correction`
+          : `ChangeFleet ${changeSetId} ${workUnitId}`,
       });
       invariant(
-        !published.no_change && published.changed_paths.length > 0,
+        !isCorrection ||
+          !published.no_change ||
+          outcome.changed_paths.length === 0,
+        "CORRECTION_CHANGED_PATHS_MISMATCH",
+        "A no-change correction cannot report changed paths",
+        { source_run_id: runId, reported_changed_paths: outcome.changed_paths },
+      );
+      invariant(
+        isCorrection ||
+          (!published.no_change && published.changed_paths.length > 0),
         "EMPTY_IMPLEMENTATION_RESULT",
         "Runtime implementation produced no Git change for the WorkUnit",
         { source_run_id: runId },
       );
-      const checkpoint = createCandidateCheckpoint({
-        changeSetId,
-        intentRevision: plan.intent_revision,
-        planRevision: plan.revision,
-        repositorySelectionRevision: repositorySelection.revision,
-        repositoryHarnessSelectionRevision:
-          repositoryHarnessSelection.revision,
-        workUnitId,
-        repositoryId: published.repository_id,
-        targetRef: published.target_ref,
-        baseSha: published.base_sha,
-        candidateSha: published.candidate_sha,
-        workspaceId: published.workspace_id,
-        workspacePath: published.workspace_path,
-        changedPaths: published.changed_paths,
-        sourceRunId: runId,
-        createdAt: this.now(),
-      });
+      const checkpoint = published.no_change
+        ? correctionCheckpoint
+        : createCandidateCheckpoint({
+            changeSetId,
+            intentRevision: plan.intent_revision,
+            planRevision: plan.revision,
+            repositorySelectionRevision: repositorySelection.revision,
+            repositoryHarnessSelectionRevision:
+              repositoryHarnessSelection.revision,
+            workUnitId,
+            repositoryId: published.repository_id,
+            targetRef: published.target_ref,
+            baseSha: published.base_sha,
+            candidateSha: published.candidate_sha,
+            workspaceId: published.workspace_id,
+            workspacePath: published.workspace_path,
+            changedPaths: published.changed_paths,
+            sourceRunId: runId,
+            createdAt: this.now(),
+          });
+      if (isCorrection) {
+        // Provider 声明与真实 old-to-new Git delta 分开保存，聚焦复审消费后者。
+        await this.runStore.update(runId, (current) => {
+          current.outcome.actual_changed_paths = [
+            ...published.round_changed_paths,
+          ];
+          current.outcome.published_candidate_sha =
+            published.candidate_sha;
+          current.outcome.no_change = published.no_change;
+        });
+      }
       await this.controlStore.transactChangeSet(changeSetId, (current) => {
         const unit = unitsForCurrentPlan(current).find(
           (item) => item.work_unit_id === workUnitId,
         );
         invariant(
-          unit.state === "running" &&
-            unit.candidate_checkpoint_id === null &&
-            unit.candidate === null,
+          isCorrection
+            ? unit.state === "correcting" &&
+                unit.candidate_checkpoint_id ===
+                  correctionCheckpoint.checkpoint_id &&
+                unit.correction_source_review_id ===
+                  correctionReview.review_id &&
+                unit.candidate === null
+            : unit.state === "running" &&
+                unit.candidate_checkpoint_id === null &&
+                unit.candidate === null,
           "CANDIDATE_CHECKPOINT_STATE_MISMATCH",
           `WorkUnit ${workUnitId} cannot persist its CandidateCheckpoint`,
         );
-        current.candidate_checkpoints.push(checkpoint);
+        if (!published.no_change) {
+          current.candidate_checkpoints.push(checkpoint);
+        }
         unit.candidate_checkpoint_id = checkpoint.checkpoint_id;
+        if (isCorrection) {
+          unit.verification_review_id = null;
+          if (!published.no_change) {
+            unit.verification_admission_id = null;
+            unit.validation_attempt_ids = [];
+          }
+          resolveValidationBlockers(current, {
+            workUnitId,
+            resolvedAt: this.now(),
+          });
+        }
         unit.state = "validation_pending";
         unit.last_error = null;
         current.state = "validating";
@@ -2884,7 +3208,16 @@ export class ChangeFleetService {
       });
     } catch (error) {
       if (!checkpointPersisted) {
-        await this.failWorkUnit(changeSetId, workUnitId, error);
+        if (isCorrection) {
+          await this.failCorrectionFinalization(
+            changeSetId,
+            workUnitId,
+            runId,
+            error,
+          );
+        } else {
+          await this.failWorkUnit(changeSetId, workUnitId, error);
+        }
       }
       throw error;
     }
@@ -2961,7 +3294,11 @@ export class ChangeFleetService {
         checkpointId: checkpoint.checkpoint_id,
         projectPolicy: state.verification_policy,
         planExpectation: plan.verification_expectation,
-        operatorMode: operatorAdmissionMode,
+        // 一旦进入修正 lineage，聚焦复审就是闭环义务；控制器重启后不能因新请求省略参数而降级。
+        operatorMode:
+          workUnit.correction_source_review_id === null
+            ? operatorAdmissionMode
+            : "independent_review",
         sourceReportedChangedPaths:
           sourceRun.outcome.reported_changed_paths ?? checkpoint.changed_paths,
         actualChangedPaths: checkpoint.changed_paths,
@@ -2997,6 +3334,50 @@ export class ChangeFleetService {
       projectPolicy: state.verification_policy,
       attemptBudgetRequests,
     });
+    let verificationFocus = null;
+    if (workUnit.correction_source_review_id !== null) {
+      // 持久化 lineage 决定是否必须复审，不能依赖重启请求再次携带 operator 参数。
+      const sourceReview = state.verification_reviews.find(
+        (review) =>
+          review.review_id === workUnit.correction_source_review_id,
+      );
+      const sourceCheckpoint = state.candidate_checkpoints.find(
+        (candidate) =>
+          candidate.checkpoint_id === sourceReview?.checkpoint_id,
+      );
+      const correctionReference = (
+        workUnit.correction_run_references ?? []
+      )
+        .filter(
+          (reference) =>
+            reference.source_review_id === sourceReview?.review_id &&
+            reference.status === "completed" &&
+            reference.outcome_type === "implementation_completed",
+        )
+        .at(-1);
+      const correctionRun = correctionReference
+        ? await this.runStore.read(correctionReference.run_id)
+        : null;
+      invariant(
+        sourceReview?.verdict === "changes_required" &&
+          (sourceReview.review_scope ?? "initial") === "initial" &&
+          sourceCheckpoint &&
+          correctionRun?.operation === "correction" &&
+          correctionRun.status === "completed" &&
+          correctionRun.outcome?.type === "implementation_completed",
+        "CORRECTION_LINEAGE_MISMATCH",
+        "Focused verification requires one exact completed correction lineage",
+      );
+      normalizeRevisionFeedbackAssessments(
+        correctionRun.outcome.revision_feedback_assessments,
+        verificationReviewAsRevisionFeedback(sourceReview),
+      );
+      verificationFocus = {
+        sourceReview,
+        sourceCheckpoint,
+        correctionRun,
+      };
+    }
     let verificationReview = null;
     if (admission.mode === "independent_review") {
       verificationReview = await this.ensureIndependentVerificationPassed({
@@ -3005,7 +3386,29 @@ export class ChangeFleetService {
         checkpoint,
         admission,
         repositoryEvidence,
+        focus: verificationFocus,
       });
+      if (verificationReview.verdict === "changes_required") {
+        if ((verificationReview.review_scope ?? "initial") === "initial") {
+          return this.executeWorkUnit(changeSetId, workUnitId, {
+            operatorAdmissionMode,
+            attemptBudgetRequests,
+            correctionReviewId: verificationReview.review_id,
+          });
+        }
+        throw new ChangeFleetError(
+          "VERIFICATION_FOCUSED_REVIEW_UNRESOLVED",
+          "Focused verification still requires Candidate changes",
+          { verification_review_id: verificationReview.review_id },
+        );
+      }
+      if (verificationReview.verdict === "human_decision_required") {
+        throw new ChangeFleetError(
+          "VERIFICATION_HUMAN_DECISION_REQUIRED",
+          "Independent verification requires a human decision",
+          { verification_review_id: verificationReview.review_id },
+        );
+      }
     }
     const candidate = createCandidate({
       repositoryId: checkpoint.repository_id,
@@ -3055,13 +3458,19 @@ export class ChangeFleetService {
     checkpoint,
     admission,
     repositoryEvidence,
+    focus = null,
   }) {
     let state = await this.controlStore.readChangeSet(changeSetId);
+    // initial 与 focused 使用不同不可变身份；focused 只允许绑定一个来源 review 和 correction Run。
+    const reviewScope = focus === null ? "initial" : "focused";
     const existingReview = state.verification_reviews
       .filter(
         (review) =>
           review.admission_id === admission.admission_id &&
-          review.checkpoint_id === checkpoint.checkpoint_id,
+          review.checkpoint_id === checkpoint.checkpoint_id &&
+          (review.review_scope ?? "initial") === reviewScope &&
+          (reviewScope === "initial" ||
+            review.source_review_id === focus.sourceReview.review_id),
       )
       .at(-1);
     if (verificationReviewAllowsCandidate(existingReview)) {
@@ -3073,14 +3482,7 @@ export class ChangeFleetService {
         existingReview.verdict,
       )
     ) {
-      throw new ChangeFleetError(
-        "VERIFICATION_REVIEW_BLOCKED",
-        "The existing independent verification requires correction or a human decision",
-        {
-          verification_review_id: existingReview.review_id,
-          verdict: existingReview.verdict,
-        },
-      );
+      return structuredClone(existingReview);
     }
 
     const catalog = await this.controlStore.readCatalog();
@@ -3217,6 +3619,8 @@ export class ChangeFleetService {
         unit.verification_run_references.push({
           run_id: runId,
           attempt,
+          review_scope: reviewScope,
+          source_review_id: focus?.sourceReview.review_id ?? null,
           status: "running",
         });
         current.run_references.push({
@@ -3225,6 +3629,8 @@ export class ChangeFleetService {
           plan_revision: plan.revision,
           work_unit_id: workUnitId,
           verification_admission_id: admission.admission_id,
+          review_scope: reviewScope,
+          source_review_id: focus?.sourceReview.review_id ?? null,
           attempt,
           status: "running",
         });
@@ -3285,6 +3691,7 @@ export class ChangeFleetService {
         "exact_candidate_diff",
         "repository_check_evidence",
         "structured_verification_outcome",
+        ...(focus === null ? [] : ["focused_correction_lineage"]),
       ],
       verificationPolicy: state.verification_policy,
       verification: {
@@ -3311,6 +3718,37 @@ export class ChangeFleetService {
             evidence: structuredClone(repositoryEvidence),
           },
         ],
+        focus:
+          focus === null
+            ? null
+            : {
+                source_review: {
+                  review_id: focus.sourceReview.review_id,
+                  checkpoint_id: focus.sourceReview.checkpoint_id,
+                  summary: focus.sourceReview.summary,
+                  findings: structuredClone(focus.sourceReview.findings),
+                  candidate: {
+                    candidate_sha: focus.sourceCheckpoint.candidate_sha,
+                    changed_paths: [
+                      ...focus.sourceCheckpoint.changed_paths,
+                    ],
+                  },
+                },
+                correction: {
+                  run_id: focus.correctionRun.run_id,
+                  reported_changed_paths:
+                    focus.correctionRun.outcome.reported_changed_paths ?? [],
+                  actual_changed_paths:
+                    focus.correctionRun.outcome.actual_changed_paths ?? [],
+                  candidate_sha:
+                    focus.correctionRun.outcome.published_candidate_sha ??
+                    checkpoint.candidate_sha,
+                  revision_feedback_assessments: structuredClone(
+                    focus.correctionRun.outcome
+                      .revision_feedback_assessments ?? [],
+                  ),
+                },
+              },
       },
       historyReferences: [],
     });
@@ -3483,6 +3921,9 @@ export class ChangeFleetService {
       outcome,
       validationAttemptIds: checkResult.attemptIds,
       checkStatus,
+      reviewScope,
+      sourceReviewId: focus?.sourceReview.review_id ?? null,
+      correctionRunId: focus?.correctionRun.run_id ?? null,
       createdAt: completedAt,
     });
     await this.controlStore.transactChangeSet(changeSetId, (current) => {
@@ -3517,18 +3958,35 @@ export class ChangeFleetService {
           verification_review_id: review.review_id,
         });
       } else if (review.verdict === "changes_required") {
-        unit.state = "verification_changes_required";
-        unit.last_error = {
-          code: "VERIFICATION_CHANGES_REQUIRED",
-          verification_review_id: review.review_id,
-        };
-        current.state = "blocked";
-        current.blockers.push({
-          code: "VERIFICATION_CHANGES_REQUIRED",
-          work_unit_id: workUnitId,
-          checkpoint_id: checkpoint.checkpoint_id,
-          verification_review_id: review.review_id,
-        });
+        // 只有初审可以自动进入修正；聚焦复审仍不同意时终止自动循环并交给人。
+        if (reviewScope === "initial") {
+          unit.state = "verification_changes_required";
+          unit.correction_source_review_id = review.review_id;
+          unit.last_error = {
+            code: "VERIFICATION_CHANGES_REQUIRED",
+            verification_review_id: review.review_id,
+          };
+          current.state = "executing";
+          current.blockers.push({
+            code: "VERIFICATION_CHANGES_REQUIRED",
+            work_unit_id: workUnitId,
+            checkpoint_id: checkpoint.checkpoint_id,
+            verification_review_id: review.review_id,
+          });
+        } else {
+          unit.state = "verification_human_decision_required";
+          unit.last_error = {
+            code: "VERIFICATION_FOCUSED_REVIEW_UNRESOLVED",
+            verification_review_id: review.review_id,
+          };
+          current.state = "decision_required";
+          current.blockers.push({
+            code: "VERIFICATION_FOCUSED_REVIEW_UNRESOLVED",
+            work_unit_id: workUnitId,
+            checkpoint_id: checkpoint.checkpoint_id,
+            verification_review_id: review.review_id,
+          });
+        }
       } else if (review.verdict === "human_decision_required") {
         unit.state = "verification_human_decision_required";
         unit.last_error = {
@@ -3562,11 +4020,14 @@ export class ChangeFleetService {
       );
     }
     if (review.verdict === "changes_required") {
-      throw new ChangeFleetError(
-        "VERIFICATION_CHANGES_REQUIRED",
-        "Independent verification requires Candidate changes",
-        { verification_review_id: review.review_id },
-      );
+      if (reviewScope === "focused") {
+        throw new ChangeFleetError(
+          "VERIFICATION_FOCUSED_REVIEW_UNRESOLVED",
+          "Focused verification still requires Candidate changes",
+          { verification_review_id: review.review_id },
+        );
+      }
+      return review;
     }
     if (review.verdict === "human_decision_required") {
       throw new ChangeFleetError(
@@ -4164,6 +4625,83 @@ export class ChangeFleetService {
     });
   }
 
+  async failCorrectionWorkUnit(changeSetId, workUnitId, runId, error) {
+    await this.controlStore.transactChangeSet(changeSetId, (state) => {
+      const workUnit = unitsForCurrentPlan(state).find(
+        (candidate) => candidate.work_unit_id === workUnitId,
+      );
+      const unitReference = workUnit.correction_run_references.find(
+        (reference) => reference.run_id === runId,
+      );
+      const aggregateReference = state.run_references.find(
+        (reference) => reference.run_id === runId,
+      );
+      if (unitReference?.status === "running") unitReference.status = "failed";
+      if (aggregateReference?.status === "running") {
+        aggregateReference.status = "failed";
+      }
+      workUnit.state = "correction_failed";
+      workUnit.last_error = {
+        code: error.code ?? "UNEXPECTED_ERROR",
+        message: error.message,
+        run_id: runId,
+      };
+      state.state = "failed";
+      state.blockers.push({
+        code: error.code ?? "UNEXPECTED_ERROR",
+        work_unit_id: workUnitId,
+        run_id: runId,
+      });
+      state.updated_at = this.now();
+    });
+  }
+
+  async blockCorrectionWorkUnit(changeSetId, workUnitId, runId, error) {
+    // 语义阻塞保留 completed correction Run；下一显式 execute 可在工作区仍精确干净时重试该阶段。
+    await this.controlStore.transactChangeSet(changeSetId, (state) => {
+      const workUnit = unitsForCurrentPlan(state).find(
+        (candidate) => candidate.work_unit_id === workUnitId,
+      );
+      workUnit.state = "correction_failed";
+      workUnit.last_error = {
+        code: error.code,
+        message: error.message,
+        blocker_code: error.details?.blocker_code ?? null,
+        run_id: runId,
+      };
+      state.state = "failed";
+      state.blockers.push({
+        code: error.code,
+        work_unit_id: workUnitId,
+        run_id: runId,
+        blocker_code: error.details?.blocker_code ?? null,
+      });
+      state.updated_at = this.now();
+    });
+  }
+
+  async failCorrectionFinalization(changeSetId, workUnitId, runId, error) {
+    // Runtime 已完成但新 Git 主体未能确定发布时不可再次调用 Agent，否则可能重复语义修改。
+    await this.controlStore.transactChangeSet(changeSetId, (state) => {
+      const workUnit = unitsForCurrentPlan(state).find(
+        (candidate) => candidate.work_unit_id === workUnitId,
+      );
+      workUnit.state = "blocked";
+      workUnit.last_error = {
+        code: error.code ?? "CORRECTION_FINALIZATION_FAILED",
+        message: error.message,
+        run_id: runId,
+      };
+      state.state = "decision_required";
+      state.blockers.push({
+        code: error.code ?? "CORRECTION_FINALIZATION_FAILED",
+        work_unit_id: workUnitId,
+        run_id: runId,
+      });
+      state.updated_at = this.now();
+    });
+  }
+
   async blockWorkUnit(changeSetId, workUnitId, error) {
     // Provider 正常结束但无法完成语义工作时保留 completed Run，WorkUnit 单独进入可审计阻塞态。
     await this.controlStore.transactChangeSet(changeSetId, (state) => {
@@ -4199,6 +4737,7 @@ export class ChangeFleetService {
       const preservesVerificationState = [
         "VERIFICATION_CHANGES_REQUIRED",
         "VERIFICATION_HUMAN_DECISION_REQUIRED",
+        "VERIFICATION_FOCUSED_REVIEW_UNRESOLVED",
       ].includes(command.error.code);
       if (
         !preservesVerificationState &&
@@ -4251,6 +4790,32 @@ function hasResumableValidation(state) {
     (!hasCurrentBundle &&
       units.length > 0 &&
       units.every((unit) => unit.state === "candidate_ready"))
+  );
+}
+
+function hasCorrectableVerification(state) {
+  // 调度器只把当前 initial blocking review 识别为可修正输入。
+  return unitsForCurrentPlan(state).some((unit) => {
+    if (unit.state !== "verification_changes_required") return false;
+    const review = (state.verification_reviews ?? []).find(
+      (candidate) => candidate.review_id === unit.verification_review_id,
+    );
+    return Boolean(
+      review &&
+        review.verdict === "changes_required" &&
+        (review.review_scope ?? "initial") === "initial" &&
+        unit.candidate === null,
+    );
+  });
+}
+
+function hasResumableCorrection(state) {
+  // 失败或重启后的再次执行仍需 exact source review，不能靠状态名猜测来源。
+  return unitsForCurrentPlan(state).some(
+    (unit) =>
+      ["correction_pending", "correction_failed"].includes(unit.state) &&
+      typeof unit.correction_source_review_id === "string" &&
+      unit.candidate === null,
   );
 }
 
@@ -4313,6 +4878,44 @@ function isNonEmptyCheckpoint(checkpoint) {
       Array.isArray(checkpoint.changed_paths) &&
       checkpoint.changed_paths.length > 0,
   );
+}
+
+function verificationReviewAsRevisionFeedback(review) {
+  return {
+    summary: review.summary,
+    findings: review.findings.map((finding) => ({
+      finding_id: finding.finding_id,
+      text: finding.message,
+    })),
+  };
+}
+
+function projectCorrectionValidationAttempts(state, review, checkpoint) {
+  // 只给修正 Agent 当前主体的通过证据索引；完整命令输出继续留在 EvidenceStore。
+  const requestedAttemptIds = new Set(review.validation_attempt_ids ?? []);
+  const latestRepositoryAttempt = (state.validation_attempts ?? [])
+    .filter(
+      (attempt) =>
+        attempt.kind === "repository_validation" &&
+        attempt.subject_id === checkpoint.checkpoint_id &&
+        attempt.status === "passed",
+    )
+    .at(-1);
+  const selectedIds = new Set([
+    ...(latestRepositoryAttempt
+      ? [latestRepositoryAttempt.validation_attempt_id]
+      : []),
+    ...requestedAttemptIds,
+  ]);
+  return (state.validation_attempts ?? [])
+    .filter((attempt) => selectedIds.has(attempt.validation_attempt_id))
+    .map((attempt) => ({
+      validation_attempt_id: attempt.validation_attempt_id,
+      kind: attempt.kind,
+      status: attempt.status,
+      command_id: attempt.check_identity.command_id,
+      evidence: structuredClone(attempt.evidence),
+    }));
 }
 
 function resolveValidationBlockers(

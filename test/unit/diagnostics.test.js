@@ -110,4 +110,8 @@ test("independent verification diagnostics preserve stable codes", () => {
     diagnosticMessage("VERIFICATION_WORKSPACE_MODIFIED", { locale: "en" }),
     "Read-only independent verification modified its temporary workspace.",
   );
+  assert.equal(
+    diagnosticMessage("CORRECTION_CHANGED_PATHS_MISMATCH", { locale: "en" }),
+    "A no-change correction incorrectly reported changed paths.",
+  );
 });

@@ -183,6 +183,45 @@ describe("read-only Runtime audit queries", () => {
     );
   });
 
+  test("attributes same-Plan correction and focused re-review without entering Runtime context", async (t) => {
+    const fixture = await createAuditFixture(
+      t,
+      "correction-usage",
+      CorrectionUsageRuntime,
+    );
+    await fixture.service.executeChangeSet({
+      idempotency_key: "execute",
+      change_set_id: "change",
+    });
+    const audit = await createQuery(
+      fixture.service,
+      "2026-08-03T10:00:00.000Z",
+    ).getChangeSetAudit("change", { detail_page: 1, page_size: 100 });
+
+    assert.equal(audit.payload.usage.referenced_run_count, 5);
+    assert.equal(audit.payload.usage.observed_total_tokens, 1_040);
+    assert.deepEqual(audit.payload.outcomes.correction, {
+      implementation_completed: 1,
+    });
+    assert.deepEqual(audit.payload.outcomes.verification, {
+      changes_required: 1,
+      pass: 1,
+    });
+    assert.equal(
+      audit.payload.runs.rows.filter(
+        (row) => row.identity.operation === "correction",
+      ).length,
+      1,
+    );
+    const correctionInvocation = fixture.runtime.invocations.find(
+      (invocation) => invocation.operation === "correction",
+    );
+    assert.doesNotMatch(
+      JSON.stringify(correctionInvocation),
+      /observed_total_tokens|provider_cost|runtime_invocation/u,
+    );
+  });
+
   test("keeps cancellation separate from WorkUnit failure", async (t) => {
     const fixture = await createAuditFixture(t, "cancelled", CancellationRuntime);
     await assert.rejects(
@@ -310,6 +349,55 @@ class IndependentUsageRuntime extends UsageRuntime {
       escalation_triggers: ["scope_divergence"],
     };
     super(options);
+  }
+}
+
+class CorrectionUsageRuntime extends UsageRuntime {
+  constructor(options) {
+    options.plan.verification_expectation = {
+      mode: "independent_review",
+      rationale: "The audit fixture requires correction and focused re-review.",
+      escalation_triggers: ["scope_divergence"],
+    };
+    super({
+      ...options,
+      verificationOutcomes: [
+        {
+          type: "verification_completed",
+          review_depth: "deep_review",
+          verdict: "changes_required",
+          summary: "The exact Candidate requires one correction.",
+          findings: [
+            {
+              finding_id: "audit-correction",
+              category: "correctness",
+              message: "The fixture requires a corrected public value.",
+              path: "feature.txt",
+            },
+          ],
+          notes: [],
+          human_decision: null,
+          requested_checks: [],
+        },
+        {
+          type: "verification_completed",
+          review_depth: "triage",
+          verdict: "pass",
+          summary: "The focused review accepted the correction.",
+          findings: [],
+          notes: [],
+          human_decision: null,
+          requested_checks: [],
+        },
+      ],
+      correctionFileContent: "api corrected for audit\n",
+      correctionOutcome: {
+        type: "implementation_completed",
+        summary: "Applied the exact audited correction.",
+        changed_paths: ["feature.txt"],
+        blocker: null,
+      },
+    });
   }
 }
 

@@ -238,6 +238,47 @@ describe("Codex SDK Runtime protocol", () => {
     assert.match(prompts[0], /optional refactoring may only be non-blocking notes/u);
   });
 
+  test("runs one same-Plan correction with writable capability and explicit assessments", async () => {
+    const threadOptions = [];
+    const prompts = [];
+    const finalResponse = JSON.stringify({
+      type: "implementation_completed",
+      summary: "Corrected the confirmed compatibility defect.",
+      changed_paths: ["src/api.js"],
+      blocker: null,
+      revision_feedback_assessments: [
+        {
+          finding_id: "finding-1",
+          disposition: "adapt",
+          rationale: "The exact diff needs a narrower compatibility guard.",
+        },
+      ],
+    });
+    const runtime = new CodexSdkRuntime({
+      ...RUNTIME_OPTIONS,
+      codexFactory() {
+        return {
+          startThread(options) {
+            threadOptions.push(options);
+            return {
+              async runStreamed(prompt) {
+                prompts.push(prompt);
+                return { events: providerEvents(finalResponse) };
+              },
+            };
+          },
+        };
+      },
+    });
+
+    const result = await runtime.invoke(correctionInvocation(process.cwd()));
+
+    assert.equal(result.outcome.type, "implementation_completed");
+    assert.equal(threadOptions[0].sandboxMode, "workspace-write");
+    assert.match(prompts[0], /one bounded correction under the unchanged confirmed Plan/u);
+    assert.match(prompts[0], /never manufacture an empty or unrelated edit/u);
+  });
+
   test("preserves terminal failure evidence without accepting text output", async () => {
     const runtime = new CodexSdkRuntime({
       ...RUNTIME_OPTIONS,
@@ -390,7 +431,7 @@ function verificationInvocation(repositoryPath) {
       authorized_repositories: ["api"],
     },
     context_projection: {
-      schema_version: 8,
+      schema_version: 9,
       operation: "verification",
       repositories: [{ repository_id: "api", root_path: repositoryPath }],
       verification: {
@@ -402,6 +443,47 @@ function verificationInvocation(repositoryPath) {
     },
     capabilities: {
       mode: "read_only",
+      paths: [repositoryPath],
+    },
+    workspace: { workspace_path: repositoryPath },
+    signal: null,
+  };
+}
+
+function correctionInvocation(repositoryPath) {
+  return {
+    operation: "correction",
+    agent_profile: {
+      ...PROFILE,
+      permissions: "operation_scoped",
+      network_access: false,
+    },
+    control_contract: {
+      schema_version: 3,
+      operation: "correction",
+      change_set_id: "change-1",
+      authorized_repositories: ["api"],
+    },
+    context_projection: {
+      schema_version: 9,
+      operation: "correction",
+      work_unit: { task: "Correct the API compatibility defect" },
+      repositories: [{ repository_id: "api", root_path: repositoryPath }],
+      correction: {
+        source_review: {
+          findings: [
+            {
+              finding_id: "finding-1",
+              category: "compatibility",
+              message: "The API breaks the confirmed compatibility contract.",
+              path: "src/api.js",
+            },
+          ],
+        },
+      },
+    },
+    capabilities: {
+      mode: "read_write",
       paths: [repositoryPath],
     },
     workspace: { workspace_path: repositoryPath },

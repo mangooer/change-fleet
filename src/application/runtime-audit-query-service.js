@@ -482,6 +482,9 @@ function summarizeOutcomes(state, loadedRuns, validation) {
   const verificationRuns = loadedRuns.filter(
     (loaded) => loaded.payload.identity.operation === "verification",
   );
+  const correctionRuns = loadedRuns.filter(
+    (loaded) => loaded.payload.identity.operation === "correction",
+  );
   return {
     runtime_attempts: countValues(
       loadedRuns.map((loaded) => loaded.payload.terminal.status),
@@ -499,6 +502,14 @@ function summarizeOutcomes(state, loadedRuns, validation) {
           ? (loaded.payload.outcome?.verdict ??
             loaded.payload.terminal.outcome_type ??
             "completed_unknown")
+          : loaded.payload.terminal.status,
+      ),
+    ),
+    // correction 单列展示但仍包含在 runtime_attempts 与总 usage 中，避免重复计费。
+    correction: countValues(
+      correctionRuns.map((loaded) =>
+        loaded.payload.terminal.status === "completed"
+          ? (loaded.payload.terminal.outcome_type ?? "completed_unknown")
           : loaded.payload.terminal.status,
       ),
     ),
@@ -903,7 +914,9 @@ function validateRunAuditSource(run) {
   invariant(
     typeof run.change_set_id === "string" &&
       (run.work_unit_id === null || typeof run.work_unit_id === "string") &&
-      ["planning", "execution", "verification"].includes(run.operation) &&
+      ["planning", "execution", "correction", "verification"].includes(
+        run.operation,
+      ) &&
       Number.isSafeInteger(run.attempt) &&
       run.attempt >= 1 &&
       typeof run.status === "string" &&

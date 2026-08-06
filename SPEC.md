@@ -372,6 +372,20 @@ additional structured checks, but ChangeFleet executes those commands and binds 
 the unchanged checkpoint. Passing review is not Bundle acceptance. Malformed output, missing check
 evidence, workspace mutation, blocking findings, or an unresolved human decision fails closed.
 
+`changes_required` is a reviewer claim, not controller-certified truth. ChangeFleet starts one
+bounded correction sequence under the unchanged confirmed Plan in the assigned writable WorkUnit
+workspace. The correction Run receives the exact source review, current checkpoint, and bounded
+passing evidence references, and must assess every finding as `adopt`, `adapt`, or `decline`. A
+fully assessed correction with no Git change reuses the checkpoint; otherwise publication creates
+a descendant checkpoint while preserving the prior subject and review.
+
+The corrected exact subject repeats its repository validation and receives one focused read-only
+review bound to the source review, correction Run, old and new Candidate SHAs, assessments, and
+actual correction delta. A focused `pass` or `pass_with_notes` permits Candidate creation. Another
+blocking verdict or an unresolved choice enters a human decision gate without starting a second
+automatic correction. Incomplete correction or focused-review attempts may be abandoned and
+retried after exact preflight; a completed correction is never dispatched again.
+
 ### CandidateBundle
 
 A CandidateBundle is an immutable, versioned manifest containing the exact Candidates reviewed as
@@ -895,6 +909,13 @@ Candidates, after exact deterministic preflight and without repeating execution.
 verification was interrupted after repository validation passed, recovery abandons its incomplete
 Run and disposable workspace, reuses the exact passing check evidence, and starts one fresh
 verification Run.
+
+If correction was interrupted before a terminal Runtime outcome, recovery abandons that attempt
+and may start a fresh correction only when the assigned workspace still passes exact clean-head
+preflight. If the correction completed, recovery never calls the correction Runtime again; it
+resumes only from an exact persisted checkpoint or fails closed for human judgment. An interrupted
+focused review is abandoned and retried over the unchanged corrected checkpoint without repeating
+execution, correction, or a passing repository check.
 
 For private records created before this checkpoint contract, one explicit human-gated recovery
 operation may bind an exact completed Run and owned clean workspace to an exact base and candidate

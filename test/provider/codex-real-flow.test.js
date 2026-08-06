@@ -16,6 +16,7 @@ import {
 const RUN_REAL_PROVIDER =
   process.env.CHANGEFLEET_RUN_REAL_CODEX === "1";
 const EXPECTED_FEATURE = "codex real provider implementation\n";
+const INITIAL_FEATURE = "codex real provider draft\n";
 
 test(
   "real Codex SDK discovers one frozen ignored Repository Harness overlay",
@@ -101,8 +102,11 @@ test(
       project_id: "project",
       intent: {
         objective:
-          "Create feature.txt with the exact text required by the repository Harness.",
+          "Exercise same-Plan correction: initial execution must write the staged draft, then verification-driven correction must write the final feature value.",
         acceptance_criteria: [
+          "The initial execution checkpoint contains exactly the staged draft value.",
+          "Initial independent verification returns one required correction.",
+          "The same-Plan correction replaces the draft with the final value.",
           "The exact repository and combined checks pass.",
         ],
       },
@@ -129,6 +133,10 @@ test(
     assert.equal(planned.message.plan_content.work_units.length, 1);
     assert.equal(planned.message.plan_content.work_units[0].repository_id, "api");
     assert.equal(planned.message.plan_content.work_units[0].base_sha, selectedBase);
+    assert.match(
+      planned.message.plan_content.work_units[0].task,
+      /initial execution operation only/u,
+    );
     await service.confirmPlanMessage({
       idempotency_key: "confirm",
       change_set_id: "real-change",
@@ -218,9 +226,16 @@ test(
     );
     assert.equal(execution.bundle_revision, 1);
     assert.equal(state.state, "candidate_review");
-    assert.equal(state.run_references.length, 3);
-    assert.equal(state.verification_reviews.length, 1);
-    assert.equal(state.verification_reviews[0].verdict, "pass");
+    assert.deepEqual(
+      state.run_references.map((reference) => reference.operation),
+      ["planning", "execution", "verification", "correction", "verification"],
+    );
+    assert.equal(state.verification_reviews.length, 2);
+    assert.equal(state.verification_reviews[0].verdict, "changes_required");
+    assert.equal(state.verification_reviews[1].review_scope, "focused");
+    assert.equal(state.verification_reviews[1].verdict, "pass");
+    assert.equal(workUnit.correction_run_references.length, 1);
+    assert.equal(state.candidate_checkpoints.length, 2);
 
     const runAudits = [];
     for (const reference of state.run_references) {
@@ -247,6 +262,7 @@ test(
       );
       const usage = evidence.payload.usage_observations[0];
       runAudits.push({
+        run_id: reference.run_id,
         operation: evidence.payload.operation,
         duration_ms: evidence.payload.timing.duration_ms,
         input_tokens: usage.input_tokens,
@@ -267,7 +283,7 @@ test(
       changeAudit.payload.usage.observed_total_tokens,
       runAudits.reduce((total, run) => total + run.total_tokens, 0),
     );
-    assert.equal(changeAudit.payload.usage.observed_run_count, 3);
+    assert.equal(changeAudit.payload.usage.observed_run_count, 5);
     assert.equal(changeAudit.payload.usage.unknown_run_count, 0);
     assert.equal(
       changeAudit.payload.timing.provider_duration_sum.observed_sum,
@@ -276,7 +292,7 @@ test(
     for (const reference of state.run_references) {
       const runAudit = await auditQuery.getRunAudit(reference.run_id);
       const source = runAudits.find(
-        (item) => item.operation === runAudit.payload.identity.operation,
+        (item) => item.run_id === reference.run_id,
       );
       assert.equal(runAudit.payload.usage.canonical.total_tokens, source.total_tokens);
       assert.equal(runAudit.payload.usage.canonical.coverage, "aggregate_only");
@@ -296,7 +312,7 @@ test(
 
 function realProviderHarness() {
   const repositoryCheck =
-    "const fs=require('node:fs');if(fs.readFileSync('feature.txt','utf8')!=='codex real provider implementation\\n')process.exit(2)";
+    `const fs=require('node:fs');const v=fs.readFileSync('feature.txt','utf8');if(!${JSON.stringify([INITIAL_FEATURE, EXPECTED_FEATURE])}.includes(v))process.exit(2)`;
   const combinedCheck =
     "const fs=require('node:fs');const m=JSON.parse(fs.readFileSync(process.env.CHANGEFLEET_VALIDATION_MANIFEST,'utf8'));if(m.candidates.length!==1)process.exit(2);const p=m.candidates[0].workspace_path+'/feature.txt';if(fs.readFileSync(p,'utf8')!=='codex real provider implementation\\n')process.exit(3)";
   return [
@@ -311,16 +327,19 @@ function realProviderHarness() {
     "",
     "- `work_unit_id`: `api-unit`",
     "- `repository_id`: `api`",
+    "- `task`: `For the initial execution operation only, create feature.txt with exactly codex real provider draft followed by one newline; do not write the final value until a correction operation supplies the verification finding.`",
     "- no dependencies",
     `- repository check executable \`node\`, argv \`${JSON.stringify(["-e", repositoryCheck])}\`, timeout 10000`,
     `- combined check executable \`node\`, argv \`${JSON.stringify(["-e", combinedCheck])}\`, timeout 10000`,
     "- empty risks and unverified boundaries",
     "",
-    "During execution, you MUST use the available filesystem editing tool to add `feature.txt` before returning `implementation_completed`.",
+    "During the initial execution operation, you MUST use the available filesystem editing tool to write exactly `codex real provider draft` followed by one newline. This staged value is the confirmed initial WorkUnit result and is required to exercise correction. Writing the final value during initial execution violates the confirmed task.",
     "After editing, run the exact repository check yourself and return completion only when it exits with code 0.",
     "Leave Git commits to ChangeFleet.",
     "",
-    "During verification, inspect the exact base-to-Candidate diff. If `feature.txt` is the only changed path and has the exact required content, return a triage `pass` with no findings, notes, human decision, or requested checks.",
+    "During initial verification, inspect the exact base-to-Candidate diff. When `feature.txt` contains `codex real provider draft`, return `changes_required` with exactly one correctness finding requiring the accepted final text, and no notes, human decision, or requested checks.",
+    "During correction, assess that finding as `adopt`, replace the draft with exactly `codex real provider implementation` followed by one newline, run the repository check, and return `implementation_completed`.",
+    "During focused verification, if `feature.txt` is the only changed path and has the exact final content, return a triage `pass` with no findings, notes, human decision, or requested checks.",
     "",
   ].join("\n");
 }

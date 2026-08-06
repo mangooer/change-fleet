@@ -161,6 +161,17 @@ describe("Runtime identity and evidence", () => {
       assertStructuredOutcome("verification", verificationOutcome),
       verificationOutcome,
     );
+    const correctionOutcome = {
+      type: "implementation_completed",
+      summary: "corrected",
+      changed_paths: ["src/api.js"],
+      blocker: null,
+      revision_feedback_assessments: [],
+    };
+    assert.equal(
+      assertStructuredOutcome("correction", correctionOutcome),
+      correctionOutcome,
+    );
     assert.throws(() =>
       assertStructuredOutcome("execution", {
         type: "implementation_completed",

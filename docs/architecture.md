@@ -169,6 +169,10 @@ from durable ChangeSet and Run state. It includes:
 - capability boundary, blockers, decisions, gates, and typed outcomes;
 - bounded current request-revision feedback when present;
 - the current Plan's bounded per-finding feedback assessments after planning;
+- for correction, only the exact source findings, current checkpoint, and bounded passing evidence
+  references;
+- for focused re-review, only that source review, correction assessments, old and new subjects, and
+  actual correction delta;
 - required evidence and progressive resource references;
 - initial context-budget components and classification.
 
@@ -323,8 +327,14 @@ frozen Project policy, confirmed Plan expectation, optional operator elevation, 
 facts. `basic` or `deterministic` admission continues without another Runtime. For
 `independent_review`, a passed Plan-bound repository check starts one separately recorded read-only
 verification Run over a disposable exact-Candidate worktree. A bounded passing VerificationReview
-and any requested Runner check evidence create the ordinary Candidate; mutation, malformed output,
-blocking findings, or a human decision fails closed. Each validation attempt remains immutable.
+and any requested Runner check evidence create the ordinary Candidate. `changes_required` starts
+one same-Plan correction sequence in the assigned writable execution workspace. Every source
+finding receives an explicit assessment; a changed result creates a descendant checkpoint and an
+assessed no-change result preserves the existing checkpoint. Exact repository validation then
+precedes one focused read-only review over the source findings and actual correction delta.
+Mutation, malformed output, unresolved focused findings, or a human decision fails closed without
+a second automatic correction. Each validation attempt, checkpoint, review, and Run remains
+immutable history.
 
 Resume is a deterministic application operation with a new caller idempotency key. It rechecks
 current revisions, source Run, workspace ownership, clean exact HEAD, ancestry, changed paths, and
@@ -493,6 +503,11 @@ repository evidence, and starts one fresh verification Run. Failed attempts rema
 evidence. An operational retry may use a different bounded timeout while preserving the same
 semantic check and exact subject. Private pre-checkpoint recovery requires an explicit exact human
 gate and never becomes generic commit or workspace import.
+
+Interrupted correction abandons only a non-terminal attempt and retries only after clean exact-head
+preflight of the assigned execution workspace. A completed correction cannot be dispatched again.
+Interrupted focused re-review reuses the corrected checkpoint and passing repository evidence, then
+starts a fresh read-only review without repeating execution or correction.
 
 Provider-native context may optimize continuation but is not lifecycle authority.
 The first real adapter abandons an incomplete Provider session after controller loss and starts a

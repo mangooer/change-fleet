@@ -28,6 +28,9 @@ export class ScriptedRuntime {
     failRepository = null,
     executionOutcome = null,
     verificationOutcome = null,
+    verificationOutcomes = null,
+    correctionOutcome = null,
+    correctionFileContent = null,
   }) {
     this.plan = plan;
     this.contextMeasurement = contextMeasurement;
@@ -35,6 +38,10 @@ export class ScriptedRuntime {
     this.failRepository = failRepository;
     this.executionOutcome = executionOutcome;
     this.verificationOutcome = verificationOutcome;
+    this.verificationOutcomes = verificationOutcomes;
+    this.correctionOutcome = correctionOutcome;
+    this.correctionFileContent = correctionFileContent;
+    this.verificationInvocationCount = 0;
     this.interrupted = false;
     this.invocations = [];
   }
@@ -69,9 +76,13 @@ export class ScriptedRuntime {
       };
     }
     if (invocation.operation === "verification") {
+      const sequencedOutcome = Array.isArray(this.verificationOutcomes)
+        ? this.verificationOutcomes[this.verificationInvocationCount]
+        : null;
+      this.verificationInvocationCount += 1;
       return {
         outcome: structuredClone(
-          this.verificationOutcome ?? {
+          sequencedOutcome ?? this.verificationOutcome ?? {
             type: "verification_completed",
             review_depth: "triage",
             verdict: "pass",
@@ -103,7 +114,26 @@ export class ScriptedRuntime {
         `Scripted execution failed for ${repositoryId}`,
       );
     }
-    if (this.executionOutcome) {
+    if (
+      invocation.operation === "correction" &&
+      this.correctionFileContent !== null
+    ) {
+      // 只有显式配置的测试才制造修正差异；缺省值保留“评估后无需改动”的路径。
+      await writeFixtureFeature(
+        invocation,
+        `${this.correctionFileContent}`,
+      );
+    }
+    if (invocation.operation === "correction" && this.correctionOutcome) {
+      const outcome = structuredClone(this.correctionOutcome);
+      outcome.revision_feedback_assessments ??=
+        feedbackAssessments(invocation);
+      return {
+        outcome,
+        provider_evidence: testProviderEvidence(),
+      };
+    }
+    if (this.executionOutcome && invocation.operation === "execution") {
       // 测试可显式模拟阻塞或空实现；生产 Runtime 仍由严格 schema 约束。
       const outcome = structuredClone(this.executionOutcome);
       outcome.revision_feedback_assessments ??=
@@ -113,14 +143,10 @@ export class ScriptedRuntime {
         provider_evidence: testProviderEvidence(),
       };
     }
-    const workspace = invocation.workspace.workspace_path;
-    const target = path.resolve(workspace, "feature.txt");
-    const relative = path.relative(path.resolve(workspace), target);
-    if (relative.startsWith("..") || path.isAbsolute(relative)) {
-      throw new Error("scripted write escaped workspace");
-    }
-    await mkdir(path.dirname(target), { recursive: true });
-    await writeFile(target, `${repositoryId} implementation\n`, "utf8");
+    await writeFixtureFeature(
+      invocation,
+      `${repositoryId} implementation\n`,
+    );
     return {
       outcome: {
         type: "implementation_completed",
@@ -134,9 +160,21 @@ export class ScriptedRuntime {
   }
 }
 
+async function writeFixtureFeature(invocation, content) {
+  const workspace = invocation.workspace.workspace_path;
+  const target = path.resolve(workspace, "feature.txt");
+  const relative = path.relative(path.resolve(workspace), target);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) {
+    throw new Error("scripted write escaped workspace");
+  }
+  await mkdir(path.dirname(target), { recursive: true });
+  await writeFile(target, content, "utf8");
+}
+
 function feedbackAssessments(invocation) {
   return (
-    invocation.context_projection.revision_feedback?.findings.map(
+    (invocation.context_projection.correction?.source_review.findings ??
+      invocation.context_projection.revision_feedback?.findings)?.map(
       (finding) => ({
         finding_id: finding.finding_id,
         disposition: "adopt",

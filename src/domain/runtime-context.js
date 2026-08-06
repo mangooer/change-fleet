@@ -3,7 +3,7 @@ import { invariant } from "./errors.js";
 
 // Runtime 只接收当前操作所需投影；完整历史留在控制存储中按引用读取。
 export const CONTROL_CONTRACT_VERSION = 3;
-export const CONTEXT_PROJECTION_VERSION = 8;
+export const CONTEXT_PROJECTION_VERSION = 9;
 const RUNTIME_EXCLUDED_DECISION_TYPES = new Set([
   "bundle_review",
   "legacy_candidate_recovery",
@@ -55,6 +55,7 @@ export function createContextProjection({
   planningConversation = null,
   verificationPolicy = null,
   verification = null,
+  correction = null,
 }) {
   return {
     schema_version: CONTEXT_PROJECTION_VERSION,
@@ -90,6 +91,9 @@ export function createContextProjection({
     // Verification 只接收当前精确主体和有界证据摘要，不继承执行对话、成本或历史审计。
     verification:
       verification === null ? null : structuredClone(verification),
+    // Correction 只接收当前阻塞结论、逐条评估目标和精确主体，不接收完整审核历史。
+    correction:
+      correction === null ? null : structuredClone(correction),
     history_references: historyReferences,
   };
 }
