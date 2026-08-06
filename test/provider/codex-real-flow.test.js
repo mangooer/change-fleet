@@ -102,11 +102,11 @@ test(
       project_id: "project",
       intent: {
         objective:
-          "Exercise same-Plan correction: initial execution must write the staged draft, then verification-driven correction must write the final feature value.",
+          "Exercise same-Plan feedback handling: initial execution writes a staged draft, then verification feedback drives the final feature value.",
         acceptance_criteria: [
           "The initial execution checkpoint contains exactly the staged draft value.",
-          "Initial independent verification returns one required correction.",
-          "The same-Plan correction replaces the draft with the final value.",
+          "Initial independent verification returns one required feedback change.",
+          "The feedback-triggered execution replaces the draft with the final value.",
           "The exact repository and combined checks pass.",
         ],
       },
@@ -135,7 +135,7 @@ test(
     assert.equal(planned.message.plan_content.work_units[0].base_sha, selectedBase);
     assert.match(
       planned.message.plan_content.work_units[0].task,
-      /initial execution operation only/u,
+      /initial execution only/u,
     );
     await service.confirmPlanMessage({
       idempotency_key: "confirm",
@@ -145,16 +145,21 @@ test(
     });
     let execution;
     try {
+      const feedback = await service.executeChangeSet({
+        idempotency_key: "execute-initial",
+        change_set_id: "real-change",
+      });
+      assert.equal(feedback.status, "feedback_required");
       execution = await service.executeChangeSet({
-        idempotency_key: "execute",
+        idempotency_key: "execute-feedback",
         change_set_id: "real-change",
       });
     } catch (error) {
       // 真实 Provider 失败时输出有界命令审计和文件名，但不输出推理或凭据。
       const failedState = await service.readChangeSet("real-change");
-      const executionReference = failedState.run_references.find(
-        (reference) => reference.operation === "execution",
-      );
+      const executionReference = failedState.run_references
+        .filter((reference) => reference.operation === "execution")
+        .at(-1);
       const failedUnit = failedState.work_units.find(
         (candidate) =>
           candidate.plan_revision === failedState.current_plan_revision,
@@ -183,7 +188,7 @@ test(
         : [];
       process.stderr.write(
         `${JSON.stringify({
-          change_set_state: failedState.state,
+          change_set_phase: failedState.phase,
           run_events: runEvents
             .map((event) => ({
               type: event.type,
@@ -225,16 +230,26 @@ test(
       { code: "ENOENT" },
     );
     assert.equal(execution.bundle_revision, 1);
-    assert.equal(state.state, "candidate_review");
+    assert.equal(state.phase, "review");
     assert.deepEqual(
       state.run_references.map((reference) => reference.operation),
-      ["planning", "execution", "verification", "correction", "verification"],
+      ["planning", "execution", "verification", "execution", "verification"],
+    );
+    assert.deepEqual(
+      state.run_references.map((reference) => reference.trigger),
+      ["initial", "initial", "initial", "feedback", "feedback"],
     );
     assert.equal(state.verification_reviews.length, 2);
     assert.equal(state.verification_reviews[0].verdict, "changes_required");
-    assert.equal(state.verification_reviews[1].review_scope, "focused");
+    assert.equal(state.verification_reviews[1].review_scope, "feedback");
     assert.equal(state.verification_reviews[1].verdict, "pass");
-    assert.equal(workUnit.correction_run_references.length, 1);
+    assert.equal(
+      workUnit.run_references.filter(
+        (reference) =>
+          reference.operation === "execution" && reference.trigger === "feedback",
+      ).length,
+      1,
+    );
     assert.equal(state.candidate_checkpoints.length, 2);
 
     const runAudits = [];
@@ -327,19 +342,19 @@ function realProviderHarness() {
     "",
     "- `work_unit_id`: `api-unit`",
     "- `repository_id`: `api`",
-    "- `task`: `For the initial execution operation only, create feature.txt with exactly codex real provider draft followed by one newline; do not write the final value until a correction operation supplies the verification finding.`",
+    "- `task`: `For the initial execution only, create feature.txt with exactly codex real provider draft followed by one newline; do not write the final value until a later execution receives verification feedback.`",
     "- no dependencies",
     `- repository check executable \`node\`, argv \`${JSON.stringify(["-e", repositoryCheck])}\`, timeout 10000`,
     `- combined check executable \`node\`, argv \`${JSON.stringify(["-e", combinedCheck])}\`, timeout 10000`,
     "- empty risks and unverified boundaries",
     "",
-    "During the initial execution operation, you MUST use the available filesystem editing tool to write exactly `codex real provider draft` followed by one newline. This staged value is the confirmed initial WorkUnit result and is required to exercise correction. Writing the final value during initial execution violates the confirmed task.",
+    "During initial execution without feedback, you MUST use the available filesystem editing tool to write exactly `codex real provider draft` followed by one newline. This staged value is required to exercise feedback handling. Writing the final value during initial execution violates the confirmed task.",
     "After editing, run the exact repository check yourself and return completion only when it exits with code 0.",
     "Leave Git commits to ChangeFleet.",
     "",
     "During initial verification, inspect the exact base-to-Candidate diff. When `feature.txt` contains `codex real provider draft`, return `changes_required` with exactly one correctness finding requiring the accepted final text, and no notes, human decision, or requested checks.",
-    "During correction, assess that finding as `adopt`, replace the draft with exactly `codex real provider implementation` followed by one newline, run the repository check, and return `implementation_completed`.",
-    "During focused verification, if `feature.txt` is the only changed path and has the exact final content, return a triage `pass` with no findings, notes, human decision, or requested checks.",
+    "During execution with feedback, assess that finding as `adopt`, replace the draft with exactly `codex real provider implementation` followed by one newline, run the repository check, and return `implementation_completed`.",
+    "During verification with feedback lineage, if `feature.txt` is the only changed path and has the exact final content, return a triage `pass` with no findings, notes, human decision, or requested checks.",
     "",
   ].join("\n");
 }

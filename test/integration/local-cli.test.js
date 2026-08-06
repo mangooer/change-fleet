@@ -94,7 +94,7 @@ describe("unified local CLI process", () => {
     assert.equal(shown.exitCode, 0);
     assert.equal(shown.stderr, "");
     const state = JSON.parse(shown.stdout);
-    assert.equal(state.state, "analyzing");
+    assert.equal(state.phase, "planning");
     assert.equal(state.repository_selection_revisions.length, 1);
   });
 

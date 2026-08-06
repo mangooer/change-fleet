@@ -153,7 +153,7 @@ prove `npm.cmd` resolution, metacharacter argv preservation, effective-invocatio
 and cancellation without exposing a caller-provided shell command.
 
 Context regression must prove that only bounded current `request_revision` feedback enters the
-handling correction Run while checkpoint details, host locators, output, complete review artifacts,
+handling feedback-triggered execution Run while checkpoint details, host locators, output, complete review artifacts,
 and older decisions remain excluded. WI-0010 changes shared domain contracts, persisted schema,
 stores, Git workspaces, command launch, context, and CLI behavior, so its final stable subject must
 run `npm run check` under Node.js 24. Another real Provider call is excluded; actual WI-0009 legacy
@@ -162,7 +162,7 @@ recovery is an operational continuation only after WI-0010 is accepted and lande
 Decisions 0022 and 0023 require exact per-finding assessment completeness, uniqueness, allowed
 dispositions, ordering, and bounds without treating reviewer claims as truth. Tests must prove that
 planning messages allocate no Plan revision, exact message approval creates the next confirmed
-revision, ordinary Bundle correction keeps that revision, and typed contract invalidation is the
+revision, ordinary Bundle feedback handling keeps that revision, and typed contract invalidation is the
 only route back to planning. Migration must deterministically retire incompatible unconfirmed v5
 Plan records. This shared domain, store, Runtime, CLI, and UI contract selects the Node.js 24 full
 deterministic check and one authorized real Provider planning flow.
@@ -186,18 +186,18 @@ Node.js 24 full deterministic check and one authorized real Codex Provider flow 
 new Provider operation. Browser and GitHub write gates remain excluded because their behavior is
 unchanged.
 
-Decision 0024's third slice requires strict per-finding correction assessment and focused-review
-lineage tests; deterministic Codex adapter coverage for the writable `correction` operation;
-Real-Git integration for changed and assessed no-change correction, descendant checkpoint identity,
-exact repository revalidation, one focused review, and human escalation without a second automatic
-correction; and restart coverage for interrupted correction and focused review without repeating a
-completed semantic stage. Context tests must expose only current findings, bounded passing evidence
-references, assessments, and exact old-to-new delta. Audit tests separately attribute correction
-and both verification Runs while excluding totals from Runtime input. Store migration moves v8
-records to v9 with empty correction lineage and initial review scope. The final stable subject runs
-the Node.js 24 full deterministic check and one authorized real Codex Provider flow because it adds
-a Provider operation. Browser and GitHub write gates remain excluded because their behavior is
-unchanged.
+Decision 0025 replaces Decision 0024's third-slice workflow names with one unified lifecycle.
+Validation requires transition-table coverage; common Run completion, failure, interruption,
+cancellation, continuation, and feedback lineage; exhaustive v9-to-v10 migration fixtures; and
+Real-Git proof that feedback-triggered execution and later verification retain exact checkpoint and
+cost evidence. Multi-repository acceptance must observe one current WorkUnit in `verification`
+while another is in `execution`, with the ChangeSet remaining `working`. Runtime-context tests expose
+only current feedback, while audit tests retain complete immutable lineage outside Runtime input.
+Operation adapters and local UI must present derived activity and generic Feedback, Gate, continue,
+and interruption behavior without compound persisted states. Because this replacement changes the
+shared schema, migration, Runtime contracts, recovery, CLI, HTTP, and UI, its stable subject runs the
+Node.js 24 full deterministic check, selected UI gate, and one authorized real Codex Provider flow.
+GitHub external writes remain excluded because delivery behavior is unchanged.
 
 Decision 0018 requires close-only tests for exact request fields, bounded reasons, idempotent replay,
 quiescent unfinished states, active Run or command rejection, begun-delivery rejection, and terminal

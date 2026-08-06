@@ -311,6 +311,16 @@ A ChangeSet is the aggregate root for one confirmed intent. It owns:
 - scope decisions;
 - human review and delivery decisions.
 
+Its persisted business phase is limited to:
+
+```text
+planning | working | review | delivery | terminal
+```
+
+`terminal` additionally records the exact `done | abandoned` outcome. Running, waiting, failure,
+and interruption are not ChangeSet phases; they are derived from Runs, Gates, Blockers, and exact
+artifacts.
+
 Replanning continues the same ChangeSet. A new ChangeSet is created only for a distinct business
 intent, not merely because an earlier plan was wrong.
 
@@ -324,11 +334,25 @@ A WorkUnit is one repository-scoped unit of execution. It records:
 - workspace identity;
 - dependency WorkUnits;
 - Agent assignment and Run references;
-- current state;
+- current `execution | verification | complete` phase;
+- independent `current | superseded | excluded` disposition;
 - resulting CandidateCheckpoint, Candidate, blocker, or supersession.
 
 One Agent Run may use native subagents internally. ChangeFleet does not model those subagents as
 WorkUnits unless they correspond to independently controlled repository execution.
+
+### Run, Feedback, Gate, And Blocker
+
+Every Agent invocation is one `planning | execution | verification` Run with status
+`queued | running | completed | failed | interrupted | cancelled`. A new attempt records
+`initial | feedback | retry | recovery` trigger and optional continuation lineage. Terminal Run
+facts are immutable and do not imply success of the owning phase.
+
+Feedback is immutable bounded input from a human, planning, validation, verification, review, or
+delivery source. The handling Agent assesses each finding as `adopt | adapt | decline`; Core checks
+exact subjects and authority but does not certify the feedback as true. Human questions are open
+Gates; semantic or environmental impediments are Blockers. Neither creates another lifecycle
+state. Normal views derive `ready | running | waiting | blocked | complete` activity.
 
 ### Candidate
 
@@ -372,19 +396,17 @@ additional structured checks, but ChangeFleet executes those commands and binds 
 the unchanged checkpoint. Passing review is not Bundle acceptance. Malformed output, missing check
 evidence, workspace mutation, blocking findings, or an unresolved human decision fails closed.
 
-`changes_required` is a reviewer claim, not controller-certified truth. ChangeFleet starts one
-bounded correction sequence under the unchanged confirmed Plan in the assigned writable WorkUnit
-workspace. The correction Run receives the exact source review, current checkpoint, and bounded
-passing evidence references, and must assess every finding as `adopt`, `adapt`, or `decline`. A
-fully assessed correction with no Git change reuses the checkpoint; otherwise publication creates
-a descendant checkpoint while preserving the prior subject and review.
+`changes_required` is a reviewer claim, not controller-certified truth. ChangeFleet records exact
+Feedback and returns the same WorkUnit to `execution`. The next writable execution Run uses trigger
+`feedback`, receives only the current bounded findings and authority, and assesses each finding as
+`adopt`, `adapt`, or `decline`. A fully assessed no-change result may reuse the exact checkpoint;
+otherwise publication creates a descendant checkpoint while preserving all prior evidence.
 
-The corrected exact subject repeats its repository validation and receives one focused read-only
-review bound to the source review, correction Run, old and new Candidate SHAs, assessments, and
-actual correction delta. A focused `pass` or `pass_with_notes` permits Candidate creation. Another
-blocking verdict or an unresolved choice enters a human decision gate without starting a second
-automatic correction. Incomplete correction or focused-review attempts may be abandoned and
-retried after exact preflight; a completed correction is never dispatched again.
+The WorkUnit then naturally re-enters `verification`. A new read-only verification Run may receive
+prior-finding and exact-delta focus metadata, but remains an ordinary verification Run and may
+inspect the full relevant diff. Further actionable feedback repeats the same phase transition;
+resource policy may instead open a Gate. Core does not impose a fixed number of semantic repair
+cycles.
 
 ### CandidateBundle
 
@@ -501,7 +523,7 @@ A WorkUnit executes only after its repository, target ref, base SHA, and plan re
 During execution:
 
 - implementation-detail changes may continue without human interruption;
-- user guidance, test failures, and ordinary review correction continue under the confirmed Plan;
+- user guidance, test failures, and ordinary review feedback continue under the confirmed Plan;
 - repository scope expansion produces a typed decision request;
 - branch, target, or planning-visibility changes produce a typed Repository selection request;
 - invalidated design assumptions return to planning; exact approval produces the new plan revision;
@@ -509,26 +531,17 @@ During execution:
 - abandoned attempts remain immutable history;
 - a blocker pauses the ChangeSet without manufacturing terminal failure.
 
-The lifecycle must distinguish:
+The persistent lifecycle is deliberately small:
 
 ```text
-analyzing
-plan_ready
-awaiting_plan_confirmation
-executing
-decision_required
-replanning
-validating
-candidate_review
-delivery_ready
-delivering
-done
-canceled
-failed
+ChangeSet: planning -> working -> review -> delivery -> terminal(done)
+WorkUnit:  execution -> verification -> complete
+Run:       queued -> running -> completed | failed | interrupted | cancelled
 ```
 
-This list is conceptual until the first state-schema proposal is accepted. Implementation must not
-persist it prematurely as a compatibility contract.
+Review feedback may return a WorkUnit to execution. A typed Plan invalidation may return the
+ChangeSet to planning. Human abandonment creates `terminal(abandoned)`. All other activity is
+derived rather than persisted as a compound state.
 
 ## 9. Parallel Work And Branches
 
@@ -655,13 +668,13 @@ Review receives:
 Review does not inherit private execute reasoning as authority.
 
 A `request_revision` decision binds the exact Bundle and carries a concise bounded summary plus
-bounded actionable findings. It normally starts a correction Run under the current confirmed Plan
-and may produce a new Candidate and Bundle revision. Only a typed authority change or materially
-invalidated design assumption returns the ChangeSet to planning. Feedback is a reviewer's bounded
-claim, not an automatic fact or command. The handling planning message or correction Run records
-exactly one bounded `adopt | adapt | decline` assessment and rationale for every current finding.
-Core validates coverage and bounds, not semantic truth. A planning assessment enters a ChangePlan
-only when the exact message is approved; raw feedback never becomes execution authority.
+bounded actionable findings. It records Feedback and returns affected WorkUnits to execution under
+the confirmed Plan. Only a typed authority change or materially invalidated design assumption
+returns the ChangeSet to planning. Feedback is a reviewer's bounded claim, not an automatic fact
+or command. The handling planning message or feedback-triggered execution Run records exactly one
+bounded `adopt | adapt | decline` assessment and rationale for every current finding. Core validates
+coverage and bounds, not semantic truth. A planning assessment enters a ChangePlan only when the
+exact message is approved; raw feedback never becomes execution authority.
 
 ## 12. Recovery, Audit, And Rollback
 
@@ -847,7 +860,7 @@ create and read the PR. It verifies the remote target before publication, never 
 recovers an existing exact branch or PR after restart instead of blindly duplicating external
 writes.
 
-Delivery progresses from `delivery_ready` through `delivering` to `done`. Per-Repository states
+The ChangeSet remains in `delivery` until exact observations permit `terminal(done)`. Per-Repository states
 distinguish pending, publishing, open, merged, closed-unmerged, integration-stale,
 Candidate-diverged, and failed outcomes. Destination locks protect target-sensitive critical
 sections but are not held throughout human review. Another merge may move the target and stale
@@ -910,12 +923,12 @@ verification was interrupted after repository validation passed, recovery abando
 Run and disposable workspace, reuses the exact passing check evidence, and starts one fresh
 verification Run.
 
-If correction was interrupted before a terminal Runtime outcome, recovery abandons that attempt
-and may start a fresh correction only when the assigned workspace still passes exact clean-head
-preflight. If the correction completed, recovery never calls the correction Runtime again; it
-resumes only from an exact persisted checkpoint or fails closed for human judgment. An interrupted
-focused review is abandoned and retried over the unchanged corrected checkpoint without repeating
-execution, correction, or a passing repository check.
+One generic Run reconciler handles planning, execution, and verification attempts. A persisted
+`running` Run that is not provably live becomes `interrupted` with recovery evidence. Planning
+workspaces, writable execution workspaces, and disposable verification workspaces have bounded
+operation-specific preflight and cleanup adapters, but retain the same owning phase. A fresh
+same-phase Run may continue only after exact authority and workspace identity are proven. Completed
+checkpoints and passing checks are reused and completed Runtime invocations are never repeated.
 
 For private records created before this checkpoint contract, one explicit human-gated recovery
 operation may bind an exact completed Run and owned clean workspace to an exact base and candidate
@@ -927,8 +940,8 @@ on Windows only, a resolved `.cmd` or `.bat` may use one reviewed argv-preservin
 requested executable, resolved locator, adapter, and effective invocation recorded as evidence.
 Shell strings, operators, redirection, substitution, and implicit command parsing remain rejected.
 
-Bundle `request_revision` decisions carry bounded current feedback into a correction Run under the
-confirmed Plan by default. The handling Runtime must assess each finding as `adopt`, `adapt`, or
+Bundle `request_revision` decisions carry bounded current feedback into a feedback-triggered
+execution Run under the confirmed Plan by default. The handling Runtime must assess each finding as `adopt`, `adapt`, or
 `decline`; it may not silently treat human text or repository prose as truth. A true contract
 invalidation returns to planning conversation, and only exact message approval creates a new Plan
 revision. Checkpoints, host locators, validation output, full review artifacts, and superseded

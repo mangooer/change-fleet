@@ -12,7 +12,8 @@ const changeSet = {
   intents: [{ revision: 1, objective: "Change two repositories" }],
   blockers: [],
   decisions: [],
-  current_revision_feedback: null,
+  feedback_records: [],
+  current_feedback_id: null,
 };
 
 const controlContract = createControlContract({
@@ -59,7 +60,7 @@ describe("Runtime context admission", () => {
       enabled: false,
       skills: [],
     });
-    assert.equal(projection.schema_version, 9);
+    assert.equal(projection.schema_version, 10);
     assert.equal(controlContract.repository_selection_revision, 1);
     assert.equal(
       controlContract.repository_harness_selection_revision,
@@ -147,12 +148,16 @@ describe("Runtime context admission", () => {
           provider_environment_path: "C:/secret/provider-environment",
         },
       ],
-      current_revision_feedback: {
-        decision_id: "decision-current",
-        bundle_revision: 2,
-        bundle_hash: "a".repeat(64),
+    };
+    const feedback = {
+      feedback_id: "feedback-current",
+      source: { kind: "human", actor: "reviewer" },
+      target: { kind: "bundle", revision: 2, hash: "a".repeat(64) },
+      content: {
         summary: "Fix the current blocker",
-        findings: [{ finding_id: "finding-1", text: "Escape bootstrap data" }],
+        findings: [
+          { finding_id: "finding-1", text: "Escape bootstrap data" },
+        ],
       },
     };
     const result = createContextProjection({
@@ -162,7 +167,8 @@ describe("Runtime context admission", () => {
       workUnit: {
         work_unit_id: "api-unit",
         repository_id: "api",
-        state: "validation_failed",
+        phase: "verification",
+        disposition: "current",
         workspace: { workspace_path: "C:/secret/workspace" },
         candidate_checkpoint_id: "candidate-checkpoint-secret",
         validation_attempt_ids: ["validation-attempt-secret"],
@@ -172,9 +178,10 @@ describe("Runtime context admission", () => {
       repositories: projection.repositories,
       capability: { mode: "read_write", paths: ["C:/allowed/workspace"] },
       requiredEvidence: ["candidate"],
+      feedback,
     });
 
-    assert.deepEqual(result.revision_feedback.findings, [
+    assert.deepEqual(result.feedback.findings, [
       { finding_id: "finding-1", text: "Escape bootstrap data" },
     ]);
     assert.deepEqual(result.decisions, []);

@@ -238,7 +238,7 @@ describe("Codex SDK Runtime protocol", () => {
     assert.match(prompts[0], /optional refactoring may only be non-blocking notes/u);
   });
 
-  test("runs one same-Plan correction with writable capability and explicit assessments", async () => {
+  test("runs feedback-triggered execution with writable capability and explicit assessments", async () => {
     const threadOptions = [];
     const prompts = [];
     const finalResponse = JSON.stringify({
@@ -271,12 +271,12 @@ describe("Codex SDK Runtime protocol", () => {
       },
     });
 
-    const result = await runtime.invoke(correctionInvocation(process.cwd()));
+    const result = await runtime.invoke(feedbackExecutionInvocation(process.cwd()));
 
     assert.equal(result.outcome.type, "implementation_completed");
     assert.equal(threadOptions[0].sandboxMode, "workspace-write");
-    assert.match(prompts[0], /one bounded correction under the unchanged confirmed Plan/u);
-    assert.match(prompts[0], /never manufacture an empty or unrelated edit/u);
+    assert.match(prompts[0], /Feedback is review input rather than independent authority/u);
+    assert.match(prompts[0], /assess every finding exactly once/u);
   });
 
   test("preserves terminal failure evidence without accepting text output", async () => {
@@ -425,13 +425,13 @@ function verificationInvocation(repositoryPath) {
       network_access: false,
     },
     control_contract: {
-      schema_version: 3,
+      schema_version: 4,
       operation: "verification",
       change_set_id: "change-1",
       authorized_repositories: ["api"],
     },
     context_projection: {
-      schema_version: 9,
+      schema_version: 10,
       operation: "verification",
       repositories: [{ repository_id: "api", root_path: repositoryPath }],
       verification: {
@@ -450,36 +450,36 @@ function verificationInvocation(repositoryPath) {
   };
 }
 
-function correctionInvocation(repositoryPath) {
+function feedbackExecutionInvocation(repositoryPath) {
   return {
-    operation: "correction",
+    operation: "execution",
     agent_profile: {
       ...PROFILE,
       permissions: "operation_scoped",
       network_access: false,
     },
     control_contract: {
-      schema_version: 3,
-      operation: "correction",
+      schema_version: 4,
+      operation: "execution",
       change_set_id: "change-1",
       authorized_repositories: ["api"],
     },
     context_projection: {
-      schema_version: 9,
-      operation: "correction",
-      work_unit: { task: "Correct the API compatibility defect" },
+      schema_version: 10,
+      operation: "execution",
+      work_unit: { task: "Handle the API compatibility feedback" },
       repositories: [{ repository_id: "api", root_path: repositoryPath }],
-      correction: {
-        source_review: {
-          findings: [
-            {
-              finding_id: "finding-1",
-              category: "compatibility",
-              message: "The API breaks the confirmed compatibility contract.",
-              path: "src/api.js",
-            },
-          ],
-        },
+      feedback: {
+        feedback_id: "feedback-1",
+        source: "verification",
+        target: { work_unit_id: "api-unit" },
+        summary: "Assess one compatibility finding.",
+        findings: [
+          {
+            finding_id: "finding-1",
+            text: "The API breaks the confirmed compatibility contract.",
+          },
+        ],
       },
     },
     capabilities: {

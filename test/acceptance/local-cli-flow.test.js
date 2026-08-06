@@ -85,7 +85,7 @@ test("unified CLI completes one current single-Repository lifecycle", async (t) 
     },
     dependencies,
   );
-  assert.equal(planned.status, "awaiting_plan_confirmation");
+  assert.equal(planned.status, "plan_ready");
 
   const confirmed = await invoke(
     ["changeset", "plan", "confirm"],
@@ -136,7 +136,7 @@ test("unified CLI completes one current single-Repository lifecycle", async (t) 
     configPath,
     dependencies,
   );
-  assert.equal(finalState.state, "delivery_ready");
+  assert.equal(finalState.phase, "delivery");
   assert.equal(finalState.candidates.length, 1);
   assert.equal(finalState.decisions.at(-1).bundle_hash, execution.bundle_hash);
   assert.equal(runtime.invocations.length, 2);
@@ -158,7 +158,9 @@ test("unified CLI completes one current single-Repository lifecycle", async (t) 
     dependencies,
   );
   assert.equal(closure.status, "abandoned");
-  assert.equal((await invokeShow("change-1", configPath, dependencies)).state, "abandoned");
+  const closedState = await invokeShow("change-1", configPath, dependencies);
+  assert.equal(closedState.phase, "terminal");
+  assert.equal(closedState.terminal_outcome, "abandoned");
   assert.equal(runtime.invocations.length, 2);
 });
 

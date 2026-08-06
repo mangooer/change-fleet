@@ -32,13 +32,17 @@ describe("application failure and revision boundaries", () => {
       { code: "SCRIPTED_EXECUTION_FAILURE" },
     );
     const state = await service.readChangeSet("change-1");
-    assert.equal(state.state, "failed");
+    assert.equal(state.phase, "working");
     assert.equal(state.candidates.length, 1);
     assert.equal(state.candidates[0].repository_id, "api");
     assert.equal(state.bundles.length, 0);
     assert.equal(
-      state.work_units.find((unit) => unit.repository_id === "web").state,
-      "failed",
+      state.work_units.find((unit) => unit.repository_id === "web").phase,
+      "execution",
+    );
+    assert.equal(
+      state.blockers.some((blocker) => blocker.work_unit_id === "web-unit"),
+      true,
     );
   });
 
@@ -69,7 +73,7 @@ describe("application failure and revision boundaries", () => {
       { code: "COMBINED_VALIDATION_FAILED" },
     );
     const state = await service.readChangeSet("change-1");
-    assert.equal(state.state, "failed");
+    assert.equal(state.phase, "working");
     assert.equal(state.candidates.length, 2);
     assert.equal(state.bundles.length, 0);
     const attempt = state.validation_attempts.at(-1);
@@ -167,22 +171,23 @@ describe("application failure and revision boundaries", () => {
     const correctedState = await service.readChangeSet("change-1");
     assert.equal(correctedState.current_plan_revision, 1);
     assert.equal(correctedState.plans.length, 1);
-    assert.equal(correctedState.current_revision_feedback, null);
+    assert.equal(correctedState.current_feedback_id, null);
+    assert.equal(correctedState.feedback_records.length, 1);
     const executionProjection = runtime.invocations
       .filter(
         (invocation) =>
           invocation.operation === "execution" &&
-          invocation.context_projection.revision_feedback !== null,
+          invocation.context_projection.feedback !== null,
       )[0].context_projection;
-    assert.deepEqual(executionProjection.revision_feedback.findings, feedback.findings);
+    assert.deepEqual(executionProjection.feedback.findings, feedback.findings);
     assert.equal("candidate_checkpoint_id" in executionProjection.work_unit, false);
     assert.equal("workspace" in executionProjection.work_unit, false);
-    const correctionRun = runtime.invocations.filter(
+    const feedbackExecution = runtime.invocations.filter(
       (invocation) =>
         invocation.operation === "execution" &&
-        invocation.context_projection.revision_feedback !== null,
+        invocation.context_projection.feedback !== null,
     )[0];
-    assert.equal(correctionRun.control_contract.plan_revision, 1);
+    assert.equal(feedbackExecution.control_contract.plan_revision, 1);
   });
 
   test("allocates a later Plan revision only after typed execution invalidation and exact approval", async (t) => {

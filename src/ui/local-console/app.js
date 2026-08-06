@@ -114,7 +114,7 @@ function renderList() {
         <article class="changeset-card ${item.change_set_id === state.selectedChangeSetId ? "active" : ""}" data-change-set-id="${escapeHtml(item.change_set_id)}">
           <div class="row">
             <strong>${escapeHtml(item.change_set_id)}</strong>
-            <span class="pill ${pillClass(item.state)}">${escapeHtml(item.state)}</span>
+            <span class="pill ${pillClass(item.activity)}">${escapeHtml(`${item.phase} / ${item.activity}`)}</span>
           </div>
           <p>${escapeHtml(item.current_intent?.objective ?? "No objective")}</p>
           <div class="muted">Project ${escapeHtml(item.project_id)}</div>
@@ -150,7 +150,7 @@ function renderDetail() {
       <article class="summary-box">
         <div class="row">
           <h2>${escapeHtml(state.exact.change_set_id)}</h2>
-          <span class="pill ${pillClass(state.exact.state)}">${escapeHtml(state.exact.state)}</span>
+          <span class="pill ${pillClass(state.exact.activity)}">${escapeHtml(`${state.exact.phase} / ${state.exact.activity}`)}</span>
         </div>
         <p>${escapeHtml(state.exact.current_intent?.objective ?? "No objective")}</p>
         <div class="muted">Updated ${escapeHtml(state.exact.updated_at)}</div>
@@ -179,6 +179,11 @@ function renderDetail() {
         )}</pre>
       </article>
     </div>
+    <section class="section">
+      <div class="actions">
+        <button id="continue-change-set" type="button" ${state.exact.phase === "working" ? "" : "disabled"}>Start or Continue Eligible Work</button>
+      </div>
+    </section>
     <section class="section stack">
       <div class="row">
         <h3>Planning Conversation</h3>
@@ -199,6 +204,68 @@ function renderDetail() {
           `
           : '<div class="summary-box muted">No plan message is currently awaiting approval.</div>'
       }
+    </section>
+    <section class="section stack">
+      <div class="row">
+        <h3>Work Units</h3>
+        <span class="pill">current plan</span>
+      </div>
+      <div class="cards">
+        ${
+          state.exact.work_units.length === 0
+            ? '<div class="summary-box muted">No current WorkUnits.</div>'
+            : state.exact.work_units
+                .map(
+                  (unit) => `
+                    <article class="candidate-card">
+                      <div class="row">
+                        <strong>${escapeHtml(unit.work_unit_id)}</strong>
+                        <span class="pill ${pillClass(unit.activity)}">${escapeHtml(`${unit.phase} / ${unit.activity}`)}</span>
+                      </div>
+                      <div>Repository ${escapeHtml(unit.repository_id)}</div>
+                      <div>Pending feedback <code>${escapeHtml(unit.pending_feedback_id ?? "none")}</code></div>
+                      <div>Candidate <code>${escapeHtml(unit.candidate_id ?? "none")}</code></div>
+                      <div class="actions">
+                        <button class="secondary submit-feedback" type="button" data-work-unit-id="${escapeAttribute(unit.work_unit_id)}" data-run-id="${escapeAttribute(unit.active_run_id ?? "")}">Submit Feedback</button>
+                        ${unit.active_run_id ? `<button class="danger interrupt-run" type="button" data-run-id="${escapeAttribute(unit.active_run_id)}">Interrupt Run</button>` : ""}
+                      </div>
+                    </article>
+                  `,
+                )
+                .join("")
+        }
+      </div>
+    </section>
+    <section class="section stack">
+      <div class="row">
+        <h3>Open Gates</h3>
+        <span class="pill">human input</span>
+      </div>
+      <div class="cards">
+        ${
+          state.exact.gates.length === 0
+            ? '<div class="summary-box muted">No open Gates.</div>'
+            : state.exact.gates
+                .map(
+                  (gate) => `
+                    <article class="candidate-card">
+                      <strong>${escapeHtml(gate.question ?? gate.kind)}</strong>
+                      <div><code>${escapeHtml(gate.gate_id)}</code></div>
+                      <div>WorkUnit ${escapeHtml(gate.work_unit_id ?? "none")}</div>
+                      <div>Options: ${gate.options.map(escapeHtml).join(", ")}</div>
+                      <div class="actions">
+                        ${gate.options
+                          .map(
+                            (option) => `<button class="secondary resolve-gate" type="button" data-gate-id="${escapeAttribute(gate.gate_id)}" data-option="${escapeAttribute(option)}">${escapeHtml(option)}</button>`,
+                          )
+                          .join("")}
+                      </div>
+                    </article>
+                  `,
+                )
+                .join("")
+        }
+      </div>
     </section>
     <section class="section stack">
       <div class="row">
@@ -248,7 +315,7 @@ function renderDetail() {
         </div>
       </div>
       <div class="summary-box">
-        <div>Current state <span class="pill ${pillClass(delivery.state)}">${escapeHtml(delivery.state)}</span></div>
+        <div>Current phase <span class="pill ${pillClass(delivery.activity)}">${escapeHtml(`${delivery.phase} / ${delivery.activity}`)}</span></div>
         <div>Per-repository requests ${escapeHtml(delivery.delivery_count)}</div>
         ${
           publishAttempt
@@ -317,6 +384,99 @@ function renderDetail() {
   document
     .querySelector("#refresh-delivery")
     ?.addEventListener("click", () => void refreshDelivery());
+  document
+    .querySelector("#continue-change-set")
+    ?.addEventListener("click", () => void continueChangeSet());
+  for (const button of document.querySelectorAll(".submit-feedback")) {
+    button.addEventListener("click", () =>
+      void submitFeedback(
+        button.dataset.workUnitId,
+        button.dataset.runId || null,
+      ),
+    );
+  }
+  for (const button of document.querySelectorAll(".interrupt-run")) {
+    button.addEventListener("click", () =>
+      void interruptRun(button.dataset.runId),
+    );
+  }
+  for (const button of document.querySelectorAll(".resolve-gate")) {
+    button.addEventListener("click", () =>
+      void resolveGate(button.dataset.gateId, button.dataset.option),
+    );
+  }
+}
+
+async function continueChangeSet() {
+  if (!state.exact || state.exact.phase !== "working") return;
+  const attemptKey = `execute:${state.exact.change_set_id}:${state.exact.updated_at}`;
+  const attemptId = ensureAttempt(attemptKey);
+  await runMutation("continue work", async () => {
+    await apiPost(
+      `/api/local/v0/changesets/${encodeURIComponent(state.exact.change_set_id)}/execute`,
+      {
+        idempotency_key: attemptId,
+        verification_admission_mode: null,
+        validation_attempt_budgets: [],
+      },
+    );
+    attemptStore.delete(attemptKey);
+  });
+}
+
+async function submitFeedback(workUnitId, runId) {
+  if (!state.exact) return;
+  const summary = globalThis.prompt("Concise feedback summary");
+  if (!summary?.trim()) return;
+  const finding = globalThis.prompt("Actionable finding");
+  if (!finding?.trim()) return;
+  const attemptKey = `feedback:${state.exact.change_set_id}:${workUnitId}:${state.exact.updated_at}`;
+  const attemptId = ensureAttempt(attemptKey);
+  await runMutation("submit feedback", async () => {
+    await apiPost(
+      `/api/local/v0/changesets/${encodeURIComponent(state.exact.change_set_id)}/feedback`,
+      {
+        idempotency_key: attemptId,
+        phase: state.exact.phase,
+        work_unit_id: workUnitId,
+        run_id: runId,
+        feedback: {
+          summary: summary.trim(),
+          findings: [{ finding_id: "human-feedback", text: finding.trim() }],
+        },
+        actor: "human",
+      },
+    );
+    attemptStore.delete(attemptKey);
+  });
+}
+
+async function interruptRun(runId) {
+  if (!state.exact || !runId) return;
+  if (!globalThis.confirm(`Interrupt active Run ${runId}?`)) return;
+  const attemptKey = `interrupt:${state.exact.change_set_id}:${runId}`;
+  const attemptId = ensureAttempt(attemptKey);
+  await runMutation("interrupt run", async () => {
+    await apiPost(
+      `/api/local/v0/changesets/${encodeURIComponent(state.exact.change_set_id)}/runs/${encodeURIComponent(runId)}/interrupt`,
+      { idempotency_key: attemptId, actor: "human" },
+    );
+    attemptStore.delete(attemptKey);
+  });
+}
+
+async function resolveGate(gateId, option) {
+  if (!state.exact || !gateId || !option) return;
+  if (!globalThis.confirm(`Resolve Gate ${gateId} with ${option}?`)) return;
+  const attemptKey = `gate:${state.exact.change_set_id}:${gateId}:${option}`;
+  const attemptId = ensureAttempt(attemptKey);
+  await runMutation("resolve gate", async () => {
+    await apiPost(
+      `/api/local/v0/changesets/${encodeURIComponent(state.exact.change_set_id)}/gates/${encodeURIComponent(gateId)}/resolve`,
+      { idempotency_key: attemptId, option, actor: "human" },
+    );
+    attemptStore.delete(attemptKey);
+  });
 }
 
 async function confirmPlanMessage() {

@@ -151,7 +151,7 @@ describe("independent verification outcomes", () => {
         type: "verification_completed",
         review_depth: "deep_review",
         verdict: "pass_with_notes",
-        summary: "The exact diff is safe after one focused compatibility check.",
+        summary: "The exact diff is safe after one compatibility check.",
         findings: [],
         notes: [
           {
@@ -194,7 +194,7 @@ describe("independent verification outcomes", () => {
     assert.equal(verificationReviewAllowsCandidate(review), true);
   });
 
-  test("binds one focused review to its source finding and correction Run", () => {
+  test("binds one feedback review to its source finding and execution Run", () => {
     const outcome = normalizeVerificationOutcome(
       {
         type: "verification_completed",
@@ -209,30 +209,32 @@ describe("independent verification outcomes", () => {
       { projectPolicy: {}, existingCommandIds: [] },
     );
     const review = createVerificationReview({
-      admissionId: "admission-focused",
+      admissionId: "admission-feedback",
       checkpoint: verificationCheckpoint(),
-      runId: "run-focused-review",
+      runId: "run-feedback-review",
       outcome,
       validationAttemptIds: [],
       checkStatus: "not_required",
-      reviewScope: "focused",
+      reviewScope: "feedback",
       sourceReviewId: "review-source",
-      correctionRunId: "run-correction",
+      feedbackRunId: "run-feedback-execution",
+      feedbackId: "feedback-source",
       createdAt: "2026-08-06T00:00:02.000Z",
     });
 
-    assert.equal(review.review_scope, "focused");
+    assert.equal(review.review_scope, "feedback");
     assert.equal(review.source_review_id, "review-source");
-    assert.equal(review.correction_run_id, "run-correction");
+    assert.equal(review.feedback_run_id, "run-feedback-execution");
+    assert.equal(review.feedback_id, "feedback-source");
     assert.throws(() =>
       createVerificationReview({
-        admissionId: "admission-focused",
+        admissionId: "admission-feedback",
         checkpoint: verificationCheckpoint(),
-        runId: "run-focused-invalid",
+        runId: "run-feedback-invalid",
         outcome,
         validationAttemptIds: [],
         checkStatus: "not_required",
-        reviewScope: "focused",
+        reviewScope: "feedback",
         createdAt: "2026-08-06T00:00:03.000Z",
       }),
     );

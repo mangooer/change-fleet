@@ -143,8 +143,8 @@ export class CombinedValidator {
       postflightError
     ) {
       const code =
-        preflightError?.code ??
-        commandError?.code ??
+        stableErrorCode(preflightError) ??
+        stableErrorCode(commandError) ??
         "COMBINED_VALIDATION_FAILED";
       throw new ChangeFleetError(
         code,
@@ -166,8 +166,14 @@ function errorProjection(error) {
   return error
     ? {
         status: "failed",
-        code: error.code ?? "UNEXPECTED_ERROR",
+        code: stableErrorCode(error) ?? "UNEXPECTED_ERROR",
         message: String(error.message ?? "Validation failed").slice(0, 2_048),
       }
     : { status: "passed" };
+}
+
+function stableErrorCode(error) {
+  return typeof error?.code === "string" && error.code.length > 0
+    ? error.code
+    : null;
 }

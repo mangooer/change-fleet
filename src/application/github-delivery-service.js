@@ -10,13 +10,7 @@ import {
   normalizeGithubDeliveryBindingRequest,
 } from "../domain/github-delivery.js";
 import { normalizeId } from "../domain/model.js";
-
-const PUBLISHABLE_STATES = new Set(["delivery_ready", "delivering"]);
-const REFRESHABLE_STATES = new Set([
-  "delivering",
-  "decision_required",
-  "done",
-]);
+import { setChangeSetPhase } from "../domain/lifecycle.js";
 
 // 交付应用服务拥有授权、幂等、状态和证据；Git 与 GitHub 适配器只执行窄外部能力。
 export class GithubDeliveryService {
@@ -157,9 +151,9 @@ export class GithubDeliveryService {
           );
         }
         invariant(
-          PUBLISHABLE_STATES.has(state.state),
+          state.phase === "delivery",
           "INVALID_CHANGE_SET_STATE",
-          `ChangeSet cannot publish delivery from state ${state.state}`,
+          `ChangeSet cannot publish delivery from phase ${state.phase}`,
         );
         const bundle = requireAcceptedCurrentBundle(state);
         const project = requireProject(catalog, state.project_id);
@@ -203,7 +197,7 @@ export class GithubDeliveryService {
             this.now(),
           );
         }
-        state.state = "delivering";
+        setChangeSetPhase(state, "delivery");
         state.updated_at = this.now();
         return { completed: false, bundle_id: bundle.bundle_id };
       },
@@ -285,9 +279,10 @@ export class GithubDeliveryService {
           );
         }
         invariant(
-          REFRESHABLE_STATES.has(state.state),
+          state.phase === "delivery" ||
+            (state.phase === "terminal" && state.terminal_outcome === "done"),
           "INVALID_CHANGE_SET_STATE",
-          `ChangeSet cannot refresh delivery from state ${state.state}`,
+          `ChangeSet cannot refresh delivery from phase ${state.phase}`,
         );
         const bundle = requireAcceptedCurrentBundle(state);
         const requests = currentRequests(state, bundle.bundle_id);
@@ -795,7 +790,7 @@ function deriveAggregateDeliveryState(state) {
   const requests = currentRequests(state, bundleId);
   if (requests.length === 0) return;
   if (requests.every((request) => request.state === "merged")) {
-    state.state = "done";
+    setChangeSetPhase(state, "terminal", "done");
   } else if (
     requests.some((request) =>
       new Set([
@@ -805,9 +800,9 @@ function deriveAggregateDeliveryState(state) {
       ]).has(request.state),
     )
   ) {
-    state.state = "decision_required";
+    setChangeSetPhase(state, "delivery");
   } else {
-    state.state = "delivering";
+    setChangeSetPhase(state, "delivery");
   }
 }
 
@@ -868,7 +863,7 @@ function finishCommand(state, idempotencyKey, result, completedAt) {
 }
 
 function refreshResultRemainsAmbiguous(result) {
-  return result?.state === "delivering";
+  return result?.activity === "running";
 }
 
 function normalizeOptionalText(value, field, maximum) {

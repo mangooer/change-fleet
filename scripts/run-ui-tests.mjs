@@ -45,6 +45,7 @@ try {
     waitUntil: "networkidle",
   });
   await page.waitForSelector("text=Bundle Subject");
+  await page.waitForSelector("text=Work Units");
   await page.waitForSelector("text=api");
   await page.waitForSelector("text=web");
   await page.getByRole("button", { name: "Accept Bundle" }).click();
@@ -105,8 +106,8 @@ try {
   await page.waitForSelector("text=Current state");
   await page.waitForFunction(
     () =>
-      Array.from(document.querySelectorAll(".section .summary-box .pill")).some(
-        (element) => element.textContent?.trim() === "done",
+      Array.from(document.querySelectorAll(".pill")).some(
+        (element) => element.textContent?.trim() === "terminal / complete",
       ),
     { timeout: 60_000 },
   );

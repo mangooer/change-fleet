@@ -105,10 +105,9 @@ nonexistent or unexecuted command as passed.
 For every executed check report the exact command, exit code, scope, concise observation, and
 relevant unverified boundary. Do not paste full output into project memory.
 
-Update `docs/current-state.md` only for an implemented fact, accepted unfinished work, an open
-question or limitation, or the single next recommended task.
-
-Do not promote an unaccepted proposal or unlanded branch into the canonical baseline.
+Complete branch-local WorkItem status and current-state projections with the implementation; human
+review or merge must not require a follow-up Harness-status commit. Keep unlanded facts distinct
+from canonical `main`.
 
 ## Language
 

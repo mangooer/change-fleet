@@ -29,8 +29,8 @@ export class ScriptedRuntime {
     executionOutcome = null,
     verificationOutcome = null,
     verificationOutcomes = null,
-    correctionOutcome = null,
-    correctionFileContent = null,
+    feedbackExecutionOutcome = null,
+    feedbackFileContent = null,
   }) {
     this.plan = plan;
     this.contextMeasurement = contextMeasurement;
@@ -39,8 +39,8 @@ export class ScriptedRuntime {
     this.executionOutcome = executionOutcome;
     this.verificationOutcome = verificationOutcome;
     this.verificationOutcomes = verificationOutcomes;
-    this.correctionOutcome = correctionOutcome;
-    this.correctionFileContent = correctionFileContent;
+    this.feedbackExecutionOutcome = feedbackExecutionOutcome;
+    this.feedbackFileContent = feedbackFileContent;
     this.verificationInvocationCount = 0;
     this.interrupted = false;
     this.invocations = [];
@@ -56,7 +56,7 @@ export class ScriptedRuntime {
       const plan = structuredClone(this.plan);
       // 确定性 Runtime 逐项采纳夹具反馈，用来验证 Core 的覆盖约束而不模拟语义判断质量。
       plan.revision_feedback_assessments ??=
-        invocation.context_projection.revision_feedback?.findings.map(
+        invocation.context_projection.feedback?.findings.map(
           (finding) => ({
             finding_id: finding.finding_id,
             disposition: "adopt",
@@ -115,17 +115,23 @@ export class ScriptedRuntime {
       );
     }
     if (
-      invocation.operation === "correction" &&
-      this.correctionFileContent !== null
+      invocation.operation === "execution" &&
+      invocation.control_contract.operation === "execution" &&
+      invocation.context_projection.feedback !== null &&
+      this.feedbackFileContent !== null
     ) {
       // 只有显式配置的测试才制造修正差异；缺省值保留“评估后无需改动”的路径。
       await writeFixtureFeature(
         invocation,
-        `${this.correctionFileContent}`,
+        `${this.feedbackFileContent}`,
       );
     }
-    if (invocation.operation === "correction" && this.correctionOutcome) {
-      const outcome = structuredClone(this.correctionOutcome);
+    if (
+      invocation.operation === "execution" &&
+      invocation.context_projection.feedback !== null &&
+      this.feedbackExecutionOutcome
+    ) {
+      const outcome = structuredClone(this.feedbackExecutionOutcome);
       outcome.revision_feedback_assessments ??=
         feedbackAssessments(invocation);
       return {
@@ -173,8 +179,7 @@ async function writeFixtureFeature(invocation, content) {
 
 function feedbackAssessments(invocation) {
   return (
-    (invocation.context_projection.correction?.source_review.findings ??
-      invocation.context_projection.revision_feedback?.findings)?.map(
+    invocation.context_projection.feedback?.findings?.map(
       (finding) => ({
         finding_id: finding.finding_id,
         disposition: "adopt",

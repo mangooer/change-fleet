@@ -23,7 +23,9 @@ const PRESERVED_FIELDS = [
   "candidates",
   "bundles",
   "delivery_requests",
-  "current_revision_feedback",
+  "feedback_records",
+  "current_feedback_id",
+  "gates",
   "blockers",
 ];
 
@@ -42,7 +44,8 @@ describe("explicit ChangeSet closure", () => {
     assert.equal(fixture.runtime.calls, 0);
 
     const closed = await fixture.service.readChangeSet("change-close");
-    assert.equal(closed.state, "abandoned");
+    assert.equal(closed.phase, "terminal");
+    assert.equal(closed.terminal_outcome, "abandoned");
     for (const field of PRESERVED_FIELDS) {
       assert.deepEqual(closed[field], before[field], field);
     }
@@ -138,8 +141,8 @@ describe("explicit ChangeSet closure", () => {
 
     const reopened = await ChangeFleetService.open(fixture.options);
     assert.equal(
-      (await reopened.readChangeSet("change-close")).state,
-      "abandoned",
+      (await reopened.readChangeSet("change-close")).phase,
+      "terminal",
     );
     const audit = await new RuntimeAuditQueryService({
       controlStore: reopened.controlStore,
@@ -147,18 +150,19 @@ describe("explicit ChangeSet closure", () => {
       evidenceStore: reopened.evidenceStore,
       clock: () => new Date("2026-08-04T12:00:00.000Z"),
     }).getChangeSetAudit("change-close");
-    assert.equal(audit.payload.identity.state, "abandoned");
+    assert.equal(audit.payload.identity.phase, "terminal");
+    assert.equal(audit.payload.identity.terminal_outcome, "abandoned");
     assert.equal(audit.payload.timing.change_set_wall.complete, true);
     assert.equal(audit.payload.usage.referenced_run_count, 0);
   });
 
-  test("allows representative quiescent unfinished states", async (t) => {
+  test("allows representative quiescent unfinished phases", async (t) => {
     const fixture = await createClosureFixture(t, "eligible");
-    for (const state of ["failed", "candidate_review", "delivery_ready"]) {
-      const changeSetId = `change-${state.replaceAll("_", "-")}`;
+    for (const phase of ["planning", "working", "review", "delivery"]) {
+      const changeSetId = `change-${phase}`;
       await createChangeSet(fixture.service, changeSetId);
       await setChangeSet(fixture.service, changeSetId, (record) => {
-        record.state = state;
+        record.phase = phase;
       });
       const result = await fixture.service.closeChangeSet(
         closeRequest(changeSetId),
@@ -175,6 +179,7 @@ describe("explicit ChangeSet closure", () => {
       record.run_references.push({
         run_id: "run-active",
         operation: "planning",
+        trigger: "initial",
         status: "running",
       });
     });
@@ -198,7 +203,7 @@ describe("explicit ChangeSet closure", () => {
 
     await createChangeSet(fixture.service, "change-delivery");
     await setChangeSet(fixture.service, "change-delivery", (record) => {
-      record.state = "delivery_ready";
+      record.phase = "delivery";
       record.delivery_requests.push({ delivery_request_id: "delivery-started" });
     });
     await assert.rejects(
@@ -208,7 +213,8 @@ describe("explicit ChangeSet closure", () => {
 
     await createChangeSet(fixture.service, "change-done");
     await setChangeSet(fixture.service, "change-done", (record) => {
-      record.state = "done";
+      record.phase = "terminal";
+      record.terminal_outcome = "done";
     });
     await assert.rejects(
       fixture.service.closeChangeSet(closeRequest("change-done")),

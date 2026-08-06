@@ -30,6 +30,7 @@ projection.
 | [0022](0022-explicit-revision-feedback-assessment.md) | Explicit Agent assessment of bounded revision feedback | Accepted; assessment placement revised by 0023 |
 | [0023](0023-conversation-first-planning-and-stage-scoped-feedback.md) | Conversation-first planning, exact approval, and stage-scoped feedback | Accepted |
 | [0024](0024-risk-adaptive-candidate-verification.md) | Risk-adaptive Candidate verification and optional independent review | Accepted |
+| [0025](0025-unified-stage-and-run-lifecycle.md) | Unified ChangeSet, WorkUnit, and Agent Run lifecycle | Accepted |
 
 Changing one of these boundaries requires a proposal. When a decision is superseded, preserve this
 record and point to the later accepted authority.

@@ -93,21 +93,24 @@ describe("local two-repository vertical slice", () => {
         ],
       },
     });
-    await service.reviseRepositorySelection({
-      idempotency_key: "selection-3",
-      change_set_id: "single",
-      current_repository_selection_revision: 2,
-      planning_repository_ids: ["api"],
-      repository_selections: [{ repository_id: "api", branch_ref: "main" }],
-    });
+    await assert.rejects(
+      service.reviseRepositorySelection({
+        idempotency_key: "selection-3",
+        change_set_id: "single",
+        current_repository_selection_revision: 2,
+        planning_repository_ids: ["api"],
+        repository_selections: [{ repository_id: "api", branch_ref: "main" }],
+      }),
+      { code: "INVALID_CHANGE_SET_STATE" },
+    );
     const revised = await service.readChangeSet("single");
-    assert.equal(revised.current_repository_selection_revision, 3);
-    assert.equal(revised.current_plan_revision, null);
+    assert.equal(revised.current_repository_selection_revision, 2);
+    assert.equal(revised.current_plan_revision, 1);
     assert.equal(revised.candidates.length, 1);
     assert.equal(revised.bundles.length, 1);
     assert.equal(
-      revised.work_units.find((unit) => unit.plan_revision === 1).state,
-      "superseded",
+      revised.work_units.find((unit) => unit.plan_revision === 1).phase,
+      "execution",
     );
   });
 
@@ -208,7 +211,7 @@ describe("local two-repository vertical slice", () => {
       idempotency_key: "plan-1",
       change_set_id: "checkout-change",
     });
-    assert.equal(planned.status, "awaiting_plan_confirmation");
+    assert.equal(planned.status, "plan_ready");
     const planningInvocation = runtime.invocations.find(
       (invocation) => invocation.operation === "planning",
     );
@@ -256,12 +259,12 @@ describe("local two-repository vertical slice", () => {
       change_set_id: "checkout-change",
     });
     const reviewState = await service.readChangeSet("checkout-change");
-    assert.equal(reviewState.state, "candidate_review");
+    assert.equal(reviewState.phase, "review");
     assert.equal(reviewState.candidates.length, 2);
     assert.equal(reviewState.bundles.length, 1);
     assert.equal(reviewState.bundles[0].bundle_hash, execution.bundle_hash);
     for (const unit of reviewState.work_units) {
-      assert.equal(unit.state, "candidate_ready");
+      assert.equal(unit.phase, "complete");
       assert.equal(
         await readFile(
           path.join(unit.workspace.workspace_path, "baseline.txt"),
@@ -314,7 +317,7 @@ describe("local two-repository vertical slice", () => {
 
     const reopened = await ChangeFleetService.open(options);
     const restored = await reopened.readChangeSet("checkout-change");
-    assert.equal(restored.state, "delivery_ready");
+    assert.equal(restored.phase, "delivery");
     assert.equal(restored.decisions.at(-1).bundle_hash, execution.bundle_hash);
     assert.equal(
       await git(api.path, [
@@ -325,4 +328,98 @@ describe("local two-repository vertical slice", () => {
       dirtyStatus,
     );
   });
+
+  test("keeps the ChangeSet working while independent WorkUnits occupy different phases", async (t) => {
+    const root = await createFixtureRoot(t, "changefleet-mixed-phases-");
+    const api = await createGitRepository(root, "api");
+    const web = await createGitRepository(root, "web");
+    const combinedScript = await writeCombinedCheckScript(root);
+    const plan = createTwoRepositoryPlan(combinedScript);
+    plan.work_units[1].dependencies = [];
+    const entered = deferred();
+    const released = deferred();
+
+    class PausingRuntime extends ScriptedRuntime {
+      async invoke(invocation) {
+        if (
+          invocation.operation === "execution" &&
+          invocation.context_projection.work_unit.repository_id === "web"
+        ) {
+          entered.resolve();
+          await released.promise;
+        }
+        return super.invoke(invocation);
+      }
+    }
+
+    const runtime = new PausingRuntime({ plan });
+    const service = await ChangeFleetService.open({
+      controlRoot: path.join(root, "control"),
+      workspaceRoot: path.join(root, "workspaces"),
+      runtime,
+      agentProfile: TEST_AGENT_PROFILE,
+    });
+    await service.registerProject({
+      idempotency_key: "register",
+      project: {
+        project_id: "project",
+        repositories: [
+          { repository_id: "api", locator: { path: api.path } },
+          { repository_id: "web", locator: { path: web.path } },
+        ],
+      },
+    });
+    await service.createChangeSet({
+      idempotency_key: "create",
+      change_set_id: "mixed-phases",
+      project_id: "project",
+      intent: { objective: "Change two independent repositories" },
+    });
+    const planned = await service.planChangeSet({
+      idempotency_key: "plan",
+      change_set_id: "mixed-phases",
+    });
+    await service.confirmPlanMessage({
+      idempotency_key: "confirm",
+      change_set_id: "mixed-phases",
+      message_id: planned.message.message_id,
+      content_digest: planned.message.content_digest,
+    });
+
+    const execution = service.executeChangeSet({
+      idempotency_key: "execute",
+      change_set_id: "mixed-phases",
+    });
+    await entered.promise;
+    try {
+      const state = await service.readChangeSet("mixed-phases");
+      assert.equal(state.phase, "working");
+      assert.equal(
+        state.work_units.find((unit) => unit.repository_id === "api").phase,
+        "verification",
+      );
+      assert.equal(
+        state.work_units.find((unit) => unit.repository_id === "web").phase,
+        "execution",
+      );
+      assert.equal(
+        state.work_units
+          .find((unit) => unit.repository_id === "web")
+          .run_references.at(-1).status,
+        "running",
+      );
+    } finally {
+      released.resolve();
+    }
+    const result = await execution;
+    assert.equal(result.bundle_revision, 1);
+  });
 });
+
+function deferred() {
+  let resolve;
+  const promise = new Promise((next) => {
+    resolve = next;
+  });
+  return { promise, resolve };
+}

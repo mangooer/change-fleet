@@ -84,7 +84,10 @@ export function normalizeChangeSetCloseRequest(input) {
 export function assertChangeSetMutable(state) {
   // abandoned 是不可逆业务终态；读和审计仍允许，所有后续变更必须失败关闭。
   invariant(
-    state?.state !== "abandoned",
+    !(
+      state?.phase === "terminal" &&
+      state?.terminal_outcome === "abandoned"
+    ),
     "CHANGE_SET_ABANDONED",
     "Abandoned ChangeSet cannot be mutated",
     { change_set_id: state?.change_set_id ?? null },

@@ -103,15 +103,15 @@ test("pre-Candidate retry diagnostics remain stable across locales", () => {
 
 test("independent verification diagnostics preserve stable codes", () => {
   assert.equal(
-    diagnosticMessage("VERIFICATION_CHANGES_REQUIRED"),
-    "独立验证发现了必须修改的问题。",
+    diagnosticMessage("INVALID_RUN_TRANSITION", { locale: "en" }),
+    "The Run status transition is invalid.",
   );
   assert.equal(
     diagnosticMessage("VERIFICATION_WORKSPACE_MODIFIED", { locale: "en" }),
     "Read-only independent verification modified its temporary workspace.",
   );
   assert.equal(
-    diagnosticMessage("CORRECTION_CHANGED_PATHS_MISMATCH", { locale: "en" }),
-    "A no-change correction incorrectly reported changed paths.",
+    diagnosticMessage("FEEDBACK_EXECUTION_CHANGED_PATHS_MISMATCH", { locale: "en" }),
+    "A no-change feedback execution incorrectly reported changed paths.",
   );
 });

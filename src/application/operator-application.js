@@ -9,6 +9,9 @@ const OPERATION_METHODS = Object.freeze({
     "configureGithubDelivery",
   "changeset.create": "createChangeSet",
   "changeset.close": "closeChangeSet",
+  "changeset.feedback.submit": "submitFeedback",
+  "changeset.run.interrupt": "interruptRun",
+  "changeset.gate.resolve": "resolveGate",
   "changeset.repository_selection.revise": "reviseRepositorySelection",
   "changeset.repository_harness_selection.revise":
     "reviseRepositoryHarnessSelection",

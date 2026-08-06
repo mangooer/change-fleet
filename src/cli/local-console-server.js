@@ -24,6 +24,10 @@ const GET_ROUTES = Object.freeze([
 const POST_ROUTES = Object.freeze([
   /^\/api\/local\/v0\/changesets\/[A-Za-z0-9._-]+\/plan-confirmation$/u,
   /^\/api\/local\/v0\/changesets\/[A-Za-z0-9._-]+\/bundle-decisions$/u,
+  /^\/api\/local\/v0\/changesets\/[A-Za-z0-9._-]+\/feedback$/u,
+  /^\/api\/local\/v0\/changesets\/[A-Za-z0-9._-]+\/execute$/u,
+  /^\/api\/local\/v0\/changesets\/[A-Za-z0-9._-]+\/runs\/[A-Za-z0-9._-]+\/interrupt$/u,
+  /^\/api\/local\/v0\/changesets\/[A-Za-z0-9._-]+\/gates\/[A-Za-z0-9._-]+\/resolve$/u,
   /^\/api\/local\/v0\/changesets\/[A-Za-z0-9._-]+\/delivery\/publish$/u,
   /^\/api\/local\/v0\/changesets\/[A-Za-z0-9._-]+\/delivery\/refresh$/u,
 ]);
@@ -207,8 +211,40 @@ async function handlePostApi({
   url,
   operatorApplication,
 }) {
+  const interruptMatch = url.pathname.match(
+    /^\/api\/local\/v0\/changesets\/(?<changeSetId>[A-Za-z0-9._-]+)\/runs\/(?<runId>[A-Za-z0-9._-]+)\/interrupt$/u,
+  );
+  if (interruptMatch?.groups) {
+    const body = normalizeInterruptBody(await readJsonBody(request));
+    sendJson(
+      response,
+      200,
+      await operatorApplication.execute("changeset.run.interrupt", {
+        ...body,
+        change_set_id: interruptMatch.groups.changeSetId,
+        run_id: interruptMatch.groups.runId,
+      }),
+    );
+    return;
+  }
+  const gateMatch = url.pathname.match(
+    /^\/api\/local\/v0\/changesets\/(?<changeSetId>[A-Za-z0-9._-]+)\/gates\/(?<gateId>[A-Za-z0-9._-]+)\/resolve$/u,
+  );
+  if (gateMatch?.groups) {
+    const body = normalizeGateResolutionBody(await readJsonBody(request));
+    sendJson(
+      response,
+      200,
+      await operatorApplication.execute("changeset.gate.resolve", {
+        ...body,
+        change_set_id: gateMatch.groups.changeSetId,
+        gate_id: gateMatch.groups.gateId,
+      }),
+    );
+    return;
+  }
   const match = url.pathname.match(
-    /^\/api\/local\/v0\/changesets\/(?<changeSetId>[A-Za-z0-9._-]+)\/(?<tail>plan-confirmation|bundle-decisions|delivery\/publish|delivery\/refresh)$/u,
+    /^\/api\/local\/v0\/changesets\/(?<changeSetId>[A-Za-z0-9._-]+)\/(?<tail>plan-confirmation|bundle-decisions|feedback|execute|delivery\/publish|delivery\/refresh)$/u,
   );
   invariant(match?.groups, "CHANGE_SET_NOT_FOUND", "Route not found");
   const changeSetId = match.groups.changeSetId;
@@ -231,6 +267,30 @@ async function handlePostApi({
       response,
       200,
       await operatorApplication.execute("changeset.bundle.decide", {
+        ...body,
+        change_set_id: changeSetId,
+      }),
+    );
+    return;
+  }
+  if (match.groups.tail === "feedback") {
+    const body = normalizeFeedbackBody(await readJsonBody(request));
+    sendJson(
+      response,
+      200,
+      await operatorApplication.execute("changeset.feedback.submit", {
+        ...body,
+        change_set_id: changeSetId,
+      }),
+    );
+    return;
+  }
+  if (match.groups.tail === "execute") {
+    const body = normalizeExecuteBody(await readJsonBody(request));
+    sendJson(
+      response,
+      200,
+      await operatorApplication.execute("changeset.execute", {
         ...body,
         change_set_id: changeSetId,
       }),
@@ -304,6 +364,78 @@ function normalizePublishBody(body) {
     actor: requireNonEmptyString(body.actor, "actor"),
     title: optionalNullableString(body.title, "title"),
     body: optionalNullableString(body.body, "body"),
+  };
+}
+
+function normalizeFeedbackBody(body) {
+  requireExactFields(body, [
+    "idempotency_key",
+    "phase",
+    "work_unit_id",
+    "run_id",
+    "feedback",
+    "actor",
+  ]);
+  invariant(
+    body.work_unit_id === null || typeof body.work_unit_id === "string",
+    "INVALID_OPERATOR_REQUEST",
+    "work_unit_id must be a string or null",
+  );
+  invariant(
+    body.run_id === null || typeof body.run_id === "string",
+    "INVALID_OPERATOR_REQUEST",
+    "run_id must be a string or null",
+  );
+  return {
+    idempotency_key: requireNonEmptyString(body.idempotency_key, "idempotency_key"),
+    phase: requireNonEmptyString(body.phase, "phase"),
+    work_unit_id: body.work_unit_id,
+    run_id: body.run_id,
+    feedback: body.feedback,
+    actor: requireNonEmptyString(body.actor, "actor"),
+  };
+}
+
+function normalizeExecuteBody(body) {
+  requireExactFields(body, [
+    "idempotency_key",
+    "verification_admission_mode",
+    "validation_attempt_budgets",
+  ]);
+  invariant(
+    body.verification_admission_mode === null ||
+      ["basic", "deterministic", "independent_review"].includes(
+        body.verification_admission_mode,
+      ),
+    "INVALID_OPERATOR_REQUEST",
+    "verification_admission_mode is invalid",
+  );
+  invariant(
+    Array.isArray(body.validation_attempt_budgets),
+    "INVALID_OPERATOR_REQUEST",
+    "validation_attempt_budgets must be an array",
+  );
+  return {
+    idempotency_key: requireNonEmptyString(body.idempotency_key, "idempotency_key"),
+    verification_admission_mode: body.verification_admission_mode,
+    validation_attempt_budgets: body.validation_attempt_budgets,
+  };
+}
+
+function normalizeInterruptBody(body) {
+  requireExactFields(body, ["idempotency_key", "actor"]);
+  return {
+    idempotency_key: requireNonEmptyString(body.idempotency_key, "idempotency_key"),
+    actor: requireNonEmptyString(body.actor, "actor"),
+  };
+}
+
+function normalizeGateResolutionBody(body) {
+  requireExactFields(body, ["idempotency_key", "option", "actor"]);
+  return {
+    idempotency_key: requireNonEmptyString(body.idempotency_key, "idempotency_key"),
+    option: requireNonEmptyString(body.option, "option"),
+    actor: requireNonEmptyString(body.actor, "actor"),
   };
 }
 

@@ -39,7 +39,11 @@ describe("pre-Candidate execution retry", () => {
       { code: "RUNTIME_IMPLEMENTATION_BLOCKED" },
     );
     const blocked = await service.readChangeSet("change-1");
-    assert.equal(blocked.work_units[0].state, "blocked");
+    assert.equal(blocked.work_units[0].phase, "execution");
+    assert.equal(
+      blocked.blockers.some((item) => item.work_unit_id === "api-unit"),
+      true,
+    );
     assert.equal(blocked.work_units[0].run_references[0].status, "completed");
     assert.equal(blocked.candidate_checkpoints.length, 0);
 
@@ -49,7 +53,7 @@ describe("pre-Candidate execution retry", () => {
     const recovered = await reopened.readChangeSet("change-1");
 
     assert.equal(result.bundle_revision, 1);
-    assert.equal(recovered.state, "candidate_review");
+    assert.equal(recovered.phase, "review");
     assert.equal(recovered.work_units[0].run_references.length, 2);
     assert.deepEqual(
       recovered.work_units[0].run_references.map((reference) => reference.status),
@@ -84,7 +88,7 @@ describe("pre-Candidate execution retry", () => {
       { code: "EMPTY_IMPLEMENTATION_RESULT" },
     );
     const failed = await service.readChangeSet("change-1");
-    assert.equal(failed.work_units[0].state, "failed");
+    assert.equal(failed.work_units[0].phase, "execution");
     assert.equal(failed.work_units[0].last_error.code, "EMPTY_IMPLEMENTATION_RESULT");
     assert.equal(failed.candidate_checkpoints.length, 0);
     assert.equal(failed.validation_attempts.length, 0);
@@ -93,7 +97,7 @@ describe("pre-Candidate execution retry", () => {
     const reopened = await open(fixture, retryRuntime);
     await execute(reopened, "execute-empty-retry");
     const recovered = await reopened.readChangeSet("change-1");
-    assert.equal(recovered.state, "candidate_review");
+    assert.equal(recovered.phase, "review");
     assert.equal(recovered.candidate_checkpoints.length, 1);
     assert.equal(recovered.work_units[0].run_references.length, 2);
   });
@@ -139,7 +143,7 @@ describe("pre-Candidate execution retry", () => {
       // 模拟旧实现已错误持久化的 base-equal Checkpoint；生产入口不会再创建该形状。
       state.candidate_checkpoints.push(emptyCheckpoint);
       state.work_units[0].candidate_checkpoint_id = emptyCheckpoint.checkpoint_id;
-      state.work_units[0].state = "validation_failed";
+      state.work_units[0].phase = "verification";
       state.work_units[0].last_error = {
         code: "REPOSITORY_VALIDATION_FAILED",
         message: "legacy empty checkpoint",
@@ -151,7 +155,7 @@ describe("pre-Candidate execution retry", () => {
     await execute(reopened, "execute-legacy-empty-retry");
     const recovered = await reopened.readChangeSet("change-1");
 
-    assert.equal(recovered.state, "candidate_review");
+    assert.equal(recovered.phase, "review");
     assert.equal(recovered.candidate_checkpoints.length, 2);
     assert.equal(
       recovered.candidate_checkpoints.some(
@@ -262,7 +266,7 @@ describe("pre-Candidate execution retry", () => {
     const after = await reopened.readChangeSet("change-1");
     assert.equal(retryRuntime.invocations.length, 0);
     assert.equal(after.decisions.length, decisionCount);
-    assert.equal(after.work_units[0].state, "blocked");
+    assert.equal(after.work_units[0].phase, "execution");
   });
 });
 

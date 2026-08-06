@@ -297,8 +297,7 @@ export const VERIFICATION_OUTCOME_SCHEMA = Object.freeze({
 export function schemaForOperation(operation) {
   // 未知操作必须在调用 Provider 前失败，不能退回无结构文本。
   if (operation === "planning") return PLANNING_OUTCOME_SCHEMA;
-  // 修正与执行共享终态结构，但仍以独立 operation 记录权限、成本和生命周期。
-  if (operation === "execution" || operation === "correction") {
+  if (operation === "execution") {
     return EXECUTION_OUTCOME_SCHEMA;
   }
   if (operation === "verification") return VERIFICATION_OUTCOME_SCHEMA;
@@ -361,7 +360,7 @@ export function assertStructuredOutcome(operation, outcome) {
     return outcome;
   }
   if (
-    ["execution", "correction"].includes(operation) &&
+    operation === "execution" &&
     outcome.type === "implementation_completed" &&
     typeof outcome.summary === "string" &&
     Array.isArray(outcome.changed_paths) &&
@@ -372,7 +371,7 @@ export function assertStructuredOutcome(operation, outcome) {
     return outcome;
   }
   if (
-    ["execution", "correction"].includes(operation) &&
+    operation === "execution" &&
     outcome.type === "implementation_blocked" &&
     typeof outcome.summary === "string" &&
     Array.isArray(outcome.changed_paths) &&
@@ -387,7 +386,7 @@ export function assertStructuredOutcome(operation, outcome) {
     return outcome;
   }
   if (
-    ["execution", "correction"].includes(operation) &&
+    operation === "execution" &&
     outcome.type === "plan_invalidation_required" &&
     typeof outcome.summary === "string" &&
     Array.isArray(outcome.changed_paths) &&

@@ -101,7 +101,7 @@ describe("Runtime identity and evidence", () => {
       invocation: null,
       providerEvidence: null,
       terminal: {
-        status: "abandoned",
+        status: "interrupted",
         outcome_type: "controller_restart",
         error_code: null,
         completed_at: "2026-07-31T00:00:01.000Z",
@@ -161,7 +161,7 @@ describe("Runtime identity and evidence", () => {
       assertStructuredOutcome("verification", verificationOutcome),
       verificationOutcome,
     );
-    const correctionOutcome = {
+    const feedbackExecutionOutcome = {
       type: "implementation_completed",
       summary: "corrected",
       changed_paths: ["src/api.js"],
@@ -169,8 +169,8 @@ describe("Runtime identity and evidence", () => {
       revision_feedback_assessments: [],
     };
     assert.equal(
-      assertStructuredOutcome("correction", correctionOutcome),
-      correctionOutcome,
+      assertStructuredOutcome("execution", feedbackExecutionOutcome),
+      feedbackExecutionOutcome,
     );
     assert.throws(() =>
       assertStructuredOutcome("execution", {

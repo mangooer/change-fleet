@@ -75,7 +75,8 @@ describe("read-only Runtime audit queries", () => {
     assert.equal(changeAudit.payload.usage.observed_run_count, 2);
     assert.equal(changeAudit.payload.usage.unknown_run_count, 0);
     assert.equal(changeAudit.payload.usage.observed_total_tokens, 350);
-    assert.equal(changeAudit.payload.identity.state, "abandoned");
+    assert.equal(changeAudit.payload.identity.phase, "terminal");
+    assert.equal(changeAudit.payload.identity.terminal_outcome, "abandoned");
     assert.equal(changeAudit.payload.timing.change_set_wall.complete, true);
     assert.equal(
       changeAudit.payload.usage.token_fields.cached_input_tokens.observed_sum,
@@ -95,7 +96,7 @@ describe("read-only Runtime audit queries", () => {
       conversation_message: 1,
     });
     assert.deepEqual(changeAudit.payload.outcomes.work_units, {
-      candidate_ready: 1,
+      complete: 1,
     });
     assert.deepEqual(changeAudit.payload.outcomes.validation, { passed: 2 });
     assert.equal(changeAudit.payload.validation.referenced_count, 2);
@@ -183,14 +184,19 @@ describe("read-only Runtime audit queries", () => {
     );
   });
 
-  test("attributes same-Plan correction and focused re-review without entering Runtime context", async (t) => {
+  test("attributes feedback execution and re-verification without entering Runtime context", async (t) => {
     const fixture = await createAuditFixture(
       t,
-      "correction-usage",
-      CorrectionUsageRuntime,
+      "feedback-usage",
+      FeedbackUsageRuntime,
     );
+    const feedback = await fixture.service.executeChangeSet({
+      idempotency_key: "execute-initial",
+      change_set_id: "change",
+    });
+    assert.equal(feedback.status, "feedback_required");
     await fixture.service.executeChangeSet({
-      idempotency_key: "execute",
+      idempotency_key: "execute-feedback",
       change_set_id: "change",
     });
     const audit = await createQuery(
@@ -200,7 +206,7 @@ describe("read-only Runtime audit queries", () => {
 
     assert.equal(audit.payload.usage.referenced_run_count, 5);
     assert.equal(audit.payload.usage.observed_total_tokens, 1_040);
-    assert.deepEqual(audit.payload.outcomes.correction, {
+    assert.deepEqual(audit.payload.outcomes.feedback_execution, {
       implementation_completed: 1,
     });
     assert.deepEqual(audit.payload.outcomes.verification, {
@@ -209,15 +215,19 @@ describe("read-only Runtime audit queries", () => {
     });
     assert.equal(
       audit.payload.runs.rows.filter(
-        (row) => row.identity.operation === "correction",
+        (row) =>
+          row.identity.operation === "execution" &&
+          row.identity.trigger === "feedback",
       ).length,
       1,
     );
-    const correctionInvocation = fixture.runtime.invocations.find(
-      (invocation) => invocation.operation === "correction",
+    const feedbackInvocation = fixture.runtime.invocations.find(
+      (invocation) =>
+        invocation.operation === "execution" &&
+        invocation.context_projection.feedback !== null,
     );
     assert.doesNotMatch(
-      JSON.stringify(correctionInvocation),
+      JSON.stringify(feedbackInvocation),
       /observed_total_tokens|provider_cost|runtime_invocation/u,
     );
   });
@@ -239,13 +249,13 @@ describe("read-only Runtime audit queries", () => {
       cancelled: 1,
       completed: 1,
     });
-    assert.deepEqual(audit.payload.outcomes.work_units, { failed: 1 });
+    assert.deepEqual(audit.payload.outcomes.work_units, { execution: 1 });
     assert.equal(audit.payload.usage.observed_total_tokens, null);
     assert.equal(audit.payload.usage.unknown_run_count, 2);
   });
 
-  test("preserves abandoned attempts and retry outcomes after restart", async (t) => {
-    const fixture = await createAuditFixture(t, "abandoned", InterruptRuntime);
+  test("preserves interrupted attempts and retry outcomes after restart", async (t) => {
+    const fixture = await createAuditFixture(t, "interrupted", InterruptRuntime);
     await assert.rejects(
       fixture.service.executeChangeSet({
         idempotency_key: "execute",
@@ -267,14 +277,14 @@ describe("read-only Runtime audit queries", () => {
       "2026-08-03T13:00:00.000Z",
     ).getChangeSetAudit("change");
     assert.deepEqual(audit.payload.outcomes.runtime_attempts, {
-      abandoned: 1,
+      interrupted: 1,
       completed: 2,
     });
     assert.equal(audit.payload.usage.referenced_run_count, 3);
     assert.equal(audit.payload.usage.unknown_run_count, 3);
     assert.deepEqual(
       audit.payload.runs.rows.map((row) => row.terminal.status),
-      ["completed", "abandoned", "completed"],
+      ["completed", "interrupted", "completed"],
     );
   });
 
@@ -352,11 +362,11 @@ class IndependentUsageRuntime extends UsageRuntime {
   }
 }
 
-class CorrectionUsageRuntime extends UsageRuntime {
+class FeedbackUsageRuntime extends UsageRuntime {
   constructor(options) {
     options.plan.verification_expectation = {
       mode: "independent_review",
-      rationale: "The audit fixture requires correction and focused re-review.",
+      rationale: "The audit fixture requires feedback execution and re-verification.",
       escalation_triggers: ["scope_divergence"],
     };
     super({
@@ -366,10 +376,10 @@ class CorrectionUsageRuntime extends UsageRuntime {
           type: "verification_completed",
           review_depth: "deep_review",
           verdict: "changes_required",
-          summary: "The exact Candidate requires one correction.",
+          summary: "The exact Candidate requires one feedback change.",
           findings: [
             {
-              finding_id: "audit-correction",
+              finding_id: "audit-feedback",
               category: "correctness",
               message: "The fixture requires a corrected public value.",
               path: "feature.txt",
@@ -383,17 +393,17 @@ class CorrectionUsageRuntime extends UsageRuntime {
           type: "verification_completed",
           review_depth: "triage",
           verdict: "pass",
-          summary: "The focused review accepted the correction.",
+          summary: "The next verification accepted the feedback change.",
           findings: [],
           notes: [],
           human_decision: null,
           requested_checks: [],
         },
       ],
-      correctionFileContent: "api corrected for audit\n",
-      correctionOutcome: {
+      feedbackFileContent: "api updated for audit\n",
+      feedbackExecutionOutcome: {
         type: "implementation_completed",
-        summary: "Applied the exact audited correction.",
+        summary: "Applied the exact audited feedback.",
         changed_paths: ["feature.txt"],
         blocker: null,
       },

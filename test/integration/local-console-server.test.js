@@ -74,8 +74,48 @@ describe("local console server", () => {
       );
       assert.equal(confirmation.plan_revision, 1);
       assert.equal(
-        (await fixture.service.readChangeSet("plan-only")).state,
-        "ready",
+        (await fixture.service.readChangeSet("plan-only")).phase,
+        "working",
+      );
+      const feedback = await fetchJson(
+        server,
+        "/api/local/v0/changesets/plan-only/feedback",
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            idempotency_key: "feedback-plan-only",
+            phase: "working",
+            work_unit_id: "api-unit",
+            run_id: null,
+            feedback: {
+              summary: "Keep the implementation narrowly scoped",
+              findings: [
+                { finding_id: "scope", text: "Change only the planned file" },
+              ],
+            },
+            actor: "human",
+          }),
+        },
+      );
+      assert.equal(feedback.delivery, "recorded");
+      const execution = await fetchJson(
+        server,
+        "/api/local/v0/changesets/plan-only/execute",
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            idempotency_key: "execute-plan-only",
+            verification_admission_mode: null,
+            validation_attempt_budgets: [],
+          }),
+        },
+      );
+      assert.equal(execution.bundle_revision, 1);
+      assert.equal(
+        (await fixture.service.readChangeSet("plan-only")).phase,
+        "review",
       );
     } finally {
       await server.close();
@@ -217,7 +257,8 @@ describe("local console server", () => {
           body: JSON.stringify({ idempotency_key: "refresh-attempt" }),
         },
       );
-      assert.equal(partial.state, "delivering");
+      assert.equal(partial.phase, "delivery");
+      assert.equal(partial.activity, "running");
       assert.deepEqual(partial.counts, { merged: 1, open: 1 });
 
       fixture.github.merge({
@@ -239,7 +280,8 @@ describe("local console server", () => {
           body: JSON.stringify({ idempotency_key: "refresh-attempt" }),
         },
       );
-      assert.equal(refreshed.state, "done");
+      assert.equal(refreshed.phase, "terminal");
+      assert.equal(refreshed.activity, "complete");
       assert.deepEqual(refreshed.counts, { merged: 2 });
     } finally {
       await server.close();

@@ -207,7 +207,7 @@ describe("ChangeSet Repository selection", () => {
     assert.equal(revision.repository_selection_revision, 2);
     assert.equal(revision.repository_harness_selection_revision, 2);
     const revisedState = await service.readChangeSet("change");
-    assert.equal(revisedState.state, "analyzing");
+    assert.equal(revisedState.phase, "planning");
     assert.equal(revisedState.current_plan_revision, null);
     assert.equal(
       revisedState.current_repository_harness_selection_revision,

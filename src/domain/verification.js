@@ -312,7 +312,8 @@ export function createVerificationReview({
   checkStatus,
   reviewScope = "initial",
   sourceReviewId = null,
-  correctionRunId = null,
+  feedbackRunId = null,
+  feedbackId = null,
   createdAt,
 }) {
   // Review 只保存有界结论和不可变尝试引用；完整 Provider 证据继续留在 Run/EvidenceStore。
@@ -342,17 +343,21 @@ export function createVerificationReview({
     "Verification check status does not match requested checks",
   );
   invariant(
-    reviewScope === "initial" || reviewScope === "focused",
+    reviewScope === "initial" || reviewScope === "feedback",
     "INVALID_VERIFICATION_REVIEW",
-    "Verification review scope must be initial or focused",
+    "Verification review scope must be initial or feedback",
   );
   invariant(
     reviewScope === "initial"
-      ? sourceReviewId === null && correctionRunId === null
-      : typeof sourceReviewId === "string" &&
-          typeof correctionRunId === "string",
+      ? sourceReviewId === null &&
+        feedbackRunId === null &&
+        feedbackId === null
+      : typeof feedbackId === "string" &&
+        ((sourceReviewId === null && feedbackRunId === null) ||
+          (typeof sourceReviewId === "string" &&
+            typeof feedbackRunId === "string")),
     "INVALID_VERIFICATION_REVIEW",
-    "Focused verification requires exact source review and correction Run lineage",
+    "Feedback verification requires exact source review and execution Run lineage",
   );
   const subject = {
     repository_id: normalizeCompactId(checkpoint.repository_id),
@@ -379,8 +384,10 @@ export function createVerificationReview({
     review_scope: reviewScope,
     source_review_id:
       sourceReviewId === null ? null : normalizeCompactId(sourceReviewId),
-    correction_run_id:
-      correctionRunId === null ? null : normalizeCompactId(correctionRunId),
+    feedback_run_id:
+      feedbackRunId === null ? null : normalizeCompactId(feedbackRunId),
+    feedback_id:
+      feedbackId === null ? null : normalizeCompactId(feedbackId),
   };
   return {
     schema_version: 1,

@@ -19,13 +19,6 @@ import {
 } from "../domain/runtime-audit.js";
 
 const MAX_BOUNDED_ROWS = 100;
-const TERMINAL_CHANGE_SET_STATES = new Set([
-  "done",
-  "canceled",
-  "failed",
-  "abandoned",
-]);
-
 // 查询服务只接收 Store 的 read 能力，构造时不初始化目录，也不持有任何编排或写入端口。
 export class RuntimeAuditQueryService {
   constructor({
@@ -99,7 +92,8 @@ export class RuntimeAuditQueryService {
       identity: {
         change_set_id: state.change_set_id,
         project_id: state.project_id,
-        state: state.state,
+        phase: state.phase,
+        terminal_outcome: state.terminal_outcome,
         current_intent_revision: state.current_intent_revision,
         current_repository_selection_revision:
           state.current_repository_selection_revision,
@@ -305,6 +299,7 @@ function createRunPayload(run, evidence, usage) {
       change_set_id: run.change_set_id,
       work_unit_id: run.work_unit_id,
       operation: run.operation,
+      trigger: run.trigger,
       attempt: run.attempt,
     },
     status: run.status,
@@ -464,7 +459,7 @@ function summarizeChangeSetTiming(state, loadedRuns, validation) {
         state.created_at,
         state.updated_at,
       ),
-      complete: TERMINAL_CHANGE_SET_STATES.has(state.state),
+      complete: state.phase === "terminal",
     },
     human_gate_duration_sum: summarizeNullableNumbers(
       humanGates.map((gate) => gate.duration_ms),
@@ -474,7 +469,9 @@ function summarizeChangeSetTiming(state, loadedRuns, validation) {
 
 function summarizeOutcomes(state, loadedRuns, validation) {
   const currentUnits = state.work_units.filter(
-    (unit) => unit.plan_revision === state.current_plan_revision,
+    (unit) =>
+      unit.plan_revision === state.current_plan_revision &&
+      unit.disposition === "current",
   );
   const planningRuns = loadedRuns.filter(
     (loaded) => loaded.payload.identity.operation === "planning",
@@ -482,8 +479,10 @@ function summarizeOutcomes(state, loadedRuns, validation) {
   const verificationRuns = loadedRuns.filter(
     (loaded) => loaded.payload.identity.operation === "verification",
   );
-  const correctionRuns = loadedRuns.filter(
-    (loaded) => loaded.payload.identity.operation === "correction",
+  const feedbackExecutionRuns = loadedRuns.filter(
+    (loaded) =>
+      loaded.payload.identity.operation === "execution" &&
+      loaded.payload.identity.trigger === "feedback",
   );
   return {
     runtime_attempts: countValues(
@@ -505,16 +504,18 @@ function summarizeOutcomes(state, loadedRuns, validation) {
           : loaded.payload.terminal.status,
       ),
     ),
-    // correction 单列展示但仍包含在 runtime_attempts 与总 usage 中，避免重复计费。
-    correction: countValues(
-      correctionRuns.map((loaded) =>
+    // 反馈执行单列展示但仍包含在 runtime_attempts 与总 usage 中，避免重复计费。
+    feedback_execution: countValues(
+      feedbackExecutionRuns.map((loaded) =>
         loaded.payload.terminal.status === "completed"
           ? (loaded.payload.terminal.outcome_type ?? "completed_unknown")
           : loaded.payload.terminal.status,
       ),
     ),
-    work_units: countValues(currentUnits.map((unit) => unit.state)),
-    work_unit_history: countValues(state.work_units.map((unit) => unit.state)),
+    work_units: countValues(currentUnits.map((unit) => unit.phase)),
+    work_unit_history: countValues(
+      state.work_units.map((unit) => `${unit.disposition}/${unit.phase}`),
+    ),
     validation: validation.payload.outcomes,
     bundles: countValues(
       state.bundles.map((bundle) =>
@@ -879,15 +880,19 @@ function createLegacyValidationSubject(changeSet, plan, candidates) {
 function validateRuntimeEvidence(run, record) {
   const subject = record.subject ?? {};
   const payload = record.payload ?? {};
+  const acceptedOperations = new Set([
+    run.operation,
+    ...(run.legacy_operation ? [run.legacy_operation] : []),
+  ]);
   invariant(
     subject.run_id === run.run_id &&
       subject.attempt === run.attempt &&
-      subject.operation === run.operation &&
+      acceptedOperations.has(subject.operation) &&
       subject.change_set_id === run.change_set_id &&
       subject.work_unit_id === run.work_unit_id &&
       payload.run_id === run.run_id &&
       payload.attempt === run.attempt &&
-      payload.operation === run.operation &&
+      acceptedOperations.has(payload.operation) &&
       payload.change_set_id === run.change_set_id &&
       payload.work_unit_id === run.work_unit_id &&
       payload.terminal &&
@@ -900,7 +905,7 @@ function validateRuntimeEvidence(run, record) {
       Number.isFinite(Date.parse(payload.timing.completed_at)) &&
       Number.isSafeInteger(payload.timing.duration_ms) &&
       payload.timing.duration_ms >= 0 &&
-      ["completed", "failed", "cancelled", "abandoned"].includes(
+      ["completed", "failed", "cancelled", "interrupted", "abandoned"].includes(
         payload.terminal.status,
       ) &&
       Array.isArray(payload.usage_observations),
@@ -914,7 +919,7 @@ function validateRunAuditSource(run) {
   invariant(
     typeof run.change_set_id === "string" &&
       (run.work_unit_id === null || typeof run.work_unit_id === "string") &&
-      ["planning", "execution", "correction", "verification"].includes(
+      ["planning", "execution", "verification"].includes(
         run.operation,
       ) &&
       Number.isSafeInteger(run.attempt) &&

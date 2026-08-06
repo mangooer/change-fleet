@@ -2,8 +2,8 @@ import { canonicalStringify } from "./canonical-json.js";
 import { invariant } from "./errors.js";
 
 // Runtime 只接收当前操作所需投影；完整历史留在控制存储中按引用读取。
-export const CONTROL_CONTRACT_VERSION = 3;
-export const CONTEXT_PROJECTION_VERSION = 9;
+export const CONTROL_CONTRACT_VERSION = 4;
+export const CONTEXT_PROJECTION_VERSION = 10;
 const RUNTIME_EXCLUDED_DECISION_TYPES = new Set([
   "bundle_review",
   "legacy_candidate_recovery",
@@ -55,7 +55,7 @@ export function createContextProjection({
   planningConversation = null,
   verificationPolicy = null,
   verification = null,
-  correction = null,
+  feedback = null,
 }) {
   return {
     schema_version: CONTEXT_PROJECTION_VERSION,
@@ -83,17 +83,12 @@ export function createContextProjection({
       )
       .slice(-16)
       .map((decision) => structuredClone(decision)),
-    revision_feedback: projectRevisionFeedback(
-      changeSet.current_revision_feedback,
-    ),
+    feedback: projectFeedback(feedback),
     // 只投影本轮输入和当前可批准消息；更早对话只能通过 Run 引用按需审计。
     planning_conversation: projectPlanningConversation(planningConversation),
     // Verification 只接收当前精确主体和有界证据摘要，不继承执行对话、成本或历史审计。
     verification:
       verification === null ? null : structuredClone(verification),
-    // Correction 只接收当前阻塞结论、逐条评估目标和精确主体，不接收完整审核历史。
-    correction:
-      correction === null ? null : structuredClone(correction),
     history_references: historyReferences,
   };
 }
@@ -138,7 +133,8 @@ function projectWorkUnit(workUnit) {
       "repository_harness_selection_revision",
       "repository_check",
       "plan_revision",
-      "state",
+      "phase",
+      "disposition",
       "last_error",
     ]
       .filter((key) => workUnit[key] !== undefined)
@@ -146,13 +142,14 @@ function projectWorkUnit(workUnit) {
   );
 }
 
-function projectRevisionFeedback(feedback) {
+function projectFeedback(feedback) {
   if (!feedback) return null;
   return {
-    bundle_revision: feedback.bundle_revision,
-    bundle_hash: feedback.bundle_hash,
-    summary: feedback.summary,
-    findings: feedback.findings.map((finding) => ({
+    feedback_id: feedback.feedback_id,
+    source: feedback.source,
+    target: structuredClone(feedback.target),
+    summary: feedback.content.summary,
+    findings: feedback.content.findings.map((finding) => ({
       finding_id: finding.finding_id,
       text: finding.text,
     })),

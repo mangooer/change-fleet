@@ -1,9 +1,13 @@
 import { createHash, randomUUID } from "node:crypto";
-import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { canonicalStringify } from "../../domain/canonical-json.js";
 import { invariant } from "../../domain/errors.js";
+import {
+  assertAgentRunLifecycle,
+  assertAgentRunTransition,
+} from "../../domain/lifecycle.js";
 import { readJsonFile, writeJsonFileAtomic } from "./atomic-json-file.js";
 
 // RunStore 保存一次 Runtime 尝试及有界事件流，ChangeSet 中只保留 Run 引用。
@@ -17,9 +21,40 @@ export class RunStore {
 
   async initialize() {
     await mkdir(this.runsRoot, { recursive: true });
+    const entries = await readdir(this.runsRoot, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const run = await readJsonFile(this.runPath(entry.name), {
+        allowMissing: true,
+      });
+      if (!run) continue;
+      let changed = false;
+      // 旧 Run 仅在存储边界归一化；原始事件和不可变调用证据保持历史原貌。
+      if (run.operation === "correction") {
+        run.operation = "execution";
+        run.trigger = "feedback";
+        run.legacy_operation = "correction";
+        changed = true;
+      }
+      if (run.status === "abandoned") {
+        run.status = "interrupted";
+        run.legacy_status = "abandoned";
+        changed = true;
+      }
+      if (!run.trigger) {
+        run.trigger = "initial";
+        changed = true;
+      }
+      if (!("continuation_of_run_id" in run)) {
+        run.continuation_of_run_id = null;
+        changed = true;
+      }
+      if (changed) await writeJsonFileAtomic(this.runPath(entry.name), run);
+    }
   }
 
   async create(run) {
+    assertAgentRunLifecycle(run);
     const runDirectory = this.runDirectory(run.run_id);
     await mkdir(path.join(runDirectory, "artifacts"), { recursive: true });
     const existing = await readJsonFile(this.runPath(run.run_id), {
@@ -48,7 +83,9 @@ export class RunStore {
 
   async update(runId, mutator) {
     const run = await this.read(runId);
+    const previous = structuredClone(run);
     const result = await mutator(run);
+    assertAgentRunTransition(previous, run);
     await writeJsonFileAtomic(this.runPath(runId), run);
     return result;
   }

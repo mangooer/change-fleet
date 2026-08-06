@@ -53,13 +53,15 @@ test("control store migrates private v4 catalog and ChangeSets to the current sc
   assert.deepEqual(state.verification_admissions, []);
   assert.deepEqual(state.verification_reviews, []);
   assert.equal(state.work_units[0].verification_admission_id, null);
-  assert.deepEqual(state.work_units[0].verification_run_references, []);
+  assert.deepEqual(state.work_units[0].run_references, []);
   assert.equal(state.work_units[0].verification_review_id, null);
-  assert.deepEqual(state.work_units[0].correction_run_references, []);
-  assert.equal(state.work_units[0].correction_source_review_id, null);
+  assert.equal(state.work_units[0].phase, "execution");
+  assert.equal(state.work_units[0].disposition, "current");
   assert.equal(catalog.projects.project.verification_policy.minimum_mode, "basic");
   assert.equal(state.verification_policy.max_attempt_timeout_ms, 600_000);
-  assert.equal(state.current_revision_feedback, null);
+  assert.deepEqual(state.feedback_records, []);
+  assert.equal(state.current_feedback_id, null);
+  assert.deepEqual(state.gates, []);
   assert.deepEqual(state.planning_message_references, []);
   assert.equal(state.current_approvable_plan_message_id, null);
   assert.deepEqual(state.legacy_unconfirmed_plans, []);
@@ -94,7 +96,7 @@ test("control store retires unconfirmed v5 Plan records without allocating new a
   await store.initialize();
   const state = await store.readChangeSet("change-1");
   assert.equal(state.schema_version, CONTROL_SCHEMA_VERSION);
-  assert.equal(state.state, "analyzing");
+  assert.equal(state.phase, "planning");
   assert.equal(state.current_plan_revision, null);
   assert.deepEqual(state.plans, []);
   assert.equal(state.legacy_unconfirmed_plans.length, 1);
@@ -102,7 +104,8 @@ test("control store retires unconfirmed v5 Plan records without allocating new a
     state.legacy_unconfirmed_plans[0].legacy_disposition,
     "retired_unconfirmed_v5",
   );
-  assert.equal(state.work_units[0].state, "retired_unconfirmed_legacy");
+  assert.equal(state.work_units[0].phase, "execution");
+  assert.equal(state.work_units[0].disposition, "superseded");
 });
 
 test("control store adds deterministic verification authority to v6 records", async (t) => {
@@ -196,15 +199,15 @@ test("control store adds read-only verification references to v7 records", async
 
   assert.equal(state.schema_version, CONTROL_SCHEMA_VERSION);
   assert.deepEqual(state.verification_reviews, []);
-  assert.deepEqual(state.work_units[0].verification_run_references, []);
+  assert.deepEqual(state.work_units[0].run_references, []);
   assert.equal(state.work_units[0].verification_review_id, null);
-  assert.deepEqual(state.work_units[0].correction_run_references, []);
-  assert.equal(state.work_units[0].correction_source_review_id, null);
+  assert.equal(state.work_units[0].phase, "execution");
+  assert.equal(state.work_units[0].disposition, "current");
   assert.equal(state.candidates[0].verification_review_id, null);
 });
 
-test("control store adds correction lineage to v8 records", async (t) => {
-  const root = await createFixtureRoot(t, "changefleet-control-v8-correction-");
+test("control store normalizes legacy feedback-execution lineage from v8 records", async (t) => {
+  const root = await createFixtureRoot(t, "changefleet-control-v8-feedback-");
   const changeSetRoot = path.join(root, "changesets", "change-1");
   await mkdir(changeSetRoot, { recursive: true });
   await writeFile(
@@ -226,9 +229,186 @@ test("control store adds correction lineage to v8 records", async (t) => {
   const state = await store.readChangeSet("change-1");
 
   assert.equal(state.schema_version, CONTROL_SCHEMA_VERSION);
-  assert.deepEqual(state.work_units[0].correction_run_references, []);
-  assert.equal(state.work_units[0].correction_source_review_id, null);
+  assert.deepEqual(state.work_units[0].run_references, []);
   assert.equal(state.verification_reviews[0].review_scope, "initial");
   assert.equal(state.verification_reviews[0].source_review_id, null);
-  assert.equal(state.verification_reviews[0].correction_run_id, null);
+  assert.equal(state.verification_reviews[0].feedback_run_id, null);
+});
+
+test("control store exhaustively maps every legacy ChangeSet and WorkUnit state", async (t) => {
+  const root = await createFixtureRoot(t, "changefleet-control-v9-lifecycle-");
+  const legacyChangeSetStates = [
+    "analyzing",
+    "awaiting_plan_confirmation",
+    "replanning",
+    "ready",
+    "executing",
+    "validating",
+    "failed",
+    "blocked",
+    "decision_required",
+    "candidate_review",
+    "delivery_ready",
+    "delivering",
+    "done",
+    "abandoned",
+  ];
+  const legacyWorkUnitStates = [
+    "pending",
+    "running",
+    "failed",
+    "blocked",
+    "validation_pending",
+    "validation_failed",
+    "verification_pending",
+    "verifying",
+    "verification_failed",
+    "verification_changes_required",
+    "verification_human_decision_required",
+    "verification_passed",
+    "correction_pending",
+    "correcting",
+    "correction_failed",
+    "candidate_ready",
+    "superseded",
+    "retired_unconfirmed_legacy",
+  ];
+  await writeFile(
+    path.join(root, "catalog.json"),
+    JSON.stringify({ schema_version: 9, projects: {}, idempotency: {} }),
+  );
+  for (const [index, legacyState] of legacyChangeSetStates.entries()) {
+    const changeSetId = `change-${index}`;
+    const changeSetRoot = path.join(root, "changesets", changeSetId);
+    await mkdir(changeSetRoot, { recursive: true });
+    await writeFile(
+      path.join(changeSetRoot, "state.json"),
+      JSON.stringify({
+        schema_version: 9,
+        change_set_id: changeSetId,
+        state: legacyState,
+        updated_at: "2026-08-06T00:00:00.000Z",
+        bundles: legacyState === "candidate_review" ? [{ bundle_id: "bundle-1" }] : [],
+        work_units:
+          index === 0
+            ? legacyWorkUnitStates.map((state, unitIndex) => ({
+                work_unit_id: `unit-${unitIndex}`,
+                state,
+                candidate:
+                  state === "candidate_ready" ? { candidate_id: "candidate-1" } : null,
+                run_references:
+                  unitIndex === 0
+                    ? [{ run_id: "execution-1", status: "running" }]
+                    : [],
+                verification_run_references:
+                  unitIndex === 0
+                    ? [{ run_id: "verification-1", status: "abandoned" }]
+                    : [],
+                correction_run_references:
+                  unitIndex === 0
+                    ? [{
+                        run_id: "feedback-1",
+                        status: "completed",
+                        source_review_id: "review-1",
+                      }]
+                    : [],
+              }))
+            : [],
+        verification_reviews:
+          index === 0
+            ? [{
+                review_id: "review-1",
+                review_scope: "focused",
+                correction_run_id: "feedback-1",
+              }]
+            : [],
+        current_revision_feedback:
+          index === 0
+            ? {
+                decision_id: "decision-1",
+                summary: "Legacy review feedback",
+                findings: [],
+                decided_at: "2026-08-06T00:00:00.000Z",
+              }
+            : null,
+        gates:
+          index === 0
+            ? [{ gate_id: "gate-1", status: "open" }]
+            : [],
+      }),
+    );
+  }
+
+  const store = new ControlStore(root);
+  await store.initialize();
+
+  for (const [index, legacyState] of legacyChangeSetStates.entries()) {
+    const state = await store.readChangeSet(`change-${index}`);
+    const expectedPhase =
+      ["done", "abandoned"].includes(legacyState)
+        ? "terminal"
+        : ["delivery_ready", "delivering"].includes(legacyState)
+          ? "delivery"
+          : legacyState === "candidate_review"
+            ? "review"
+            : ["analyzing", "awaiting_plan_confirmation", "replanning"].includes(legacyState)
+              ? "planning"
+              : "working";
+    assert.equal(state.phase, expectedPhase, legacyState);
+    assert.equal(
+      state.terminal_outcome,
+      legacyState === "done"
+        ? "done"
+        : legacyState === "abandoned"
+          ? "abandoned"
+          : null,
+      legacyState,
+    );
+  }
+
+  const migrated = await store.readChangeSet("change-0");
+  assert.deepEqual(
+    migrated.work_units.map((unit) => unit.phase),
+    legacyWorkUnitStates.map((state) =>
+      state === "candidate_ready"
+        ? "complete"
+        : [
+              "validation_pending",
+              "validation_failed",
+              "verification_pending",
+              "verifying",
+              "verification_failed",
+              "verification_human_decision_required",
+              "verification_passed",
+            ].includes(state)
+          ? "verification"
+          : "execution",
+    ),
+  );
+  assert.equal(migrated.work_units.at(-1).disposition, "superseded");
+  assert.equal(migrated.work_units.at(-2).disposition, "superseded");
+  assert.deepEqual(
+    migrated.work_units[0].run_references.map((reference) => [
+      reference.operation,
+      reference.trigger,
+      reference.status,
+    ]),
+    [
+      ["execution", "initial", "running"],
+      ["verification", "initial", "interrupted"],
+      ["execution", "feedback", "completed"],
+    ],
+  );
+  assert.equal(migrated.verification_reviews[0].review_scope, "feedback");
+  assert.equal(migrated.verification_reviews[0].feedback_run_id, "feedback-1");
+  assert.equal(migrated.feedback_records.length, 1);
+  assert.equal(migrated.gates[0].status, "open");
+  assert.deepEqual(
+    migrated.migration_records[0].normalized_work_unit_states,
+    legacyWorkUnitStates,
+  );
+  assert.equal(
+    migrated.migration_records[0].normalized_legacy_operation_count,
+    1,
+  );
 });

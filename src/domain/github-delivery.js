@@ -278,12 +278,30 @@ export function createDeliveryProjection(state) {
     }));
   return {
     change_set_id: state.change_set_id,
-    state: state.state,
+    phase: state.phase,
+    activity: deliveryActivity(state, requests),
     delivery_count: requests.length,
     historical_delivery_count: allRequests.length - requests.length,
     counts: countStates(requests),
     deliveries: requests,
   };
+}
+
+function deliveryActivity(changeSet, requests) {
+  if (changeSet.phase === "terminal") return "complete";
+  if (requests.length === 0) return "ready";
+  if (
+    requests.some((request) =>
+      ["candidate_diverged", "closed_unmerged", "integration_stale", "failed"].includes(
+        request.state,
+      ),
+    )
+  ) {
+    return "blocked";
+  }
+  return requests.every((request) => request.state === "merged")
+    ? "complete"
+    : "running";
 }
 
 function normalizePullRequestState(value, mergedAt) {

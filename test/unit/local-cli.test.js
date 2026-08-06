@@ -31,6 +31,8 @@ describe("unified local CLI grammar", () => {
       ],
       [["changeset", "create"], "changeset.create"],
       [["changeset", "close"], "changeset.close"],
+      [["changeset", "feedback", "submit"], "changeset.feedback.submit"],
+      [["changeset", "gate", "resolve"], "changeset.gate.resolve"],
       [
         ["changeset", "repository-selection", "revise"],
         "changeset.repository_selection.revise",

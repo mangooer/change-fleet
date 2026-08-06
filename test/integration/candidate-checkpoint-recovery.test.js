@@ -47,7 +47,7 @@ describe("post-Provider Candidate finalization recovery", () => {
     );
     const failed = await service.readChangeSet("change-1");
     const unit = failed.work_units[0];
-    assert.equal(unit.state, "validation_failed");
+    assert.equal(unit.phase, "verification");
     assert.equal(unit.run_references.at(-1).status, "completed");
     assert.equal(failed.run_references.at(-1).status, "completed");
     assert.equal(
@@ -137,7 +137,7 @@ describe("post-Provider Candidate finalization recovery", () => {
     });
     const recovered = await reopened.readChangeSet("change-1");
     assert.equal(result.bundle_revision, 1);
-    assert.equal(recovered.state, "candidate_review");
+    assert.equal(recovered.phase, "review");
     assert.equal(recovered.candidate_checkpoints.length, 1);
     assert.equal(recovered.candidates.length, 1);
     assert.deepEqual(
@@ -215,7 +215,7 @@ describe("post-Provider Candidate finalization recovery", () => {
     assert.equal(state.verification_admissions[0].mode, "independent_review");
     assert.equal(state.verification_reviews.length, 1);
     assert.equal(state.verification_reviews[0].verdict, "pass");
-    assert.equal(state.work_units[0].state, "candidate_ready");
+    assert.equal(state.work_units[0].phase, "complete");
     assert.equal(state.candidates.length, 1);
     assert.equal(state.validation_attempts.length, 2);
     assert.equal(
@@ -239,7 +239,7 @@ describe("post-Provider Candidate finalization recovery", () => {
         type: "verification_completed",
         review_depth: "deep_review",
         verdict: "pass_with_notes",
-        summary: "A focused exact-subject check closes the compatibility boundary.",
+        summary: "An exact-subject check closes the compatibility boundary.",
         findings: [],
         notes: [
           { note_id: "host-note", message: "Another host remains unverified." },
@@ -285,14 +285,14 @@ describe("post-Provider Candidate finalization recovery", () => {
     );
   });
 
-  test("corrects adopted findings under the same Plan and binds one focused review", async (t) => {
-    const fixture = await createFixture(t, "verification-correction");
+  test("handles adopted findings with a feedback execution and another verification Run", async (t) => {
+    const fixture = await createFixture(t, "verification-feedback");
     const sourceFinding = blockingVerificationOutcome("correctness-adopted");
     const runtime = new ScriptedRuntime({
       plan: fixture.plan,
       verificationOutcomes: [sourceFinding, passingVerificationOutcome()],
-      correctionFileContent: "api corrected implementation\n",
-      correctionOutcome: {
+      feedbackFileContent: "api corrected implementation\n",
+      feedbackExecutionOutcome: {
         type: "implementation_completed",
         summary: "Applied the exact accepted review finding.",
         changed_paths: ["feature.txt"],
@@ -301,20 +301,32 @@ describe("post-Provider Candidate finalization recovery", () => {
     });
     const service = await bootstrap(fixture, runtime);
 
+    const feedbackResult = await service.executeChangeSet({
+      idempotency_key: "execute-initial-review",
+      change_set_id: "change-1",
+      verification_admission_mode: "independent_review",
+    });
+    assert.equal(feedbackResult.status, "feedback_required");
     const result = await service.executeChangeSet({
-      idempotency_key: "execute-corrected-review",
+      idempotency_key: "execute-feedback-review",
       change_set_id: "change-1",
       verification_admission_mode: "independent_review",
     });
     const state = await service.readChangeSet("change-1");
     const unit = state.work_units[0];
-    const [initialReview, focusedReview] = state.verification_reviews;
-    const correctionInvocation = runtime.invocations.find(
-      (invocation) => invocation.operation === "correction",
+    const [initialReview, feedbackReview] = state.verification_reviews;
+    const feedbackInvocation = runtime.invocations.find(
+      (invocation) =>
+        invocation.operation === "execution" &&
+        invocation.context_projection.feedback !== null,
     );
-    const focusedInvocation = runtime.invocations
+    const feedbackVerificationInvocation = runtime.invocations
       .filter((invocation) => invocation.operation === "verification")
       .at(-1);
+    const feedbackRunReference = unit.run_references.find(
+      (reference) =>
+        reference.operation === "execution" && reference.trigger === "feedback",
+    );
 
     assert.equal(result.bundle_revision, 1);
     assert.equal(state.current_plan_revision, 1);
@@ -323,50 +335,40 @@ describe("post-Provider Candidate finalization recovery", () => {
       state.candidate_checkpoints[0].candidate_sha,
       state.candidate_checkpoints[1].candidate_sha,
     );
-    assert.equal(unit.correction_run_references.length, 1);
-    assert.equal(unit.correction_run_references[0].status, "completed");
+    assert.equal(feedbackRunReference.status, "completed");
     assert.equal(initialReview.review_scope, "initial");
     assert.equal(initialReview.verdict, "changes_required");
-    assert.equal(focusedReview.review_scope, "focused");
-    assert.equal(focusedReview.source_review_id, initialReview.review_id);
+    assert.equal(feedbackReview.review_scope, "feedback");
+    assert.equal(feedbackReview.source_review_id, initialReview.review_id);
     assert.equal(
-      focusedReview.correction_run_id,
-      unit.correction_run_references[0].run_id,
+      feedbackReview.feedback_run_id,
+      feedbackRunReference.run_id,
     );
-    assert.equal(unit.candidate.verification_review_id, focusedReview.review_id);
+    assert.equal(unit.candidate.verification_review_id, feedbackReview.review_id);
     assert.equal(
-      correctionInvocation.context_projection.correction.source_review.findings[0]
-        .finding_id,
+      feedbackInvocation.context_projection.feedback.findings[0].finding_id,
       "correctness-adopted",
     );
     assert.equal(
-      focusedInvocation.context_projection.verification.focus.correction.run_id,
-      unit.correction_run_references[0].run_id,
+      feedbackVerificationInvocation.context_projection.verification.focus
+        .feedback_execution.run_id,
+      feedbackRunReference.run_id,
     );
     assert.deepEqual(
-      focusedInvocation.context_projection.verification.focus.correction
+      feedbackVerificationInvocation.context_projection.verification.focus
+        .feedback_execution
         .actual_changed_paths,
       ["feature.txt"],
     );
     assert.equal(
-      focusedInvocation.context_projection.verification.focus.source_review
+      feedbackVerificationInvocation.context_projection.verification.focus.source_review
         .candidate.candidate_sha,
       state.candidate_checkpoints[0].candidate_sha,
     );
     assert.equal(
-      correctionInvocation.context_projection.correction.source_review
-        .validation_attempts[0].kind,
-      "repository_validation",
-    );
-    assert.equal(
       runtime.invocations.filter((invocation) => invocation.operation === "execution")
         .length,
-      1,
-    );
-    assert.equal(
-      runtime.invocations.filter((invocation) => invocation.operation === "correction")
-        .length,
-      1,
+      2,
     );
     assert.equal(
       runtime.invocations.filter((invocation) => invocation.operation === "verification")
@@ -375,8 +377,8 @@ describe("post-Provider Candidate finalization recovery", () => {
     );
   });
 
-  test("preserves the exact checkpoint when every finding is explicitly declined", async (t) => {
-    const fixture = await createFixture(t, "verification-no-change-correction");
+  test("preserves the exact checkpoint when feedback is explicitly declined", async (t) => {
+    const fixture = await createFixture(t, "verification-no-change-feedback");
     const findingId = "correctness-declined";
     const runtime = new ScriptedRuntime({
       plan: fixture.plan,
@@ -384,7 +386,7 @@ describe("post-Provider Candidate finalization recovery", () => {
         blockingVerificationOutcome(findingId),
         passingVerificationOutcome(),
       ],
-      correctionOutcome: {
+      feedbackExecutionOutcome: {
         type: "implementation_completed",
         summary: "The exact finding was assessed and requires no Git change.",
         changed_paths: [],
@@ -400,21 +402,31 @@ describe("post-Provider Candidate finalization recovery", () => {
     });
     const service = await bootstrap(fixture, runtime);
 
+    const feedbackResult = await service.executeChangeSet({
+      idempotency_key: "execute-no-change-initial",
+      change_set_id: "change-1",
+      verification_admission_mode: "independent_review",
+    });
+    assert.equal(feedbackResult.status, "feedback_required");
     await service.executeChangeSet({
-      idempotency_key: "execute-no-change-correction",
+      idempotency_key: "execute-no-change-feedback",
       change_set_id: "change-1",
       verification_admission_mode: "independent_review",
     });
     const state = await service.readChangeSet("change-1");
     const unit = state.work_units[0];
-    const correctionRun = await service.runStore.read(
-      unit.correction_run_references[0].run_id,
+    const feedbackReference = unit.run_references.find(
+      (reference) =>
+        reference.operation === "execution" && reference.trigger === "feedback",
+    );
+    const feedbackRun = await service.runStore.read(
+      feedbackReference.run_id,
     );
 
     assert.equal(state.candidate_checkpoints.length, 1);
     assert.equal(state.verification_admissions.length, 1);
     assert.equal(state.verification_reviews.length, 2);
-    assert.equal(state.verification_reviews[1].review_scope, "focused");
+    assert.equal(state.verification_reviews[1].review_scope, "feedback");
     assert.equal(
       state.verification_reviews[1].checkpoint_id,
       state.candidate_checkpoints[0].checkpoint_id,
@@ -423,55 +435,61 @@ describe("post-Provider Candidate finalization recovery", () => {
       unit.candidate.candidate_sha,
       state.candidate_checkpoints[0].candidate_sha,
     );
-    assert.deepEqual(correctionRun.outcome.revision_feedback_assessments, [
+    assert.deepEqual(feedbackRun.outcome.revision_feedback_assessments, [
       {
         finding_id: findingId,
         disposition: "decline",
         rationale: "The exact Candidate already satisfies the confirmed contract.",
       },
     ]);
-    assert.deepEqual(correctionRun.outcome.actual_changed_paths, []);
-    assert.equal(correctionRun.outcome.no_change, true);
+    assert.deepEqual(feedbackRun.outcome.actual_changed_paths, []);
+    assert.equal(feedbackRun.outcome.no_change, true);
   });
 
-  test("routes one unresolved focused review to a human without another correction", async (t) => {
+  test("records repeated verifier feedback without inventing a human gate", async (t) => {
     const fixture = await createFixture(t, "verification-blocking");
     const runtime = new ScriptedRuntime({
       plan: fixture.plan,
       verificationOutcomes: [
         blockingVerificationOutcome("correctness-initial"),
-        blockingVerificationOutcome("correctness-focused"),
+        blockingVerificationOutcome("correctness-repeated"),
       ],
-      correctionFileContent: "api still disputed\n",
-      correctionOutcome: {
+      feedbackFileContent: "api still disputed\n",
+      feedbackExecutionOutcome: {
         type: "implementation_completed",
-        summary: "Applied the first finding but the focused reviewer still disagrees.",
+        summary: "Applied the first finding but the verifier still disagrees.",
         changed_paths: ["feature.txt"],
         blocker: null,
       },
     });
     const service = await bootstrap(fixture, runtime);
 
-    await assert.rejects(
-      service.executeChangeSet({
-        idempotency_key: "execute-blocking-review",
-        change_set_id: "change-1",
-        verification_admission_mode: "independent_review",
-      }),
-      { code: "VERIFICATION_FOCUSED_REVIEW_UNRESOLVED" },
-    );
+    const first = await service.executeChangeSet({
+      idempotency_key: "execute-blocking-initial",
+      change_set_id: "change-1",
+      verification_admission_mode: "independent_review",
+    });
+    assert.equal(first.status, "feedback_required");
+    const second = await service.executeChangeSet({
+      idempotency_key: "execute-blocking-feedback",
+      change_set_id: "change-1",
+      verification_admission_mode: "independent_review",
+    });
+    assert.equal(second.status, "feedback_required");
     const state = await service.readChangeSet("change-1");
-    assert.equal(state.state, "decision_required");
+    assert.equal(state.phase, "working");
     assert.equal(state.verification_reviews.length, 2);
-    assert.equal(state.verification_reviews[1].review_scope, "focused");
-    assert.equal(
-      state.work_units[0].state,
-      "verification_human_decision_required",
-    );
-    assert.equal(state.work_units[0].correction_run_references.length, 1);
+    assert.equal(state.verification_reviews[1].review_scope, "feedback");
+    assert.equal(state.work_units[0].phase, "execution");
+    assert.equal(state.gates.length, 0);
+    assert.equal(state.feedback_records.length, 2);
     assert.equal(state.candidates.length, 0);
     assert.equal(
-      runtime.invocations.filter((invocation) => invocation.operation === "correction")
+      runtime.invocations.filter(
+        (invocation) =>
+          invocation.operation === "execution" &&
+          invocation.context_projection.feedback !== null,
+      )
         .length,
       1,
     );
@@ -482,18 +500,24 @@ describe("post-Provider Candidate finalization recovery", () => {
     );
   });
 
-  test("abandons an interrupted correction and retries it without repeating execution", async (t) => {
-    const fixture = await createFixture(t, "correction-restart");
-    const interruptedRuntime = new InterruptingCorrectionRuntime({
+  test("interrupts and retries feedback execution without repeating initial execution", async (t) => {
+    const fixture = await createFixture(t, "feedback-execution-restart");
+    const interruptedRuntime = new InterruptingFeedbackExecutionRuntime({
       plan: fixture.plan,
       verificationOutcomes: [
         blockingVerificationOutcome("correctness-restart"),
       ],
     });
     const service = await bootstrap(fixture, interruptedRuntime);
+    const feedbackResult = await service.executeChangeSet({
+      idempotency_key: "execute-feedback-request",
+      change_set_id: "change-1",
+      verification_admission_mode: "independent_review",
+    });
+    assert.equal(feedbackResult.status, "feedback_required");
     await assert.rejects(
       service.executeChangeSet({
-        idempotency_key: "execute-interrupted-correction",
+        idempotency_key: "execute-interrupted-feedback",
         change_set_id: "change-1",
         verification_admission_mode: "independent_review",
       }),
@@ -503,35 +527,47 @@ describe("post-Provider Candidate finalization recovery", () => {
     const retryRuntime = new ScriptedRuntime({
       plan: fixture.plan,
       verificationOutcomes: [passingVerificationOutcome()],
-      correctionFileContent: "api corrected after restart\n",
-      correctionOutcome: {
+      feedbackFileContent: "api corrected after restart\n",
+      feedbackExecutionOutcome: {
         type: "implementation_completed",
-        summary: "Completed the exact correction after controller restart.",
+        summary: "Completed the exact feedback change after controller restart.",
         changed_paths: ["feature.txt"],
         blocker: null,
       },
     });
     const reopened = await open(fixture, retryRuntime);
     const result = await reopened.executeChangeSet({
-      idempotency_key: "execute-restarted-correction",
+      idempotency_key: "execute-restarted-feedback",
       change_set_id: "change-1",
     });
     const state = await reopened.readChangeSet("change-1");
 
     assert.equal(result.bundle_revision, 1);
     assert.deepEqual(
-      state.work_units[0].correction_run_references.map((reference) =>
-        reference.status,
-      ),
-      ["abandoned", "completed"],
+      state.work_units[0].run_references
+        .filter(
+          (reference) =>
+            reference.operation === "execution" &&
+            reference.trigger === "feedback",
+        )
+        .map((reference) => reference.status),
+      ["interrupted", "completed"],
     );
     assert.equal(
-      retryRuntime.invocations.filter((invocation) => invocation.operation === "execution")
+      retryRuntime.invocations.filter(
+        (invocation) =>
+          invocation.operation === "execution" &&
+          invocation.context_projection.feedback === null,
+      )
         .length,
       0,
     );
     assert.equal(
-      retryRuntime.invocations.filter((invocation) => invocation.operation === "correction")
+      retryRuntime.invocations.filter(
+        (invocation) =>
+          invocation.operation === "execution" &&
+          invocation.context_projection.feedback !== null,
+      )
         .length,
       1,
     );
@@ -539,25 +575,31 @@ describe("post-Provider Candidate finalization recovery", () => {
     assert.equal(state.verification_reviews.length, 2);
   });
 
-  test("retries an interrupted focused review without repeating its completed correction", async (t) => {
-    const fixture = await createFixture(t, "focused-review-restart");
-    const interruptedRuntime = new InterruptingFocusedVerificationRuntime({
+  test("retries interrupted feedback verification without repeating feedback execution", async (t) => {
+    const fixture = await createFixture(t, "feedback-review-restart");
+    const interruptedRuntime = new InterruptingFeedbackVerificationRuntime({
       plan: fixture.plan,
       verificationOutcomes: [
-        blockingVerificationOutcome("correctness-focused-restart"),
+        blockingVerificationOutcome("correctness-feedback-restart"),
       ],
-      correctionFileContent: "api corrected before focused restart\n",
-      correctionOutcome: {
+      feedbackFileContent: "api corrected before verification restart\n",
+      feedbackExecutionOutcome: {
         type: "implementation_completed",
-        summary: "Completed the correction before focused review interruption.",
+        summary: "Completed feedback execution before verification interruption.",
         changed_paths: ["feature.txt"],
         blocker: null,
       },
     });
     const service = await bootstrap(fixture, interruptedRuntime);
+    const initial = await service.executeChangeSet({
+      idempotency_key: "execute-feedback-verification-initial",
+      change_set_id: "change-1",
+      verification_admission_mode: "independent_review",
+    });
+    assert.equal(initial.status, "feedback_required");
     await assert.rejects(
       service.executeChangeSet({
-        idempotency_key: "execute-interrupted-focused-review",
+        idempotency_key: "execute-interrupted-feedback-review",
         change_set_id: "change-1",
         verification_admission_mode: "independent_review",
       }),
@@ -570,31 +612,31 @@ describe("post-Provider Candidate finalization recovery", () => {
     });
     const reopened = await open(fixture, retryRuntime);
     const result = await reopened.executeChangeSet({
-      idempotency_key: "execute-restarted-focused-review",
+      idempotency_key: "execute-restarted-feedback-review",
       change_set_id: "change-1",
     });
     const state = await reopened.readChangeSet("change-1");
 
     assert.equal(result.bundle_revision, 1);
-    assert.equal(state.work_units[0].correction_run_references.length, 1);
+    assert.equal(
+      state.work_units[0].run_references.filter(
+        (reference) =>
+          reference.operation === "execution" && reference.trigger === "feedback",
+      ).length,
+      1,
+    );
     assert.deepEqual(
-      state.work_units[0].verification_run_references.map((reference) => [
-        reference.review_scope,
-        reference.status,
-      ]),
+      state.work_units[0].run_references
+        .filter((reference) => reference.operation === "verification")
+        .map((reference) => [reference.trigger, reference.status]),
       [
         ["initial", "completed"],
-        ["focused", "abandoned"],
-        ["focused", "completed"],
+        ["feedback", "interrupted"],
+        ["feedback", "completed"],
       ],
     );
     assert.equal(
       retryRuntime.invocations.filter((invocation) => invocation.operation === "execution")
-        .length,
-      0,
-    );
-    assert.equal(
-      retryRuntime.invocations.filter((invocation) => invocation.operation === "correction")
         .length,
       0,
     );
@@ -619,12 +661,18 @@ describe("post-Provider Candidate finalization recovery", () => {
       { code: "VERIFICATION_WORKSPACE_MODIFIED" },
     );
     const state = await service.readChangeSet("change-1");
-    assert.equal(state.work_units[0].state, "verification_failed");
+    assert.equal(state.work_units[0].phase, "verification");
+    assert.equal(
+      state.blockers.some(
+        (blocker) => blocker.code === "VERIFICATION_WORKSPACE_MODIFIED",
+      ),
+      true,
+    );
     assert.equal(state.verification_reviews.length, 0);
     assert.equal(state.candidates.length, 0);
   });
 
-  test("abandons an interrupted verification and reuses passed deterministic evidence", async (t) => {
+  test("interrupts verification and reuses passed deterministic evidence", async (t) => {
     const fixture = await createFixture(t, "verification-restart");
     const interruptedRuntime = new InterruptingVerificationRuntime({
       plan: fixture.plan,
@@ -655,10 +703,10 @@ describe("post-Provider Candidate finalization recovery", () => {
       1,
     );
     assert.deepEqual(
-      state.work_units[0].verification_run_references.map(
-        (reference) => reference.status,
-      ),
-      ["abandoned", "completed"],
+      state.work_units[0].run_references
+        .filter((reference) => reference.operation === "verification")
+        .map((reference) => reference.status),
+      ["interrupted", "completed"],
     );
     assert.equal(
       retryRuntime.invocations.filter(
@@ -703,7 +751,7 @@ describe("post-Provider Candidate finalization recovery", () => {
       const workUnit = state.work_units[0];
       workUnit.candidate_checkpoint_id = null;
       workUnit.validation_attempt_ids = [];
-      workUnit.state = "failed";
+      workUnit.phase = "execution";
     });
 
     const request = {
@@ -745,7 +793,8 @@ describe("post-Provider Candidate finalization recovery", () => {
     assert.equal(repeatedRecovery.exitCode, 0);
     assert.deepEqual(JSON.parse(repeatedRecovery.stdout), recovery);
     const recoveredState = await service.readChangeSet("change-1");
-    assert.equal(recoveredState.state, "ready");
+    assert.equal(recoveredState.phase, "working");
+    assert.equal(recoveredState.work_units[0].phase, "verification");
     assert.equal(recoveredState.candidate_checkpoints.length, 1);
     assert.equal(
       recoveredState.candidate_checkpoints[0].provenance,
@@ -764,7 +813,7 @@ describe("post-Provider Candidate finalization recovery", () => {
       change_set_id: "change-1",
     });
     assert.equal(resumeRuntime.invocations.length, 0);
-    assert.equal((await reopened.readChangeSet("change-1")).state, "candidate_review");
+    assert.equal((await reopened.readChangeSet("change-1")).phase, "review");
   });
 
   test("retries combined validation over unchanged Candidates without Runtime", async (t) => {
@@ -965,29 +1014,30 @@ class InterruptingVerificationRuntime extends ScriptedRuntime {
   }
 }
 
-class InterruptingCorrectionRuntime extends ScriptedRuntime {
+class InterruptingFeedbackExecutionRuntime extends ScriptedRuntime {
   constructor(options) {
     super(options);
-    this.correctionInterrupted = false;
+    this.feedbackExecutionInterrupted = false;
   }
 
   async invoke(invocation) {
     if (
-      invocation.operation === "correction" &&
-      !this.correctionInterrupted
+      invocation.operation === "execution" &&
+      invocation.context_projection.feedback !== null &&
+      !this.feedbackExecutionInterrupted
     ) {
-      this.correctionInterrupted = true;
+      this.feedbackExecutionInterrupted = true;
       this.invocations.push(structuredClone(invocation));
       throw new ChangeFleetError(
         "CONTROLLER_INTERRUPTED",
-        "Simulated controller loss during same-Plan correction",
+        "Simulated controller loss during feedback execution",
       );
     }
     return super.invoke(invocation);
   }
 }
 
-class InterruptingFocusedVerificationRuntime extends ScriptedRuntime {
+class InterruptingFeedbackVerificationRuntime extends ScriptedRuntime {
   constructor(options) {
     super(options);
     this.observedVerificationCount = 0;
@@ -1000,7 +1050,7 @@ class InterruptingFocusedVerificationRuntime extends ScriptedRuntime {
         this.invocations.push(structuredClone(invocation));
         throw new ChangeFleetError(
           "CONTROLLER_INTERRUPTED",
-          "Simulated controller loss during focused re-review",
+          "Simulated controller loss during feedback verification",
         );
       }
     }
@@ -1033,7 +1083,7 @@ function passingVerificationOutcome() {
     type: "verification_completed",
     review_depth: "triage",
     verdict: "pass",
-    summary: "The focused review found no remaining blocking issue.",
+    summary: "The feedback verification found no remaining blocking issue.",
     findings: [],
     notes: [],
     human_decision: null,

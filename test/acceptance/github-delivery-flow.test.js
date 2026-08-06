@@ -33,7 +33,8 @@ describe("GitHub pull-request delivery", () => {
       title: "Exact Candidate",
       body: privateBody,
     });
-    assert.equal(published.state, "delivering");
+    assert.equal(published.phase, "delivery");
+    assert.equal(published.activity, "running");
     assert.deepEqual(published.counts, { open: 1 });
     assert.equal(fixture.github.createCount, 1);
     // PR 正文只用于本次外部调用；状态、投影和后续 Runtime 上下文都不能携带明文载荷。
@@ -78,7 +79,7 @@ describe("GitHub pull-request delivery", () => {
         delete state.commands["publish-1"].result;
         delete state.commands["publish-1"].completed_at;
         state.delivery_requests[0].pull_request = null;
-        state.state = "delivering";
+        state.phase = "delivery";
       },
     );
     const reopened = await ChangeFleetService.open(fixture.options);
@@ -88,13 +89,15 @@ describe("GitHub pull-request delivery", () => {
       title: "Exact Candidate",
       body: privateBody,
     });
-    assert.equal(recovered.state, "done");
+    assert.equal(recovered.phase, "terminal");
+    assert.equal(recovered.activity, "complete");
     assert.equal(fixture.github.createCount, 1);
     const completed = await reopened.refreshDelivery({
       idempotency_key: "refresh-1",
       change_set_id: ready.change_set_id,
     });
-    assert.equal(completed.state, "done");
+    assert.equal(completed.phase, "terminal");
+    assert.equal(completed.activity, "complete");
     assert.deepEqual(completed.counts, { merged: 1 });
     assert.equal(
       completed.deliveries[0].pull_request.merge_commit_sha,
@@ -145,7 +148,8 @@ describe("GitHub pull-request delivery", () => {
       idempotency_key: "refresh-attempt",
       change_set_id: ready.change_set_id,
     });
-    assert.equal(partial.state, "delivering");
+    assert.equal(partial.phase, "delivery");
+    assert.equal(partial.activity, "running");
     assert.deepEqual(partial.counts, { merged: 1, open: 1 });
 
     const webMerge = await mergeCandidate(
@@ -162,7 +166,8 @@ describe("GitHub pull-request delivery", () => {
       idempotency_key: "refresh-attempt",
       change_set_id: ready.change_set_id,
     });
-    assert.equal(complete.state, "done");
+    assert.equal(complete.phase, "terminal");
+    assert.equal(complete.activity, "complete");
     assert.deepEqual(complete.counts, { merged: 2 });
   });
 
@@ -183,7 +188,8 @@ describe("GitHub pull-request delivery", () => {
     const staleState = await staleFixture.service.readDelivery({
       change_set_id: staleReady.change_set_id,
     });
-    assert.equal(staleState.state, "decision_required");
+    assert.equal(staleState.phase, "delivery");
+    assert.equal(staleState.activity, "blocked");
     assert.deepEqual(staleState.counts, { integration_stale: 1 });
 
     const divergenceFixture = await createDeliveryFixture(
@@ -215,7 +221,8 @@ describe("GitHub pull-request delivery", () => {
       idempotency_key: "refresh-divergence",
       change_set_id: divergenceReady.change_set_id,
     });
-    assert.equal(divergent.state, "decision_required");
+    assert.equal(divergent.phase, "delivery");
+    assert.equal(divergent.activity, "blocked");
     assert.deepEqual(divergent.counts, {
       closed_unmerged: 1,
       candidate_diverged: 1,

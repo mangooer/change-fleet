@@ -354,7 +354,11 @@ describe("Repository Harness overlays", () => {
     );
     const state = await service.readChangeSet("change");
     assert.equal(state.candidates.length, 0);
-    assert.equal(state.state, "failed");
+    assert.equal(state.phase, "working");
+    assert.equal(
+      state.blockers.some((blocker) => blocker.code === "HARNESS_OVERLAY_MODIFIED"),
+      true,
+    );
     assert.equal(await readFile(fixture.skillPath, "utf8"), FROZEN_SKILL);
   });
 
@@ -437,7 +441,7 @@ describe("Repository Harness overlays", () => {
     );
     assert.deepEqual(
       unit.run_references.map((reference) => reference.status),
-      ["abandoned", "completed"],
+      ["interrupted", "completed"],
     );
   });
 

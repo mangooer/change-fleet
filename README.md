@@ -193,6 +193,8 @@ node ./bin/changefleet.js changeset repository-selection revise --config changef
 node ./bin/changefleet.js changeset harness-selection revise --config changefleet.json --request harness.json
 node ./bin/changefleet.js changeset plan --config changefleet.json --request plan.json
 node ./bin/changefleet.js changeset plan confirm --config changefleet.json --request confirm.json
+node ./bin/changefleet.js changeset feedback submit --config changefleet.json --request feedback.json
+node ./bin/changefleet.js changeset gate resolve --config changefleet.json --request gate.json
 node ./bin/changefleet.js changeset candidate recover-legacy --config changefleet.json --request recovery.json
 node ./bin/changefleet.js changeset execute --config changefleet.json --request execute.json
 node ./bin/changefleet.js changeset bundle decide --config changefleet.json --request decision.json
@@ -212,17 +214,21 @@ operation.
 
 A `request_revision` Bundle decision also requires `feedback.summary` and 1-20 bounded
 `feedback.findings`, each with a stable `finding_id` and concise `text`. Only that current bounded
-feedback is projected to correction execution under the current confirmed Plan. Each correction
-Run assesses every finding as `adopt`, `adapt`, or `decline`. Only a typed Plan invalidation returns
-to planning; prior review and conversation artifacts stay linked outside Runtime context.
+feedback is projected to an execution Run with trigger `feedback` under the current confirmed Plan.
+That Run assesses every finding as `adopt`, `adapt`, or `decline`. Only a typed Plan invalidation
+returns to planning; prior review and conversation artifacts stay linked outside Runtime context.
 
 An independent Candidate review that returns `changes_required` follows the same rule: ChangeFleet
-starts one bounded correction sequence under the unchanged Plan in the existing writable WorkUnit
-workspace. A changed correction publishes a descendant checkpoint; a fully assessed no-change
-correction preserves the original checkpoint. Exact repository validation then precedes one focused
-read-only re-review. A second blocking verdict or unresolved choice stops at a human gate instead
-of starting another automatic correction. Correction and focused-review Runs are separately
-auditable, while their costs and historical output stay outside ordinary Runtime input.
+records Feedback and returns the same WorkUnit to `execution`. A changed result publishes a
+descendant checkpoint; a fully assessed no-change result preserves the original checkpoint. Exact
+repository validation then precedes another ordinary read-only verification Run, optionally with
+prior-finding focus metadata. Repeated feedback uses the same phases, while unresolved choices use
+an open Gate. Every Run is separately auditable, while costs and historical output stay outside
+ordinary Runtime input.
+
+ChangeSets persist only `planning | working | review | delivery | terminal`; WorkUnits persist only
+`execution | verification | complete` plus disposition. UI and CLI activity is derived as
+`ready | running | waiting | blocked | complete` from Runs, Gates, Blockers, and exact artifacts.
 
 `changeset close` accepts only `idempotency_key`, `change_set_id`, `actor`, and a `reason` with one
 of `no_longer_needed`, `restart_on_new_base`, `route_abandoned`, `duplicate`, or `other` plus a

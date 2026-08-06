@@ -262,7 +262,8 @@ scripts distinct:
   needed, and contain no unique lifecycle or authorization logic.
 
 Every temporary executable records an owner and removal condition in the active WorkItem. Delete it
-before WorkItem acceptance unless a confirmed follow-up WorkItem owns the explicit remaining need.
+before completed-Candidate handoff unless a confirmed follow-up WorkItem owns the explicit remaining
+need.
 When one entry point replaces another, remove the old executable, parser, alias, documentation, and
 redundant tests in the same WorkItem after equivalent coverage passes.
 
@@ -276,6 +277,11 @@ Every implementation stage records a clear boundary, acceptance evidence, deferr
 condition in its Development WorkItem or accepted proposal. When the acceptance evidence is met,
 move the stage to review or the next accepted stage. Do not keep optimizing a completed stage unless
 there is a concrete defect, measured shortfall, or newly accepted proposal.
+
+When implementation evidence meets the WorkItem criteria, mark it complete and update affected
+Harness projections in the same Candidate. Human review and merge decide whether to adopt that
+Candidate; they do not trigger a follow-up Harness-status commit. Branch-local completion must
+remain visibly distinct from the canonical landed baseline.
 
 Mocks and fakes may prove deterministic behavior of an accepted port, but they are test fixtures,
 not product capabilities. When a real implementation replaces a fake boundary, remove it from

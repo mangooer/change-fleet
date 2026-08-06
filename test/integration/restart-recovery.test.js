@@ -18,7 +18,7 @@ import {
 } from "../support/scripted-runtime.js";
 
 describe("restart recovery", () => {
-  test("abandons an interrupted planning thread and retries from a fresh worktree", async (t) => {
+  test("interrupts a lost planning thread and retries from a fresh worktree", async (t) => {
     const root = await createFixtureRoot(t, "changefleet-plan-recovery-");
     const api = await createGitRepository(root, "api");
     const plan = createOneRepositoryPlan(
@@ -76,17 +76,17 @@ describe("restart recovery", () => {
     const recoveredState = await reopened.readChangeSet("change");
     assert.deepEqual(
       recoveredState.run_references.map((reference) => reference.status),
-      ["abandoned", "completed"],
+      ["interrupted", "completed"],
     );
     const recoveredRun = await reopened.runStore.read(interruptedRunId);
-    assert.equal(recoveredRun.status, "abandoned");
+    assert.equal(recoveredRun.status, "interrupted");
     assert.equal(recoveredRun.outcome.type, "controller_restart");
     assert.equal(recoveredRun.runtime_evidence.kind, "runtime_invocation");
     assert.equal(await stat(interruptedWorkspace).catch(() => null), null);
     assert.equal(secondRuntime.invocations.length, 1);
   });
 
-  test("abandons an interrupted Run and resumes without duplicate dispatch", async (t) => {
+  test("interrupts a lost Run and resumes without duplicate dispatch", async (t) => {
     const root = await createFixtureRoot(t, "changefleet-recovery-");
     const api = await createGitRepository(root, "api");
     const web = await createGitRepository(root, "web");
@@ -118,8 +118,9 @@ describe("restart recovery", () => {
     const apiUnit = interrupted.work_units.find(
       (unit) => unit.work_unit_id === "api-unit",
     );
-    assert.equal(apiUnit.state, "running");
+    assert.equal(apiUnit.phase, "execution");
     assert.equal(apiUnit.run_references.length, 1);
+    assert.equal(apiUnit.run_references[0].status, "running");
 
     const secondRuntime = new ScriptedRuntime({ plan });
     const reopened = await ChangeFleetService.open({
@@ -137,7 +138,7 @@ describe("restart recovery", () => {
     assert.equal(result.bundle_revision, 1);
     assert.deepEqual(
       recoveredApi.run_references.map((reference) => reference.status),
-      ["abandoned", "completed"],
+      ["interrupted", "completed"],
     );
     assert.equal(
       firstRuntime.invocations.filter(

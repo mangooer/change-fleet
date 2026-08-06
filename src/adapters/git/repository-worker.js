@@ -835,7 +835,7 @@ export class RepositoryWorker {
       changed_paths: changedPaths,
       // 修正复用原始 base，但聚焦复审还需要本轮旧 Candidate 到新 Candidate 的真实差异。
       round_changed_paths: roundChangedPaths,
-      // no_change 只比较本轮起点；correction 可以保留原始 Candidate base 身份。
+      // no_change 只比较本轮起点；反馈执行可以保留原始 Candidate base 身份。
       no_change: candidateSha === expectedHead,
     };
     await this.preflightCandidate({ repository, candidate });

@@ -3,6 +3,7 @@ import { readdir } from "node:fs/promises";
 import { createDeliveryProjection } from "../domain/github-delivery.js";
 import { ChangeFleetError, invariant } from "../domain/errors.js";
 import { normalizeId } from "../domain/model.js";
+import { derivePresentationActivity } from "../domain/lifecycle.js";
 
 const DEFAULT_PAGE_SIZE = 20;
 const MAX_PAGE_SIZE = 50;
@@ -121,14 +122,21 @@ function projectListEntry(state) {
   return {
     change_set_id: state.change_set_id,
     project_id: state.project_id,
-    state: state.state,
+    phase: state.phase,
+    activity:
+      state.phase === "delivery" || state.phase === "terminal"
+        ? delivery.activity
+        : derivePresentationActivity(state),
     updated_at: state.updated_at,
     current_intent: currentIntentSummary(state),
     current_revisions: currentRevisionSummary(state),
     blockers: summarizeBlockers(state.blockers ?? []),
+    work_units: projectCurrentWorkUnits(state),
+    gates: projectOpenGates(state),
     bundle: currentBundleSummary(state),
     delivery: {
-      state: delivery.state,
+      phase: delivery.phase,
+      activity: delivery.activity,
       delivery_count: delivery.delivery_count,
       counts: delivery.counts,
     },
@@ -136,6 +144,7 @@ function projectListEntry(state) {
 }
 
 function projectExactChangeSet(state, project, planningMessage) {
+  const delivery = createDeliveryProjection(state);
   const currentSelection =
     state.repository_selection_revisions.find(
       (revision) =>
@@ -157,11 +166,17 @@ function projectExactChangeSet(state, project, planningMessage) {
   return {
     change_set_id: state.change_set_id,
     project_id: state.project_id,
-    state: state.state,
+    phase: state.phase,
+    activity:
+      state.phase === "delivery" || state.phase === "terminal"
+        ? delivery.activity
+        : derivePresentationActivity(state),
     updated_at: state.updated_at,
     current_intent: currentIntentSummary(state),
     current_revisions: currentRevisionSummary(state),
     blockers: summarizeBlockers(state.blockers ?? []),
+    work_units: projectCurrentWorkUnits(state),
+    gates: projectOpenGates(state),
     repositories: (currentSelection?.repositories ?? []).map((selection) =>
       projectRepository(selection, project),
     ),
@@ -275,7 +290,7 @@ function projectExactChangeSet(state, project, planningMessage) {
               };
             }),
           },
-    delivery: createDeliveryProjection(state),
+    delivery,
   };
 }
 
@@ -405,6 +420,40 @@ function summarizeBlockers(blockers) {
     validation_subject_hash: blocker.validation_subject_hash ?? null,
     resolved_at: blocker.resolved_at ?? null,
   }));
+}
+
+function projectCurrentWorkUnits(state) {
+  return (state.work_units ?? [])
+    .filter(
+      (unit) =>
+        unit.plan_revision === state.current_plan_revision &&
+        unit.disposition === "current",
+    )
+    .map((unit) => ({
+      active_run_id:
+        unit.run_references
+          .filter((reference) => ["queued", "running"].includes(reference.status))
+          .at(-1)?.run_id ?? null,
+      work_unit_id: unit.work_unit_id,
+      repository_id: unit.repository_id,
+      phase: unit.phase,
+      activity: derivePresentationActivity(state, unit),
+      pending_feedback_id: unit.pending_feedback_id ?? null,
+      candidate_id: unit.candidate?.candidate_id ?? null,
+    }));
+}
+
+function projectOpenGates(state) {
+  return (state.gates ?? [])
+    .filter((gate) => gate.status === "open")
+    .map((gate) => ({
+      gate_id: gate.gate_id,
+      kind: gate.kind,
+      work_unit_id: gate.work_unit_id ?? null,
+      question: gate.request?.question ?? null,
+      options: [...(gate.request?.options ?? [])],
+      created_at: gate.created_at,
+    }));
 }
 
 function normalizeListQuery(query) {

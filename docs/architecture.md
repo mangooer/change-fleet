@@ -1,9 +1,9 @@
 # ChangeFleet Architecture
 
-Status: Initial target architecture
+Status: Accepted target architecture
 
-This document describes the intended component boundaries. It does not claim that these components
-are implemented.
+This document describes accepted component boundaries. `docs/current-state.md` distinguishes the
+landed baseline from branch-local implementation.
 
 ## Architectural Thesis
 
@@ -98,7 +98,7 @@ copied into catalog state.
 Owns current aggregate state and references to immutable evidence:
 
 - ChangeIntent, RepositorySelection, RepositoryHarnessSelection, and confirmed ChangePlan revisions;
-- WorkUnit state;
+- coarse ChangeSet phase and WorkUnit phase/disposition;
 - current CandidateCheckpoint and validation-attempt references;
 - scope decisions;
 - active or superseded CandidateBundle revision;
@@ -119,6 +119,22 @@ Owns immutable or append-only operational evidence:
 - repository Candidate evidence;
 - validation results;
 - review reports.
+
+### Lifecycle And Attempt Services
+
+Pure lifecycle modules validate the small ChangeSet, WorkUnit, and Run transition tables and derive
+presentation activity. They do not invoke Providers, Git, checks, or delivery.
+
+`RunCoordinator` owns only live local Provider invocation and operator interruption.
+`RunRecoveryService` is the single persisted-running-Run reconciler; planning, writable execution,
+and read-only verification supply bounded resource adapters rather than separate recovery state
+machines. `FeedbackService` records immutable exact Feedback and its current pointer without
+deciding semantic truth.
+
+`RepositoryValidator` and `CombinedValidator` own deterministic command execution and immutable
+evidence for exact subjects. `BundleAssembler` freezes and writes an exact CandidateBundle without
+changing lifecycle or granting human acceptance. The application facade coordinates these services
+and retains authorization and idempotency; it does not reimplement their internal workflows.
 
 ### Initial Local Implementation Boundary
 
@@ -160,7 +176,7 @@ Core validates identity and policy, not whether the semantic plan is clever.
 
 ### RunContextAssembler
 
-Builds a disposable current projection for one planning, execution, review, or recovery operation
+Builds a disposable current projection for one planning, execution, verification, or recovery operation
 from durable ChangeSet and Run state. It includes:
 
 - exact operation, ChangeSet, plan, WorkUnit, repository, base, and workspace identity;
@@ -169,10 +185,10 @@ from durable ChangeSet and Run state. It includes:
 - capability boundary, blockers, decisions, gates, and typed outcomes;
 - bounded current request-revision feedback when present;
 - the current Plan's bounded per-finding feedback assessments after planning;
-- for correction, only the exact source findings, current checkpoint, and bounded passing evidence
-  references;
-- for focused re-review, only that source review, correction assessments, old and new subjects, and
-  actual correction delta;
+- for feedback-triggered execution, only the exact current findings, subject, and bounded passing
+  evidence references;
+- for a later verification Run, optional prior-finding assessments, old and new exact subjects, and
+  actual changed delta;
 - required evidence and progressive resource references;
 - initial context-budget components and classification.
 
@@ -182,7 +198,7 @@ rebuildable view, not an aggregate or recovery authority.
 Revision feedback is evidence for semantic reconciliation, not controller-certified truth. The
 handling Runtime compares every finding with confirmed intent, exact Git, and repository-native
 authority, then returns one bounded `adopt | adapt | decline` assessment. The domain validates exact
-coverage. Correction remains under the confirmed Plan unless the outcome identifies a typed
+coverage. Feedback handling remains under the confirmed Plan unless the outcome identifies a typed
 contract invalidation; a new Plan exists only after exact approval of a later planning message.
 
 ### AgentRuntimeAdapter
@@ -327,14 +343,13 @@ frozen Project policy, confirmed Plan expectation, optional operator elevation, 
 facts. `basic` or `deterministic` admission continues without another Runtime. For
 `independent_review`, a passed Plan-bound repository check starts one separately recorded read-only
 verification Run over a disposable exact-Candidate worktree. A bounded passing VerificationReview
-and any requested Runner check evidence create the ordinary Candidate. `changes_required` starts
-one same-Plan correction sequence in the assigned writable execution workspace. Every source
-finding receives an explicit assessment; a changed result creates a descendant checkpoint and an
-assessed no-change result preserves the existing checkpoint. Exact repository validation then
-precedes one focused read-only review over the source findings and actual correction delta.
-Mutation, malformed output, unresolved focused findings, or a human decision fails closed without
-a second automatic correction. Each validation attempt, checkpoint, review, and Run remains
-immutable history.
+and any requested Runner check evidence create the ordinary Candidate. `changes_required` records
+Feedback and returns the same WorkUnit to execution. Every source finding receives an explicit
+assessment; a changed result creates a descendant checkpoint and an assessed no-change result
+preserves the existing checkpoint. Exact repository validation then precedes another ordinary
+verification Run, which may receive prior-finding focus metadata without becoming a new lifecycle.
+Mutation, malformed output, blocking findings, or an unresolved human decision fails closed. Each
+validation attempt, checkpoint, review, Feedback record, and Run remains immutable history.
 
 Resume is a deterministic application operation with a new caller idempotency key. It rechecks
 current revisions, source Run, workspace ownership, clean exact HEAD, ancestry, changed paths, and
@@ -491,7 +506,7 @@ On restart:
 
 1. acquire one Portfolio scheduler ownership record;
 2. inspect persisted non-terminal Runs;
-3. classify proven-live, abandoned, resumable, or blocked operations;
+3. classify proven-live, interrupted, resumable, or blocked Runs;
 4. verify workspace ownership and exact Git heads;
 5. never overwrite a completed Candidate or human decision;
 6. resume only from the current ChangeSet and plan revision.
@@ -504,10 +519,11 @@ evidence. An operational retry may use a different bounded timeout while preserv
 semantic check and exact subject. Private pre-checkpoint recovery requires an explicit exact human
 gate and never becomes generic commit or workspace import.
 
-Interrupted correction abandons only a non-terminal attempt and retries only after clean exact-head
-preflight of the assigned execution workspace. A completed correction cannot be dispatched again.
-Interrupted focused re-review reuses the corrected checkpoint and passing repository evidence, then
-starts a fresh read-only review without repeating execution or correction.
+One generic reconciler handles all persisted running Runs. It records an unprovable invocation as
+`interrupted`, retains the owning ChangeSet and WorkUnit phase, then applies the bounded workspace
+adapter for planning cleanup, writable execution preflight, or disposable verification cleanup.
+A new same-phase Run starts only after exact authority is re-established. Completed invocation,
+checkpoint, and passing validation evidence is reused rather than repeated.
 
 Provider-native context may optimize continuation but is not lifecycle authority.
 The first real adapter abandons an incomplete Provider session after controller loss and starts a

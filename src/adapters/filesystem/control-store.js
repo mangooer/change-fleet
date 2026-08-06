@@ -7,12 +7,17 @@ import {
   normalizeVerificationExpectation,
   normalizeVerificationPolicy,
 } from "../../domain/verification.js";
+import {
+  assertChangeSetLifecycle,
+  assertWorkUnitLifecycle,
+} from "../../domain/lifecycle.js";
 import { readJsonFile, writeJsonFileAtomic } from "./atomic-json-file.js";
 import { DirectoryLock } from "./directory-lock.js";
 
-// v9 增加有界 correction lineage；每一代迁移只补缺省字段，不反向授予 Candidate 权限。
-export const CONTROL_SCHEMA_VERSION = 9;
-const PREVIOUS_CONTROL_SCHEMA_VERSION = 8;
+// v10 把阶段、运行状态和反馈事实正交化；旧名称只允许出现在本文件的单向迁移边界。
+export const CONTROL_SCHEMA_VERSION = 10;
+const PREVIOUS_CONTROL_SCHEMA_VERSION = 9;
+const V8_CONTROL_SCHEMA_VERSION = 8;
 const V7_CONTROL_SCHEMA_VERSION = 7;
 const V6_CONTROL_SCHEMA_VERSION = 6;
 const LEGACY_CONTROL_SCHEMA_VERSION = 5;
@@ -46,30 +51,41 @@ export class ControlStore {
           idempotency: {},
         });
       } else if (existing.schema_version === PREVIOUS_CONTROL_SCHEMA_VERSION) {
-        await writeJsonFileAtomic(this.catalogPath, migrateCatalogV8(existing));
+        await writeJsonFileAtomic(this.catalogPath, migrateCatalogV9(existing));
+      } else if (existing.schema_version === V8_CONTROL_SCHEMA_VERSION) {
+        await writeJsonFileAtomic(
+          this.catalogPath,
+          migrateCatalogV9(migrateCatalogV8(existing)),
+        );
       } else if (existing.schema_version === V7_CONTROL_SCHEMA_VERSION) {
         await writeJsonFileAtomic(
           this.catalogPath,
-          migrateCatalogV8(migrateCatalogV7(existing)),
+          migrateCatalogV9(migrateCatalogV8(migrateCatalogV7(existing))),
         );
       } else if (existing.schema_version === V6_CONTROL_SCHEMA_VERSION) {
         await writeJsonFileAtomic(
           this.catalogPath,
-          migrateCatalogV8(migrateCatalogV7(migrateCatalogV6(existing))),
+          migrateCatalogV9(
+            migrateCatalogV8(migrateCatalogV7(migrateCatalogV6(existing))),
+          ),
         );
       } else if (existing.schema_version === LEGACY_CONTROL_SCHEMA_VERSION) {
         await writeJsonFileAtomic(
           this.catalogPath,
-          migrateCatalogV8(
-            migrateCatalogV7(migrateCatalogV6(migrateCatalogV5(existing))),
+          migrateCatalogV9(
+            migrateCatalogV8(
+              migrateCatalogV7(migrateCatalogV6(migrateCatalogV5(existing))),
+            ),
           ),
         );
       } else if (existing.schema_version === OLDEST_CONTROL_SCHEMA_VERSION) {
         await writeJsonFileAtomic(
           this.catalogPath,
-          migrateCatalogV8(
-            migrateCatalogV7(
-              migrateCatalogV6(migrateCatalogV5(migrateCatalogV4(existing))),
+          migrateCatalogV9(
+            migrateCatalogV8(
+              migrateCatalogV7(
+                migrateCatalogV6(migrateCatalogV5(migrateCatalogV4(existing))),
+              ),
             ),
           ),
         );
@@ -102,6 +118,10 @@ export class ControlStore {
   }
 
   async createChangeSet(changeSet) {
+    assertChangeSetLifecycle(changeSet);
+    for (const workUnit of changeSet.work_units ?? []) {
+      assertWorkUnitLifecycle(workUnit);
+    }
     const changeSetId = changeSet.change_set_id;
     const lock = await this.acquireChangeSetLock(changeSetId);
     try {
@@ -137,6 +157,10 @@ export class ControlStore {
     try {
       const state = await this.readChangeSet(changeSetId);
       const result = await mutator(state);
+      assertChangeSetLifecycle(state);
+      for (const workUnit of state.work_units ?? []) {
+        assertWorkUnitLifecycle(workUnit);
+      }
       await writeJsonFileAtomic(this.changeSetPath(changeSetId), state);
       return result;
     } finally {
@@ -222,35 +246,48 @@ export class ControlStore {
         const existing = await readJsonFile(filePath, { allowMissing: true });
         if (!existing) continue;
         if (existing.schema_version === PREVIOUS_CONTROL_SCHEMA_VERSION) {
-          await writeJsonFileAtomic(filePath, migrateChangeSetV8(existing));
+          await writeJsonFileAtomic(filePath, migrateChangeSetV9(existing));
+        } else if (existing.schema_version === V8_CONTROL_SCHEMA_VERSION) {
+          await writeJsonFileAtomic(
+            filePath,
+            migrateChangeSetV9(migrateChangeSetV8(existing)),
+          );
         } else if (existing.schema_version === V7_CONTROL_SCHEMA_VERSION) {
           await writeJsonFileAtomic(
             filePath,
-            migrateChangeSetV8(migrateChangeSetV7(existing)),
+            migrateChangeSetV9(
+              migrateChangeSetV8(migrateChangeSetV7(existing)),
+            ),
           );
         } else if (existing.schema_version === V6_CONTROL_SCHEMA_VERSION) {
           await writeJsonFileAtomic(
             filePath,
-            migrateChangeSetV8(
-              migrateChangeSetV7(migrateChangeSetV6(existing)),
+            migrateChangeSetV9(
+              migrateChangeSetV8(
+                migrateChangeSetV7(migrateChangeSetV6(existing)),
+              ),
             ),
           );
         } else if (existing.schema_version === LEGACY_CONTROL_SCHEMA_VERSION) {
           await writeJsonFileAtomic(
             filePath,
-            migrateChangeSetV8(
-              migrateChangeSetV7(
-                migrateChangeSetV6(migrateChangeSetV5(existing)),
+            migrateChangeSetV9(
+              migrateChangeSetV8(
+                migrateChangeSetV7(
+                  migrateChangeSetV6(migrateChangeSetV5(existing)),
+                ),
               ),
             ),
           );
         } else if (existing.schema_version === OLDEST_CONTROL_SCHEMA_VERSION) {
           await writeJsonFileAtomic(
             filePath,
-            migrateChangeSetV8(
-              migrateChangeSetV7(
-                migrateChangeSetV6(
-                  migrateChangeSetV5(migrateChangeSetV4(existing)),
+            migrateChangeSetV9(
+              migrateChangeSetV8(
+                migrateChangeSetV7(
+                  migrateChangeSetV6(
+                    migrateChangeSetV5(migrateChangeSetV4(existing)),
+                  ),
                 ),
               ),
             ),
@@ -271,6 +308,12 @@ function assertSchema(record, label) {
     "UNSUPPORTED_SCHEMA_VERSION",
     `${label} schema version ${record.schema_version} is not supported`,
   );
+  if (label.startsWith("ChangeSet ")) {
+    assertChangeSetLifecycle(record);
+    for (const workUnit of record.work_units ?? []) {
+      assertWorkUnitLifecycle(workUnit);
+    }
+  }
 }
 
 function migrateCatalogV4(record) {
@@ -298,11 +341,17 @@ function migrateCatalogV6(record) {
 
 function migrateCatalogV7(record) {
   const migrated = structuredClone(record);
-  migrated.schema_version = PREVIOUS_CONTROL_SCHEMA_VERSION;
+  migrated.schema_version = V8_CONTROL_SCHEMA_VERSION;
   return migrated;
 }
 
 function migrateCatalogV8(record) {
+  const migrated = structuredClone(record);
+  migrated.schema_version = PREVIOUS_CONTROL_SCHEMA_VERSION;
+  return migrated;
+}
+
+function migrateCatalogV9(record) {
   const migrated = structuredClone(record);
   migrated.schema_version = CONTROL_SCHEMA_VERSION;
   return migrated;
@@ -402,7 +451,7 @@ function migrateChangeSetV7(record) {
   for (const candidate of migrated.candidates ?? []) {
     candidate.verification_review_id ??= null;
   }
-  migrated.schema_version = PREVIOUS_CONTROL_SCHEMA_VERSION;
+  migrated.schema_version = V8_CONTROL_SCHEMA_VERSION;
   return migrated;
 }
 
@@ -417,8 +466,167 @@ function migrateChangeSetV8(record) {
     review.source_review_id ??= null;
     review.correction_run_id ??= null;
   }
+  migrated.schema_version = PREVIOUS_CONTROL_SCHEMA_VERSION;
+  return migrated;
+}
+
+function migrateChangeSetV9(record) {
+  const migrated = structuredClone(record);
+  const legacyState = migrated.state;
+  migrated.migration_records ??= [];
+  migrated.migration_records.push({
+    migration_id: "control-schema-v9-to-v10",
+    from_schema_version: 9,
+    to_schema_version: 10,
+    normalized_change_set_state: legacyState ?? null,
+    normalized_work_unit_states: (migrated.work_units ?? []).map(
+      (workUnit) => workUnit.state ?? null,
+    ),
+    normalized_legacy_operation_count:
+      (migrated.run_references ?? []).filter(
+        (reference) => reference.operation === "correction",
+      ).length +
+      (migrated.work_units ?? []).reduce(
+        (count, workUnit) =>
+          count + (workUnit.correction_run_references ?? []).length,
+        0,
+      ),
+    source_digest: sha256(record),
+  });
+  migrated.phase = legacyChangeSetPhase(legacyState, migrated);
+  migrated.terminal_outcome =
+    legacyState === "done"
+      ? "done"
+      : legacyState === "abandoned"
+        ? "abandoned"
+        : null;
+  delete migrated.state;
+  migrated.feedback_records ??= [];
+  if (migrated.current_revision_feedback) {
+    const legacyFeedback = migrated.current_revision_feedback;
+    const feedbackId = `feedback-${legacyFeedback.decision_id}`;
+    migrated.feedback_records.push({
+      feedback_id: feedbackId,
+      source: "review",
+      target: {
+        change_set_id: migrated.change_set_id,
+        plan_revision: legacyFeedback.applies_to_plan_revision ?? null,
+        bundle_revision: legacyFeedback.bundle_revision ?? null,
+        bundle_hash: legacyFeedback.bundle_hash ?? null,
+      },
+      content: {
+        summary: legacyFeedback.summary,
+        findings: structuredClone(legacyFeedback.findings ?? []),
+      },
+      created_at: legacyFeedback.decided_at ?? migrated.updated_at,
+    });
+    migrated.current_feedback_id = feedbackId;
+  } else {
+    migrated.current_feedback_id = null;
+  }
+  delete migrated.current_revision_feedback;
+  migrated.gates ??= [];
+
+  for (const reference of migrated.run_references ?? []) {
+    if (reference.operation === "correction") {
+      reference.operation = "execution";
+      reference.trigger = "feedback";
+      reference.legacy_operation = "correction";
+    } else {
+      reference.trigger ??= "initial";
+    }
+    if (reference.status === "abandoned") reference.status = "interrupted";
+    if (reference.status === "blocked") reference.status = "failed";
+  }
+
+  for (const workUnit of migrated.work_units ?? []) {
+    const legacyWorkUnitState = workUnit.state;
+    workUnit.phase = legacyWorkUnitPhase(legacyWorkUnitState, workUnit);
+    workUnit.disposition = legacyWorkUnitDisposition(legacyWorkUnitState);
+    workUnit.pending_feedback_id = null;
+    const references = new Map();
+    for (const reference of workUnit.run_references ?? []) {
+      references.set(reference.run_id, {
+        ...reference,
+        operation: "execution",
+        trigger: "initial",
+        status: legacyRunReferenceStatus(reference.status),
+      });
+    }
+    for (const reference of workUnit.verification_run_references ?? []) {
+      references.set(reference.run_id, {
+        ...reference,
+        operation: "verification",
+        trigger: "initial",
+        status: legacyRunReferenceStatus(reference.status),
+      });
+    }
+    for (const reference of workUnit.correction_run_references ?? []) {
+      references.set(reference.run_id, {
+        ...reference,
+        operation: "execution",
+        trigger: "feedback",
+        status: legacyRunReferenceStatus(reference.status),
+        feedback_source_id: reference.source_review_id ?? null,
+        legacy_operation: "correction",
+      });
+    }
+    workUnit.run_references = [...references.values()];
+    delete workUnit.state;
+    delete workUnit.verification_run_references;
+    delete workUnit.correction_run_references;
+    delete workUnit.correction_source_review_id;
+  }
+  for (const review of migrated.verification_reviews ?? []) {
+    if (review.review_scope === "focused") review.review_scope = "feedback";
+    review.feedback_run_id = review.correction_run_id ?? null;
+    delete review.correction_run_id;
+  }
   migrated.schema_version = CONTROL_SCHEMA_VERSION;
   return migrated;
+}
+
+function legacyChangeSetPhase(state, record) {
+  if (["done", "abandoned"].includes(state)) return "terminal";
+  if (["delivery_ready", "delivering"].includes(state)) return "delivery";
+  if (state === "candidate_review") return "review";
+  if (
+    ["analyzing", "awaiting_plan_confirmation", "replanning"].includes(state)
+  ) {
+    return "planning";
+  }
+  if ((record.bundles ?? []).at(-1) && state !== "ready") return "review";
+  return "working";
+}
+
+function legacyWorkUnitPhase(state, workUnit) {
+  if (state === "candidate_ready" || workUnit.candidate) return "complete";
+  if (
+    [
+      "validation_pending",
+      "validation_failed",
+      "verification_pending",
+      "verifying",
+      "verification_failed",
+      "verification_human_decision_required",
+      "verification_passed",
+    ].includes(state)
+  ) {
+    return "verification";
+  }
+  return "execution";
+}
+
+function legacyWorkUnitDisposition(state) {
+  return ["superseded", "retired_unconfirmed_legacy"].includes(state)
+    ? "superseded"
+    : "current";
+}
+
+function legacyRunReferenceStatus(status) {
+  if (status === "abandoned") return "interrupted";
+  if (status === "blocked") return "failed";
+  return status;
 }
 
 function normalizeLegacyCheck(command, fallbackRationale) {

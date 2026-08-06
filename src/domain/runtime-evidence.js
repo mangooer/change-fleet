@@ -45,6 +45,7 @@ export function createRuntimeInvocationEvidence({
     run_id: run.run_id,
     attempt: run.attempt,
     operation: run.operation,
+    trigger: run.trigger,
     change_set_id: run.change_set_id,
     work_unit_id: run.work_unit_id,
     agent_profile: structuredClone(run.agent_profile),
@@ -177,7 +178,7 @@ function normalizeUsageObservation(input) {
 
 function normalizeTerminalStatus(value) {
   invariant(
-    ["completed", "failed", "cancelled", "abandoned"].includes(value),
+    ["completed", "failed", "cancelled", "interrupted"].includes(value),
     "INVALID_RUNTIME_EVIDENCE",
     "Runtime terminal status is invalid",
   );

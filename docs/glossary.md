@@ -113,12 +113,13 @@ and publishes one exact Candidate.
 
 ## Run
 
-One bounded Agent Runtime or deterministic operation with its own events, deadline, outcome, and
-evidence.
+One bounded Agent Runtime invocation for `planning`, `execution`, or `verification`, with trigger,
+continuation lineage, common terminal status, events, outcome, usage, and evidence. Deterministic
+validation commands are ValidationAttempts rather than Runs.
 
 ## Run Context Projection
 
-A rebuildable current view generated for one planning, execution, review, or recovery operation. It
+A rebuildable current view generated for one planning, execution, verification, or recovery operation. It
 contains the relevant current plan slice and references durable history rather than replaying it.
 
 ## Scope Expansion
@@ -128,7 +129,19 @@ current ChangePlan.
 
 ## WorkUnit
 
-One repository-scoped execution unit within a ChangeSet.
+One repository-scoped execution unit within a ChangeSet. Its phase is
+`execution | verification | complete`, independently from its
+`current | superseded | excluded` disposition.
+
+## Feedback
+
+Immutable bounded input from a human or semantic stage, bound to an exact current subject. It is a
+claim for an Agent to assess, not controller-certified truth or an aggregate state.
+
+## Gate
+
+One exact human question with `open | resolved | withdrawn` lifecycle. Waiting is derived from an
+open Gate rather than stored as a ChangeSet or WorkUnit state.
 
 ## ValidationAttempt
 
@@ -147,11 +160,10 @@ Bundle acceptance, or permission for a Runtime to edit code.
 
 One bounded `triage` or `deep_review` result from a read-only Verification Runtime, bound to an
 exact CandidateCheckpoint, admission decision, Run, and any Runner-executed additional checks. Its
-verdict may permit Candidate creation, require correction, record non-blocking notes, or request a
+verdict may permit Candidate creation, produce actionable Feedback, record non-blocking notes, or request a
 human decision. It is not Bundle acceptance and cannot edit the reviewed Git subject.
 
-An initial `changes_required` review may source one bounded same-Plan correction sequence. The
-correction is an ordinary `Run` with operation `correction`, not a new aggregate: it records exact
-finding assessments and, after publication, the real old-to-new Candidate delta. One later
-`focused` VerificationReview binds that source review and correction Run. Another blocking result
-or unresolved choice requires human judgment and cannot recursively start another correction.
+A `changes_required` review records Feedback and returns the same WorkUnit to execution under the
+confirmed Plan. The next execution Run has trigger `feedback` and records exact assessments. A later
+ordinary VerificationReview may bind that feedback Run and receive prior-finding focus metadata,
+while retaining the same verification lifecycle and the ability to inspect the full relevant diff.
