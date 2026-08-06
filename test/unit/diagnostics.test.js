@@ -100,3 +100,14 @@ test("pre-Candidate retry diagnostics remain stable across locales", () => {
     "The retry workspace contains partial changes and cannot be reset automatically.",
   );
 });
+
+test("independent verification diagnostics preserve stable codes", () => {
+  assert.equal(
+    diagnosticMessage("VERIFICATION_CHANGES_REQUIRED"),
+    "独立验证发现了必须修改的问题。",
+  );
+  assert.equal(
+    diagnosticMessage("VERIFICATION_WORKSPACE_MODIFIED", { locale: "en" }),
+    "Read-only independent verification modified its temporary workspace.",
+  );
+});

@@ -479,6 +479,9 @@ function summarizeOutcomes(state, loadedRuns, validation) {
   const planningRuns = loadedRuns.filter(
     (loaded) => loaded.payload.identity.operation === "planning",
   );
+  const verificationRuns = loadedRuns.filter(
+    (loaded) => loaded.payload.identity.operation === "verification",
+  );
   return {
     runtime_attempts: countValues(
       loadedRuns.map((loaded) => loaded.payload.terminal.status),
@@ -487,6 +490,15 @@ function summarizeOutcomes(state, loadedRuns, validation) {
       planningRuns.map((loaded) =>
         loaded.payload.terminal.status === "completed"
           ? (loaded.payload.terminal.outcome_type ?? "completed_unknown")
+          : loaded.payload.terminal.status,
+      ),
+    ),
+    verification: countValues(
+      verificationRuns.map((loaded) =>
+        loaded.payload.terminal.status === "completed"
+          ? (loaded.payload.outcome?.verdict ??
+            loaded.payload.terminal.outcome_type ??
+            "completed_unknown")
           : loaded.payload.terminal.status,
       ),
     ),
@@ -758,14 +770,17 @@ function validateValidationAttemptSubject(record, attempt, state) {
     "Validation attempt identity does not match its immutable fields",
     { validation_attempt_id: attempt.validation_attempt_id },
   );
-  if (attempt.kind === "repository_validation") {
+  if (
+    attempt.kind === "repository_validation" ||
+    attempt.kind === "verification_check"
+  ) {
     const checkpoint = (state.candidate_checkpoints ?? []).find(
       (item) => item.checkpoint_id === attempt.subject_id,
     );
     invariant(
       checkpoint !== undefined,
       "AUDIT_REQUIRED_REFERENCE_INVALID",
-      "Repository validation attempt does not bind an available checkpoint",
+      "Repository-scoped validation attempt does not bind an available checkpoint",
       { validation_attempt_id: attempt.validation_attempt_id },
     );
     validateRepositoryValidationSubject(record, checkpoint);
@@ -888,7 +903,7 @@ function validateRunAuditSource(run) {
   invariant(
     typeof run.change_set_id === "string" &&
       (run.work_unit_id === null || typeof run.work_unit_id === "string") &&
-      ["planning", "execution"].includes(run.operation) &&
+      ["planning", "execution", "verification"].includes(run.operation) &&
       Number.isSafeInteger(run.attempt) &&
       run.attempt >= 1 &&
       typeof run.status === "string" &&

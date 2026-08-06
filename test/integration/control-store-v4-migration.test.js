@@ -51,7 +51,10 @@ test("control store migrates private v4 catalog and ChangeSets to the current sc
   assert.deepEqual(state.candidate_checkpoints, []);
   assert.deepEqual(state.validation_attempts, []);
   assert.deepEqual(state.verification_admissions, []);
+  assert.deepEqual(state.verification_reviews, []);
   assert.equal(state.work_units[0].verification_admission_id, null);
+  assert.deepEqual(state.work_units[0].verification_run_references, []);
+  assert.equal(state.work_units[0].verification_review_id, null);
   assert.equal(catalog.projects.project.verification_policy.minimum_mode, "basic");
   assert.equal(state.verification_policy.max_attempt_timeout_ms, 600_000);
   assert.equal(state.current_revision_feedback, null);
@@ -163,4 +166,35 @@ test("control store adds deterministic verification authority to v6 records", as
   );
   assert.equal(state.work_units[0].verification_admission_id, null);
   assert.equal(state.candidates[0].verification_admission_id, null);
+  assert.equal(state.candidates[0].verification_review_id, null);
+  assert.deepEqual(state.verification_reviews, []);
+});
+
+test("control store adds read-only verification references to v7 records", async (t) => {
+  const root = await createFixtureRoot(t, "changefleet-control-v7-verification-");
+  const changeSetRoot = path.join(root, "changesets", "change-1");
+  await mkdir(changeSetRoot, { recursive: true });
+  await writeFile(
+    path.join(root, "catalog.json"),
+    JSON.stringify({ schema_version: 7, projects: {}, idempotency: {} }),
+  );
+  await writeFile(
+    path.join(changeSetRoot, "state.json"),
+    JSON.stringify({
+      schema_version: 7,
+      change_set_id: "change-1",
+      work_units: [{ work_unit_id: "api-unit" }],
+      candidates: [{ candidate_id: "candidate-1" }],
+    }),
+  );
+
+  const store = new ControlStore(root);
+  await store.initialize();
+  const state = await store.readChangeSet("change-1");
+
+  assert.equal(state.schema_version, CONTROL_SCHEMA_VERSION);
+  assert.deepEqual(state.verification_reviews, []);
+  assert.deepEqual(state.work_units[0].verification_run_references, []);
+  assert.equal(state.work_units[0].verification_review_id, null);
+  assert.equal(state.candidates[0].verification_review_id, null);
 });

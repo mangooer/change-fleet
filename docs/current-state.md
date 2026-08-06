@@ -7,11 +7,11 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 
 ## Current Baseline
 
-- WI-0001 through WI-0016 are complete. WI-0009 entered `main` through merge commit `f8fd77f`;
+- WI-0001 through WI-0017 are complete. WI-0009 entered `main` through merge commit `f8fd77f`;
   WI-0015 implements conversation-first planning and stage-scoped feedback. Abandoned predecessor
   attempts remain audit history rather than current authority.
-- WI-0016 directly implemented deterministic Candidate admission and attempt budgets without a
-  self-iteration ChangeSet.
+- WI-0016 and WI-0017 directly implement deterministic admission, attempt budgets, and the optional
+  read-only Verification Runtime without a self-iteration ChangeSet.
 - Agent Runtimes own semantic work. ChangeFleet owns cross-repository authorization, revisions,
   scheduling, exact Git and Bundle subjects, evidence, recovery, and human gates.
 
@@ -48,9 +48,9 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
   while an explicit AgentProfile selects Provider-owned host or constrained permissions.
 - Execution may report a strict blocked result. Base-equal or empty implementation output is not a
   CandidateCheckpoint and cannot enter validation or review.
-- Candidate verification is risk-adaptive. The first deterministic slice now freezes Project
-  policy, records exact-checkpoint admission, and separates timeout budgets from check identity;
-  optional Verification Runtimes and focused correction remain unimplemented.
+- Candidate verification freezes policy and exact-checkpoint admission. Its optional read-only
+  Runtime binds requested-check evidence and separate usage, and can retry without repeating a
+  passed repository check. Correction and focused re-review remain unimplemented.
 
 ## Accepted Decisions
 
@@ -86,7 +86,7 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
   and deferred boundaries.
 - Accepted Proposals through 0021 are landed through WI-0015. Accepted
   [0022](proposals/0022-risk-adaptive-candidate-verification.md) is recorded by Decision 0024 and
-  has its first deterministic slice completed through WI-0016.
+  has its first two slices completed through WI-0016 and WI-0017.
 
 ## Open Questions
 
@@ -98,15 +98,15 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 - Git URLs, remote workers, merge, deployment, service graph, and stacked ChangeSets are deferred.
 - Native-Windows single-Repository use passed; other hosts and paid multi-Repository work are unverified.
 - Codex SDK usage is aggregate-only; effective model and universal host read-denial remain unknown.
-- Dynamic Candidate-selected check sets, independent Verification Runtime, correction, focused
-  re-review, and their UI states remain deferred after the deterministic first slice.
+- Same-Plan correction, focused re-review, Candidate-set-level independent review, and their UI
+  states remain deferred after the read-only per-checkpoint Verification Runtime slice.
 - Runtime Kit, Codex App Server, another Provider, Linear, pricing, dashboards, and continuous
   context enforcement are deferred.
 
 ## Next Recommended Task
 
-Confirm the second Decision 0024 implementation boundary, then create one WorkItem for an optional
-read-only Verification Runtime. Keep correction, focused re-review, and UI work outside that slice.
+Discuss whether the next Decision 0024 slice should add bounded same-Plan correction and focused
+re-review before any UI work.
 
 ## Maintenance Contract
 

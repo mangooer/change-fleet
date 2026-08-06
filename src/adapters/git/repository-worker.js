@@ -556,6 +556,80 @@ export class RepositoryWorker {
     };
   }
 
+  async prepareVerificationWorkspace({
+    repository,
+    candidateSha,
+    harnessBaseSha = candidateSha,
+    workspaceId,
+  }) {
+    // 独立验证使用 Candidate commit 的一次性 detached worktree，绝不复用执行 Agent 的工作区。
+    normalizeId("workspace_id", workspaceId);
+    const workspacePath = this.verificationWorkspacePath(
+      repository.repository_id,
+      workspaceId,
+    );
+    await assertCommitExists(repository.resolved_git_root, candidateSha);
+
+    const workspaceStat = await stat(workspacePath).catch(() => null);
+    if (!workspaceStat) {
+      await mkdir(path.dirname(workspacePath), { recursive: true });
+      await git(repository.resolved_git_root, ["worktree", "prune"]);
+      await git(repository.resolved_git_root, [
+        "worktree",
+        "add",
+        "--detach",
+        workspacePath,
+        candidateSha,
+      ]);
+    } else {
+      invariant(
+        workspaceStat.isDirectory(),
+        "WORKSPACE_PATH_CONFLICT",
+        `Verification workspace path is not a directory: ${workspacePath}`,
+      );
+    }
+
+    const workspace = {
+      workspace_kind: "verification",
+      workspace_id: workspaceId,
+      workspace_path: workspacePath,
+      repository_id: repository.repository_id,
+      base_sha: candidateSha,
+      harness_base_sha: harnessBaseSha,
+    };
+    await this.preflightVerificationWorkspace({ repository, workspace });
+    return workspace;
+  }
+
+  async preflightVerificationWorkspace({ repository, workspace }) {
+    // Runtime 返回后和每个权威检查后都验证 HEAD 与 clean 状态，写入不会污染 Candidate。
+    invariant(
+      workspace?.workspace_kind === "verification" &&
+        workspace.repository_id === repository.repository_id,
+      "INVALID_VERIFICATION_WORKSPACE",
+      "Verification workspace does not match its Repository",
+    );
+    await this.assertWorkspaceOwnership(repository, workspace.workspace_path);
+    const currentHead = await resolveCommit(workspace.workspace_path, "HEAD");
+    invariant(
+      currentHead === workspace.base_sha,
+      "VERIFICATION_WORKSPACE_HEAD_CHANGED",
+      `Verification workspace HEAD changed from ${workspace.base_sha} to ${currentHead}`,
+    );
+    const status = await workspaceStatus(workspace.workspace_path);
+    invariant(
+      status.length === 0,
+      "VERIFICATION_WORKSPACE_MODIFIED",
+      "Read-only verification modified its exact-Candidate workspace",
+      { changed_entries: status },
+    );
+    return {
+      repository_id: repository.repository_id,
+      candidate_sha: currentHead,
+      clean: true,
+    };
+  }
+
   async preflightExecutionRetry({
     repository,
     workspace,
@@ -641,6 +715,60 @@ export class RepositoryWorker {
       status.length === 0,
       "PLANNING_WORKSPACE_MODIFIED",
       "Read-only planning modified its exact-base workspace",
+      { changed_entries: status },
+    );
+    if (harnessError) throw harnessError;
+  }
+
+  async cleanupVerificationWorkspace({
+    repository,
+    workspace,
+    harnessSnapshot = null,
+  }) {
+    // 即使只读契约被违反也先安全删除一次性 worktree，再把违规作为验证失败返回。
+    invariant(
+      workspace?.workspace_kind === "verification",
+      "INVALID_VERIFICATION_WORKSPACE",
+      "Only a verification workspace may use the verification cleanup path",
+    );
+    const workspaceStat = await stat(workspace.workspace_path).catch(
+      () => null,
+    );
+    if (!workspaceStat) {
+      await git(repository.resolved_git_root, ["worktree", "prune"]);
+      return;
+    }
+    await this.assertWorkspaceOwnership(repository, workspace.workspace_path);
+    const currentHead = await resolveCommit(workspace.workspace_path, "HEAD");
+    let harnessError = null;
+    if (harnessSnapshot) {
+      try {
+        await this.verifyAndRemoveHarnessOverlay({
+          repository,
+          workspace,
+          snapshot: harnessSnapshot,
+        });
+      } catch (error) {
+        harnessError = error;
+      }
+    }
+    const status = await workspaceStatus(workspace.workspace_path);
+    await git(repository.resolved_git_root, [
+      "worktree",
+      "remove",
+      "--force",
+      workspace.workspace_path,
+    ]);
+    await git(repository.resolved_git_root, ["worktree", "prune"]);
+    invariant(
+      currentHead === workspace.base_sha,
+      "VERIFICATION_WORKSPACE_HEAD_CHANGED",
+      `Verification workspace HEAD changed from ${workspace.base_sha} to ${currentHead}`,
+    );
+    invariant(
+      status.length === 0,
+      "VERIFICATION_WORKSPACE_MODIFIED",
+      "Read-only verification or its requested check modified the exact-Candidate workspace",
       { changed_entries: status },
     );
     if (harnessError) throw harnessError;
@@ -842,6 +970,18 @@ export class RepositoryWorker {
     const candidate = path.resolve(
       this.workspaceRoot,
       "_planning",
+      repositoryId,
+      workspaceId,
+    );
+    this.assertContainedWorkspace(candidate);
+    return candidate;
+  }
+
+  verificationWorkspacePath(repositoryId, workspaceId) {
+    normalizeId("repository_id", repositoryId);
+    const candidate = path.resolve(
+      this.workspaceRoot,
+      "_verification",
       repositoryId,
       workspaceId,
     );
@@ -1193,15 +1333,16 @@ async function assertSafeWorkspaceParents(workspaceRoot, target) {
 }
 
 function assertSnapshotMatchesWorkspace(workspace, snapshot) {
+  const expectedHarnessBase = workspace.harness_base_sha ?? workspace.base_sha;
   invariant(
     snapshot &&
       snapshot.repository_id === workspace.repository_id &&
-      snapshot.resolved_base_sha === workspace.base_sha,
+      snapshot.resolved_base_sha === expectedHarnessBase,
     "HARNESS_SNAPSHOT_WORKSPACE_MISMATCH",
     "Harness snapshot does not match the exact Repository workspace",
     {
       workspace_repository_id: workspace.repository_id,
-      workspace_base_sha: workspace.base_sha,
+      workspace_base_sha: expectedHarnessBase,
       snapshot_repository_id: snapshot?.repository_id,
       snapshot_base_sha: snapshot?.resolved_base_sha,
     },

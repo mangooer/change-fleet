@@ -132,13 +132,20 @@ One repository-scoped execution unit within a ChangeSet.
 
 ## ValidationAttempt
 
-A bounded immutable reference to one repository or combined validation execution and its exact
-subject, semantic check identity, requested and effective attempt budget, observed environment,
-duration, outcome, and EvidenceStore record. Failed attempts remain history when a later attempt
-passes.
+A bounded immutable reference to one repository, verifier-requested, or combined validation
+execution and its exact subject, semantic check identity, requested and effective attempt budget,
+observed environment, duration, outcome, and EvidenceStore record. Failed attempts remain history
+when a later attempt passes.
 
 ## VerificationAdmissionDecision
 
 The immutable `basic`, `deterministic`, or `independent_review` admission selected for one exact
 CandidateCheckpoint from frozen typed authority and final deterministic facts. It is not review,
 Bundle acceptance, or permission for a Runtime to edit code.
+
+## VerificationReview
+
+One bounded `triage` or `deep_review` result from a read-only Verification Runtime, bound to an
+exact CandidateCheckpoint, admission decision, Run, and any Runner-executed additional checks. Its
+verdict may permit Candidate creation, require correction, record non-blocking notes, or request a
+human decision. It is not Bundle acceptance and cannot edit the reviewed Git subject.

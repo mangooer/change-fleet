@@ -255,6 +255,17 @@ function projectExactChangeSet(state, project, planningMessage) {
                             candidate.verification_admission_id,
                         ) ?? null,
                       ),
+                verification_review:
+                  candidate?.verification_review_id === null ||
+                  candidate?.verification_review_id === undefined
+                    ? null
+                    : structuredClone(
+                        (state.verification_reviews ?? []).find(
+                          (review) =>
+                            review.review_id ===
+                            candidate.verification_review_id,
+                        ) ?? null,
+                      ),
                 repository_evidence: {
                   evidence_id: bundleCandidate.repository_evidence.evidence_id,
                   evidence_hash:

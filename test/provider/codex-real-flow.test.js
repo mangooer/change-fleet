@@ -72,6 +72,12 @@ test(
       project: {
         project_id: "project",
         description: "Real Codex single Repository acceptance fixture",
+        verification_policy: {
+          minimum_mode: "independent_review",
+          default_attempt_timeout_ms: 120_000,
+          max_attempt_timeout_ms: 600_000,
+          escalation_triggers: ["scope_divergence"],
+        },
         repositories: [
           {
             repository_id: "api",
@@ -212,7 +218,9 @@ test(
     );
     assert.equal(execution.bundle_revision, 1);
     assert.equal(state.state, "candidate_review");
-    assert.equal(state.run_references.length, 2);
+    assert.equal(state.run_references.length, 3);
+    assert.equal(state.verification_reviews.length, 1);
+    assert.equal(state.verification_reviews[0].verdict, "pass");
 
     const runAudits = [];
     for (const reference of state.run_references) {
@@ -259,7 +267,7 @@ test(
       changeAudit.payload.usage.observed_total_tokens,
       runAudits.reduce((total, run) => total + run.total_tokens, 0),
     );
-    assert.equal(changeAudit.payload.usage.observed_run_count, 2);
+    assert.equal(changeAudit.payload.usage.observed_run_count, 3);
     assert.equal(changeAudit.payload.usage.unknown_run_count, 0);
     assert.equal(
       changeAudit.payload.timing.provider_duration_sum.observed_sum,
@@ -311,6 +319,8 @@ function realProviderHarness() {
     "During execution, you MUST use the available filesystem editing tool to add `feature.txt` before returning `implementation_completed`.",
     "After editing, run the exact repository check yourself and return completion only when it exits with code 0.",
     "Leave Git commits to ChangeFleet.",
+    "",
+    "During verification, inspect the exact base-to-Candidate diff. If `feature.txt` is the only changed path and has the exact required content, return a triage `pass` with no findings, notes, human decision, or requested checks.",
     "",
   ].join("\n");
 }

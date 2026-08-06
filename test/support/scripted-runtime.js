@@ -27,12 +27,14 @@ export class ScriptedRuntime {
     interruptRepository = null,
     failRepository = null,
     executionOutcome = null,
+    verificationOutcome = null,
   }) {
     this.plan = plan;
     this.contextMeasurement = contextMeasurement;
     this.interruptRepository = interruptRepository;
     this.failRepository = failRepository;
     this.executionOutcome = executionOutcome;
+    this.verificationOutcome = verificationOutcome;
     this.interrupted = false;
     this.invocations = [];
   }
@@ -63,6 +65,23 @@ export class ScriptedRuntime {
           },
           request: null,
         },
+        provider_evidence: testProviderEvidence(),
+      };
+    }
+    if (invocation.operation === "verification") {
+      return {
+        outcome: structuredClone(
+          this.verificationOutcome ?? {
+            type: "verification_completed",
+            review_depth: "triage",
+            verdict: "pass",
+            summary: "The deterministic fixture found no blocking issue.",
+            findings: [],
+            notes: [],
+            human_decision: null,
+            requested_checks: [],
+          },
+        ),
         provider_evidence: testProviderEvidence(),
       };
     }

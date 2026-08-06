@@ -19,7 +19,8 @@ self-iteration through independent Candidate verification
 Decision: [Decision 0024](../decisions/0024-risk-adaptive-candidate-verification.md)
 
 Implementation tracking: [WI-0016](../work-items/WI-0016-deterministic-verification-admission-and-attempt-budgets.md),
-`done` for the first deterministic slice only
+`done` for the first deterministic slice; [WI-0017](../work-items/WI-0017-read-only-verification-runtime.md),
+`done` for the second read-only Runtime slice
 
 ## Context
 

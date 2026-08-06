@@ -225,6 +225,11 @@ describe("domain model", () => {
     const changeSet = {
       change_set_id: "change-1",
       bundles: [],
+      verification_admissions: [
+        { admission_id: "admission-api", mode: "deterministic" },
+        { admission_id: "admission-web", mode: "deterministic" },
+      ],
+      verification_reviews: [],
     };
     const plan = normalizePlan(planInput(), {
       project,
@@ -248,6 +253,7 @@ describe("domain model", () => {
           evidence_id: "evidence-web",
           evidence_hash: "1".repeat(64),
         },
+        verificationAdmissionId: "admission-web",
       }),
       createCandidate({
         repositoryId: "api",
@@ -261,6 +267,7 @@ describe("domain model", () => {
           evidence_id: "evidence-api",
           evidence_hash: "2".repeat(64),
         },
+        verificationAdmissionId: "admission-api",
       }),
     ];
 

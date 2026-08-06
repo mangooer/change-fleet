@@ -6,6 +6,16 @@ export const VERIFICATION_ADMISSION_MODES = Object.freeze([
   "deterministic",
   "independent_review",
 ]);
+export const VERIFICATION_REVIEW_DEPTHS = Object.freeze([
+  "triage",
+  "deep_review",
+]);
+export const VERIFICATION_VERDICTS = Object.freeze([
+  "pass",
+  "pass_with_notes",
+  "changes_required",
+  "human_decision_required",
+]);
 
 const MODE_RANK = new Map(
   VERIFICATION_ADMISSION_MODES.map((mode, index) => [mode, index]),
@@ -16,6 +26,10 @@ const ADMISSION_TRIGGERS = new Set([
 ]);
 const DEFAULT_ATTEMPT_TIMEOUT_MS = 120_000;
 const DEFAULT_MAX_ATTEMPT_TIMEOUT_MS = 600_000;
+const MAX_VERIFICATION_FINDINGS = 16;
+const MAX_VERIFICATION_NOTES = 16;
+const MAX_VERIFICATION_CHECKS = 8;
+const MAX_VERIFICATION_OPTIONS = 8;
 
 export function normalizeVerificationPolicy(input = {}) {
   // Project 策略只表达硬下限和资源边界，不尝试编码具体语言或文件的风险。
@@ -190,6 +204,180 @@ export function createCheckIdentity(command) {
   };
 }
 
+export function normalizeVerificationOutcome(
+  input,
+  { projectPolicy, existingCommandIds = [] },
+) {
+  // Verification 输出是控制输入而不是事实；先做严格边界归一化，再由确定性证据决定能否晋升。
+  invariant(
+    isPlainObject(input),
+    "INVALID_VERIFICATION_OUTCOME",
+    "Verification outcome must be an object",
+  );
+  assertKnownFields(
+    input,
+    [
+      "type",
+      "review_depth",
+      "verdict",
+      "summary",
+      "findings",
+      "notes",
+      "human_decision",
+      "requested_checks",
+    ],
+    "INVALID_VERIFICATION_OUTCOME",
+  );
+  invariant(
+    input.type === "verification_completed",
+    "INVALID_VERIFICATION_OUTCOME",
+    "Verification outcome type must be verification_completed",
+  );
+  invariant(
+    VERIFICATION_REVIEW_DEPTHS.includes(input.review_depth),
+    "INVALID_VERIFICATION_OUTCOME",
+    "Verification review depth must be triage or deep_review",
+  );
+  invariant(
+    VERIFICATION_VERDICTS.includes(input.verdict),
+    "INVALID_VERIFICATION_OUTCOME",
+    "Verification verdict is invalid",
+  );
+
+  const findings = normalizeVerificationFindings(input.findings);
+  const notes = normalizeVerificationNotes(input.notes);
+  const humanDecision = normalizeVerificationHumanDecision(
+    input.human_decision,
+  );
+  const requestedChecks = normalizeVerificationCheckRequests(
+    input.requested_checks,
+    {
+      projectPolicy,
+      existingCommandIds,
+    },
+  );
+
+  if (input.verdict === "pass") {
+    invariant(
+      findings.length === 0 && notes.length === 0 && humanDecision === null,
+      "INVALID_VERIFICATION_OUTCOME",
+      "A pass verdict cannot contain findings, notes, or a human decision",
+    );
+  }
+  if (input.verdict === "pass_with_notes") {
+    invariant(
+      findings.length === 0 && notes.length > 0 && humanDecision === null,
+      "INVALID_VERIFICATION_OUTCOME",
+      "pass_with_notes requires notes and cannot contain blocking findings",
+    );
+  }
+  if (input.verdict === "changes_required") {
+    invariant(
+      findings.length > 0 && humanDecision === null && requestedChecks.length === 0,
+      "INVALID_VERIFICATION_OUTCOME",
+      "changes_required requires findings and cannot request conditional checks",
+    );
+  }
+  if (input.verdict === "human_decision_required") {
+    invariant(
+      findings.length === 0 && humanDecision !== null && requestedChecks.length === 0,
+      "INVALID_VERIFICATION_OUTCOME",
+      "human_decision_required requires one bounded question",
+    );
+  }
+
+  return {
+    type: "verification_completed",
+    review_depth: input.review_depth,
+    verdict: input.verdict,
+    summary: boundedString(
+      "verification.summary",
+      input.summary,
+      4_096,
+      "INVALID_VERIFICATION_OUTCOME",
+    ),
+    findings,
+    notes,
+    human_decision: humanDecision,
+    requested_checks: requestedChecks,
+  };
+}
+
+export function createVerificationReview({
+  admissionId,
+  checkpoint,
+  runId,
+  outcome,
+  validationAttemptIds,
+  checkStatus,
+  createdAt,
+}) {
+  // Review 只保存有界结论和不可变尝试引用；完整 Provider 证据继续留在 Run/EvidenceStore。
+  invariant(
+    ["not_required", "passed", "failed"].includes(checkStatus),
+    "INVALID_VERIFICATION_REVIEW",
+    "Verification check status is invalid",
+  );
+  invariant(
+    Array.isArray(validationAttemptIds),
+    "INVALID_VERIFICATION_REVIEW",
+    "Verification review requires validation attempt references",
+  );
+  const attemptIds = validationAttemptIds.map((id) => normalizeCompactId(id));
+  invariant(
+    new Set(attemptIds).size === attemptIds.length,
+    "INVALID_VERIFICATION_REVIEW",
+    "Verification validation attempts must be unique",
+  );
+  invariant(
+    outcome.requested_checks.length === 0
+      ? checkStatus === "not_required"
+      : ["passed", "failed"].includes(checkStatus) &&
+          attemptIds.length > 0 &&
+          attemptIds.length <= outcome.requested_checks.length,
+    "INVALID_VERIFICATION_REVIEW",
+    "Verification check status does not match requested checks",
+  );
+  const subject = {
+    repository_id: normalizeCompactId(checkpoint.repository_id),
+    target_ref: requiredString("target_ref", checkpoint.target_ref),
+    base_sha: requiredCommitSha("base_sha", checkpoint.base_sha),
+    candidate_sha: requiredCommitSha(
+      "candidate_sha",
+      checkpoint.candidate_sha,
+    ),
+  };
+  const identity = {
+    admission_id: normalizeCompactId(admissionId),
+    checkpoint_id: normalizeCompactId(checkpoint.checkpoint_id),
+    run_id: normalizeCompactId(runId),
+    subject,
+    review_depth: outcome.review_depth,
+    verdict: outcome.verdict,
+    findings: outcome.findings,
+    notes: outcome.notes,
+    human_decision: outcome.human_decision,
+    requested_checks: outcome.requested_checks.map(createCheckIdentity),
+    validation_attempt_ids: attemptIds,
+    check_status: checkStatus,
+  };
+  return {
+    schema_version: 1,
+    review_id: stableId("verification-review", identity),
+    ...identity,
+    summary: outcome.summary,
+    created_at: requiredTimestamp(createdAt),
+  };
+}
+
+export function verificationReviewAllowsCandidate(review) {
+  return Boolean(
+    review &&
+      ["pass", "pass_with_notes"].includes(review.verdict) &&
+      ["not_required", "passed"].includes(review.check_status),
+  );
+}
+
 export function normalizeValidationAttemptBudgetRequests(input = []) {
   invariant(
     Array.isArray(input),
@@ -294,6 +482,7 @@ export function resolveValidationAttemptBudget({
   command,
   projectPolicy,
   request = null,
+  commandSource = "plan_default",
 }) {
   const policy = normalizeVerificationPolicy(projectPolicy);
   const planTimeout =
@@ -325,7 +514,7 @@ export function resolveValidationAttemptBudget({
       ? "operator"
       : command.timeout_ms === undefined
         ? "project_default"
-        : "plan_default",
+        : commandSource,
     limit: {
       max_timeout_ms: policy.max_attempt_timeout_ms,
     },
@@ -398,6 +587,216 @@ function normalizeStringArray(input, label) {
   return input.map((item) => requiredString(label, item));
 }
 
+function normalizeVerificationFindings(input) {
+  invariant(
+    Array.isArray(input) && input.length <= MAX_VERIFICATION_FINDINGS,
+    "INVALID_VERIFICATION_OUTCOME",
+    `Verification findings must contain at most ${MAX_VERIFICATION_FINDINGS} items`,
+  );
+  const categories = new Set([
+    "confirmed_intent",
+    "repository_authority",
+    "correctness",
+    "security",
+    "data",
+    "compatibility",
+    "scope",
+    "evidence",
+  ]);
+  const seen = new Set();
+  return input.map((finding) => {
+    invariant(
+      isPlainObject(finding),
+      "INVALID_VERIFICATION_OUTCOME",
+      "Each verification finding must be an object",
+    );
+    assertKnownFields(
+      finding,
+      ["finding_id", "category", "message", "path"],
+      "INVALID_VERIFICATION_OUTCOME",
+    );
+    const findingId = normalizeCompactId(finding.finding_id);
+    invariant(
+      !seen.has(findingId) && categories.has(finding.category),
+      "INVALID_VERIFICATION_OUTCOME",
+      "Verification finding id or category is invalid",
+    );
+    seen.add(findingId);
+    return {
+      finding_id: findingId,
+      category: finding.category,
+      message: boundedString(
+        "verification.finding.message",
+        finding.message,
+        4_096,
+        "INVALID_VERIFICATION_OUTCOME",
+      ),
+      path: normalizeOptionalRelativePath(finding.path),
+    };
+  });
+}
+
+function normalizeVerificationNotes(input) {
+  invariant(
+    Array.isArray(input) && input.length <= MAX_VERIFICATION_NOTES,
+    "INVALID_VERIFICATION_OUTCOME",
+    `Verification notes must contain at most ${MAX_VERIFICATION_NOTES} items`,
+  );
+  const seen = new Set();
+  return input.map((note) => {
+    invariant(
+      isPlainObject(note),
+      "INVALID_VERIFICATION_OUTCOME",
+      "Each verification note must be an object",
+    );
+    assertKnownFields(
+      note,
+      ["note_id", "message"],
+      "INVALID_VERIFICATION_OUTCOME",
+    );
+    const noteId = normalizeCompactId(note.note_id);
+    invariant(
+      !seen.has(noteId),
+      "INVALID_VERIFICATION_OUTCOME",
+      "Verification note ids must be unique",
+    );
+    seen.add(noteId);
+    return {
+      note_id: noteId,
+      message: boundedString(
+        "verification.note.message",
+        note.message,
+        2_048,
+        "INVALID_VERIFICATION_OUTCOME",
+      ),
+    };
+  });
+}
+
+function normalizeVerificationHumanDecision(input) {
+  if (input === null) return null;
+  invariant(
+    isPlainObject(input),
+    "INVALID_VERIFICATION_OUTCOME",
+    "Verification human decision must be an object or null",
+  );
+  assertKnownFields(
+    input,
+    ["question", "options"],
+    "INVALID_VERIFICATION_OUTCOME",
+  );
+  invariant(
+    Array.isArray(input.options) &&
+      input.options.length >= 2 &&
+      input.options.length <= MAX_VERIFICATION_OPTIONS,
+    "INVALID_VERIFICATION_OUTCOME",
+    `Verification human decision requires 2-${MAX_VERIFICATION_OPTIONS} options`,
+  );
+  const options = input.options.map((option) =>
+    boundedString(
+      "verification.human_decision.option",
+      option,
+      1_024,
+      "INVALID_VERIFICATION_OUTCOME",
+    ),
+  );
+  invariant(
+    new Set(options).size === options.length,
+    "INVALID_VERIFICATION_OUTCOME",
+    "Verification human decision options must be unique",
+  );
+  return {
+    question: boundedString(
+      "verification.human_decision.question",
+      input.question,
+      4_096,
+      "INVALID_VERIFICATION_OUTCOME",
+    ),
+    options,
+  };
+}
+
+function normalizeVerificationCheckRequests(
+  input,
+  { projectPolicy, existingCommandIds },
+) {
+  invariant(
+    Array.isArray(input) && input.length <= MAX_VERIFICATION_CHECKS,
+    "INVALID_VERIFICATION_OUTCOME",
+    `Verification requested checks must contain at most ${MAX_VERIFICATION_CHECKS} items`,
+  );
+  const policy = normalizeVerificationPolicy(projectPolicy);
+  const reserved = new Set(existingCommandIds.map(normalizeCompactId));
+  const seen = new Set();
+  return input.map((command) => {
+    invariant(
+      isPlainObject(command),
+      "INVALID_VERIFICATION_OUTCOME",
+      "Each verification check request must be an object",
+    );
+    assertKnownFields(
+      command,
+      ["command_id", "executable", "argv", "coverage_rationale", "timeout_ms"],
+      "INVALID_VERIFICATION_OUTCOME",
+    );
+    const commandId = normalizeCompactId(command.command_id);
+    invariant(
+      !reserved.has(commandId) && !seen.has(commandId),
+      "INVALID_VERIFICATION_OUTCOME",
+      "Verification check ids must be unique and additional to Plan checks",
+    );
+    seen.add(commandId);
+    invariant(
+      Array.isArray(command.argv) && command.argv.length <= 64,
+      "INVALID_VERIFICATION_OUTCOME",
+      "Verification check argv is invalid",
+    );
+    const argv = command.argv.map((argument) =>
+      boundedString(
+        "verification.check.argv",
+        argument,
+        4_096,
+        "INVALID_VERIFICATION_OUTCOME",
+        { allowEmpty: true },
+      ),
+    );
+    invariant(
+      Buffer.byteLength(JSON.stringify(argv), "utf8") <= 32_768,
+      "INVALID_VERIFICATION_OUTCOME",
+      "Verification check argv exceeds the total size limit",
+    );
+    const timeout =
+      command.timeout_ms ?? policy.default_attempt_timeout_ms;
+    positiveInteger(
+      "verification.check.timeout_ms",
+      timeout,
+      "INVALID_VERIFICATION_OUTCOME",
+    );
+    invariant(
+      timeout <= policy.max_attempt_timeout_ms,
+      "INVALID_VERIFICATION_OUTCOME",
+      "Verification check timeout exceeds the frozen Project maximum",
+    );
+    return {
+      command_id: commandId,
+      executable: boundedString(
+        "verification.check.executable",
+        command.executable,
+        1_024,
+        "INVALID_VERIFICATION_OUTCOME",
+      ),
+      argv,
+      coverage_rationale: boundedString(
+        "verification.check.coverage_rationale",
+        command.coverage_rationale,
+        2_048,
+        "INVALID_VERIFICATION_OUTCOME",
+      ),
+      timeout_ms: timeout,
+    };
+  });
+}
+
 function sameStringArray(left, right) {
   return left.length === right.length && left.every((item, index) => item === right[index]);
 }
@@ -436,6 +835,54 @@ function requiredString(label, value) {
     `${label} must be a non-empty string`,
   );
   return value.trim();
+}
+
+function boundedString(
+  label,
+  value,
+  maximumBytes,
+  code,
+  { allowEmpty = false } = {},
+) {
+  invariant(
+    typeof value === "string" && (allowEmpty || value.trim().length > 0),
+    code,
+    `${label} must be ${allowEmpty ? "a string" : "a non-empty string"}`,
+  );
+  const normalized = allowEmpty ? value : value.trim();
+  invariant(
+    Buffer.byteLength(normalized, "utf8") <= maximumBytes,
+    code,
+    `${label} exceeds ${maximumBytes} bytes`,
+  );
+  return normalized;
+}
+
+function normalizeOptionalRelativePath(value) {
+  if (value === null) return null;
+  const normalized = boundedString(
+    "verification.finding.path",
+    value,
+    1_024,
+    "INVALID_VERIFICATION_OUTCOME",
+  ).replaceAll("\\", "/");
+  invariant(
+    !normalized.startsWith("/") &&
+      !/^[A-Za-z]:/u.test(normalized) &&
+      !normalized.split("/").includes(".."),
+    "INVALID_VERIFICATION_OUTCOME",
+    "Verification finding path must be repository-relative",
+  );
+  return normalized;
+}
+
+function requiredCommitSha(label, value) {
+  invariant(
+    typeof value === "string" && /^[0-9a-f]{40}$/u.test(value),
+    "INVALID_VERIFICATION_REVIEW",
+    `${label} must be a full lowercase Git commit SHA`,
+  );
+  return value;
 }
 
 function requiredTimestamp(value) {

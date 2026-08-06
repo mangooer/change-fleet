@@ -10,9 +10,10 @@ import {
 import { readJsonFile, writeJsonFileAtomic } from "./atomic-json-file.js";
 import { DirectoryLock } from "./directory-lock.js";
 
-// v6 只把已确认计划留在 Plan 历史；未确认的 v5 计划确定性退役为兼容证据。
-export const CONTROL_SCHEMA_VERSION = 7;
-const PREVIOUS_CONTROL_SCHEMA_VERSION = 6;
+// v8 增加独立验证引用；每一代迁移只补缺省字段，不反向授予 Candidate 权限。
+export const CONTROL_SCHEMA_VERSION = 8;
+const PREVIOUS_CONTROL_SCHEMA_VERSION = 7;
+const V6_CONTROL_SCHEMA_VERSION = 6;
 const LEGACY_CONTROL_SCHEMA_VERSION = 5;
 const OLDEST_CONTROL_SCHEMA_VERSION = 4;
 
@@ -44,16 +45,23 @@ export class ControlStore {
           idempotency: {},
         });
       } else if (existing.schema_version === PREVIOUS_CONTROL_SCHEMA_VERSION) {
-        await writeJsonFileAtomic(this.catalogPath, migrateCatalogV6(existing));
+        await writeJsonFileAtomic(this.catalogPath, migrateCatalogV7(existing));
+      } else if (existing.schema_version === V6_CONTROL_SCHEMA_VERSION) {
+        await writeJsonFileAtomic(
+          this.catalogPath,
+          migrateCatalogV7(migrateCatalogV6(existing)),
+        );
       } else if (existing.schema_version === LEGACY_CONTROL_SCHEMA_VERSION) {
         await writeJsonFileAtomic(
           this.catalogPath,
-          migrateCatalogV6(migrateCatalogV5(existing)),
+          migrateCatalogV7(migrateCatalogV6(migrateCatalogV5(existing))),
         );
       } else if (existing.schema_version === OLDEST_CONTROL_SCHEMA_VERSION) {
         await writeJsonFileAtomic(
           this.catalogPath,
-          migrateCatalogV6(migrateCatalogV5(migrateCatalogV4(existing))),
+          migrateCatalogV7(
+            migrateCatalogV6(migrateCatalogV5(migrateCatalogV4(existing))),
+          ),
         );
       } else {
         assertSchema(existing, "catalog");
@@ -204,17 +212,26 @@ export class ControlStore {
         const existing = await readJsonFile(filePath, { allowMissing: true });
         if (!existing) continue;
         if (existing.schema_version === PREVIOUS_CONTROL_SCHEMA_VERSION) {
-          await writeJsonFileAtomic(filePath, migrateChangeSetV6(existing));
+          await writeJsonFileAtomic(filePath, migrateChangeSetV7(existing));
+        } else if (existing.schema_version === V6_CONTROL_SCHEMA_VERSION) {
+          await writeJsonFileAtomic(
+            filePath,
+            migrateChangeSetV7(migrateChangeSetV6(existing)),
+          );
         } else if (existing.schema_version === LEGACY_CONTROL_SCHEMA_VERSION) {
           await writeJsonFileAtomic(
             filePath,
-            migrateChangeSetV6(migrateChangeSetV5(existing)),
+            migrateChangeSetV7(
+              migrateChangeSetV6(migrateChangeSetV5(existing)),
+            ),
           );
         } else if (existing.schema_version === OLDEST_CONTROL_SCHEMA_VERSION) {
           await writeJsonFileAtomic(
             filePath,
-            migrateChangeSetV6(
-              migrateChangeSetV5(migrateChangeSetV4(existing)),
+            migrateChangeSetV7(
+              migrateChangeSetV6(
+                migrateChangeSetV5(migrateChangeSetV4(existing)),
+              ),
             ),
           );
         } else {
@@ -243,7 +260,7 @@ function migrateCatalogV4(record) {
 
 function migrateCatalogV5(record) {
   const migrated = structuredClone(record);
-  migrated.schema_version = PREVIOUS_CONTROL_SCHEMA_VERSION;
+  migrated.schema_version = V6_CONTROL_SCHEMA_VERSION;
   return migrated;
 }
 
@@ -254,6 +271,12 @@ function migrateCatalogV6(record) {
       project.verification_policy,
     );
   }
+  migrated.schema_version = PREVIOUS_CONTROL_SCHEMA_VERSION;
+  return migrated;
+}
+
+function migrateCatalogV7(record) {
+  const migrated = structuredClone(record);
   migrated.schema_version = CONTROL_SCHEMA_VERSION;
   return migrated;
 }
@@ -306,7 +329,7 @@ function migrateChangeSetV5(record) {
   ) {
     migrated.state = latestConfirmed ? "replanning" : "analyzing";
   }
-  migrated.schema_version = PREVIOUS_CONTROL_SCHEMA_VERSION;
+  migrated.schema_version = V6_CONTROL_SCHEMA_VERSION;
   return migrated;
 }
 
@@ -337,6 +360,20 @@ function migrateChangeSetV6(record) {
   }
   for (const candidate of migrated.candidates ?? []) {
     candidate.verification_admission_id ??= null;
+  }
+  migrated.schema_version = PREVIOUS_CONTROL_SCHEMA_VERSION;
+  return migrated;
+}
+
+function migrateChangeSetV7(record) {
+  const migrated = structuredClone(record);
+  migrated.verification_reviews ??= [];
+  for (const workUnit of migrated.work_units ?? []) {
+    workUnit.verification_run_references ??= [];
+    workUnit.verification_review_id ??= null;
+  }
+  for (const candidate of migrated.candidates ?? []) {
+    candidate.verification_review_id ??= null;
   }
   migrated.schema_version = CONTROL_SCHEMA_VERSION;
   return migrated;

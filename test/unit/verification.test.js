@@ -4,9 +4,12 @@ import { describe, test } from "node:test";
 import {
   createCheckIdentity,
   createVerificationAdmissionDecision,
+  createVerificationReview,
   normalizeValidationAttemptBudgetRequests,
+  normalizeVerificationOutcome,
   normalizeVerificationPolicy,
   resolveValidationAttemptBudget,
+  verificationReviewAllowsCandidate,
 } from "../../src/domain/verification.js";
 
 const command = {
@@ -141,6 +144,127 @@ describe("validation attempt budgets", () => {
   });
 });
 
+describe("independent verification outcomes", () => {
+  test("normalizes one bounded deep review and binds passing requested checks", () => {
+    const outcome = normalizeVerificationOutcome(
+      {
+        type: "verification_completed",
+        review_depth: "deep_review",
+        verdict: "pass_with_notes",
+        summary: "The exact diff is safe after one focused compatibility check.",
+        findings: [],
+        notes: [
+          {
+            note_id: "note-1",
+            message: "Another operating system remains unverified.",
+          },
+        ],
+        human_decision: null,
+        requested_checks: [
+          {
+            command_id: "verification-compatibility",
+            executable: "node",
+            argv: ["check-compatibility.mjs"],
+            coverage_rationale: "Covers the changed compatibility boundary",
+            timeout_ms: 2_000,
+          },
+        ],
+      },
+      {
+        projectPolicy: {
+          default_attempt_timeout_ms: 1_000,
+          max_attempt_timeout_ms: 5_000,
+        },
+        existingCommandIds: ["api-check"],
+      },
+    );
+    const review = createVerificationReview({
+      admissionId: "admission-1",
+      checkpoint: verificationCheckpoint(),
+      runId: "run-verification-1",
+      outcome,
+      validationAttemptIds: ["validation-attempt-1"],
+      checkStatus: "passed",
+      createdAt: "2026-08-06T00:00:01.000Z",
+    });
+
+    assert.equal(review.verdict, "pass_with_notes");
+    assert.equal(review.requested_checks[0].command_id, "verification-compatibility");
+    assert.equal(verificationReviewAllowsCandidate(review), true);
+  });
+
+  test("rejects optional improvements as blockers and inconsistent verdict branches", () => {
+    assert.throws(
+      () =>
+        normalizeVerificationOutcome(
+          {
+            type: "verification_completed",
+            review_depth: "triage",
+            verdict: "changes_required",
+            summary: "Optional cleanup would be pleasant.",
+            findings: [
+              {
+                finding_id: "style-only",
+                category: "style",
+                message: "Rename an internal variable.",
+                path: "src/a.js",
+              },
+            ],
+            notes: [],
+            human_decision: null,
+            requested_checks: [],
+          },
+          { projectPolicy: {}, existingCommandIds: [] },
+        ),
+      { code: "INVALID_VERIFICATION_OUTCOME" },
+    );
+    assert.throws(
+      () =>
+        normalizeVerificationOutcome(
+          {
+            type: "verification_completed",
+            review_depth: "triage",
+            verdict: "pass",
+            summary: "Passing cannot carry a blocking finding.",
+            findings: [
+              {
+                finding_id: "bug-1",
+                category: "correctness",
+                message: "A confirmed output is wrong.",
+                path: null,
+              },
+            ],
+            notes: [],
+            human_decision: null,
+            requested_checks: [],
+          },
+          { projectPolicy: {}, existingCommandIds: [] },
+        ),
+      { code: "INVALID_VERIFICATION_OUTCOME" },
+    );
+  });
+
+  test("requires a bounded real choice for human decisions", () => {
+    const outcome = normalizeVerificationOutcome(
+      {
+        type: "verification_completed",
+        review_depth: "triage",
+        verdict: "human_decision_required",
+        summary: "Two compatible public behaviors are possible.",
+        findings: [],
+        notes: [],
+        human_decision: {
+          question: "Which compatibility behavior should be authoritative?",
+          options: ["Preserve legacy behavior", "Adopt the new behavior"],
+        },
+        requested_checks: [],
+      },
+      { projectPolicy: {}, existingCommandIds: [] },
+    );
+    assert.equal(outcome.human_decision.options.length, 2);
+  });
+});
+
 function createDecision({
   projectMode,
   planMode,
@@ -165,4 +289,14 @@ function createDecision({
     unverifiedBoundaries: [],
     createdAt: "2026-08-06T00:00:00.000Z",
   });
+}
+
+function verificationCheckpoint() {
+  return {
+    checkpoint_id: "checkpoint-1",
+    repository_id: "api",
+    target_ref: "refs/heads/main",
+    base_sha: "a".repeat(40),
+    candidate_sha: "b".repeat(40),
+  };
 }

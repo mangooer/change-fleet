@@ -304,6 +304,7 @@ A ChangeSet is the aggregate root for one confirmed intent. It owns:
 - execution attempts;
 - post-Provider Candidate checkpoints and validation attempts;
 - immutable Candidate-bound verification admission decisions;
+- bounded Candidate-bound verification reviews and exact Run references;
 - repository Candidates;
 - CandidateBundle revisions;
 - validation evidence;
@@ -360,8 +361,16 @@ Runtime invocation.
 Before repository validation, ChangeFleet records one immutable admission decision for the exact
 checkpoint. The deterministic first implementation resolves `basic`, `deterministic`, or
 `independent_review` from the frozen Project policy, confirmed Plan expectation, optional
-operator elevation, reported-path divergence, and explicit unverified boundaries. It fails closed
-when independent review is selected until a read-only Verification Runtime is implemented.
+operator elevation, reported-path divergence, and explicit unverified boundaries. `basic` and
+`deterministic` proceed without another Runtime. `independent_review` first requires the exact
+Plan-bound repository check to pass, then dispatches one read-only Verification Runtime over a
+disposable exact-Candidate worktree.
+
+The Verification Runtime returns one bounded `triage` or `deep_review` result with exactly one
+verdict: `pass`, `pass_with_notes`, `changes_required`, or `human_decision_required`. It may request
+additional structured checks, but ChangeFleet executes those commands and binds their evidence to
+the unchanged checkpoint. Passing review is not Bundle acceptance. Malformed output, missing check
+evidence, workspace mutation, blocking findings, or an unresolved human decision fails closed.
 
 ### CandidateBundle
 
@@ -602,9 +611,11 @@ Core records structure, identity, command, exit status, evidence reference, and 
 boundaries. Agent Runtimes and repository Harness select semantically appropriate checks.
 
 Final deterministic admission binds each exact CandidateCheckpoint. `basic` and `deterministic`
-continue without another Runtime; `independent_review` is a fail-closed boundary until the optional
-Verification Runtime slice is implemented. The Plan expectation is preliminary and cannot waive a
-Project minimum or an explicit operator elevation.
+continue without another Runtime. `independent_review` requires a passing Plan-bound repository
+check and one passing read-only VerificationReview for the exact unchanged checkpoint. The Plan
+expectation is preliminary and cannot waive a Project minimum or an explicit operator elevation.
+The verifier may request bounded additional checks; only Runner-produced immutable evidence can
+satisfy them.
 
 A successful command is evidence only for the exact subject and behavior it exercised.
 Spawn failure, timeout, nonzero exit, output overflow, cancellation, and postflight mutation also
@@ -782,7 +793,7 @@ The adapter:
 - supplies the Control Contract, current Run Context Projection, exact-base repository Harness, and
   only explicitly selected Runtime Skills;
 - maps the Agent Profile to provider-native model, reasoning, environment, and capability settings;
-- requires strict structured planning and execution outcomes;
+- requires strict structured planning, execution, and verification outcomes;
 - records bounded normalized events and Runtime invocation evidence;
 - keeps Provider output subject to current-revision, authorization, exact-subject, and human-gate
   validation;
@@ -880,7 +891,10 @@ After a Provider completes semantic implementation, ChangeFleet publishes the ex
 and persists a CandidateCheckpoint before repository validation starts. Validation attempts are
 immutable evidence even when process creation fails. A new idempotent execution attempt may resume
 repository validation from the unchanged checkpoint, or combined validation from unchanged current
-Candidates, after exact deterministic preflight and without invoking the Runtime.
+Candidates, after exact deterministic preflight and without repeating execution. If independent
+verification was interrupted after repository validation passed, recovery abandons its incomplete
+Run and disposable workspace, reuses the exact passing check evidence, and starts one fresh
+verification Run.
 
 For private records created before this checkpoint contract, one explicit human-gated recovery
 operation may bind an exact completed Run and owned clean workspace to an exact base and candidate
@@ -933,8 +947,10 @@ The AgentProfile explicitly selects trusted-local `host_user` or optional constr
 `operation_scoped` permissions. Codex host-user Runs use `danger-full-access`, inherit the host
 environment, and leave native Sandbox, network, Web Search, history, tools, and subagents to the
 selected Provider environment. Operation-scoped Runs retain `read-only` planning or
-`workspace-write` execution, a controlled environment, and disabled network. ChangeFleet never
-silently falls back between modes or claims OS confinement from worktree isolation.
+verification, `workspace-write` execution, a controlled environment, and disabled network.
+Verification receives a disposable detached worktree at the exact Candidate SHA and fails closed
+if Git state changes. ChangeFleet never silently falls back between modes or claims OS confinement
+from worktree isolation.
 
 Execution may return strict `implementation_blocked` when semantic work cannot proceed. A Provider
 turn completion does not make the WorkUnit successful. `implementation_completed` also fails

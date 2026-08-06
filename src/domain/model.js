@@ -9,6 +9,7 @@ import {
   createCheckIdentity,
   normalizeVerificationExpectation,
   normalizeVerificationPolicy,
+  verificationReviewAllowsCandidate,
 } from "./verification.js";
 
 // 领域模块保持纯函数：只验证输入与构造稳定身份，不读取 Git、文件或当前时间。
@@ -454,6 +455,7 @@ export function createCandidate({
   changedPaths,
   repositoryEvidence,
   verificationAdmissionId = null,
+  verificationReviewId = null,
 }) {
   const identity = {
     repository_id: repositoryId,
@@ -472,6 +474,10 @@ export function createCandidate({
       verificationAdmissionId === null
         ? null
         : normalizeId("verification_admission_id", verificationAdmissionId),
+    verification_review_id:
+      verificationReviewId === null
+        ? null
+        : normalizeId("verification_review_id", verificationReviewId),
   };
 }
 
@@ -560,7 +566,11 @@ export function createValidationAttempt({
 }) {
   // 聚合只保存有界尝试索引；完整输出继续由不可变 EvidenceStore 外置。
   invariant(
-    kind === "repository_validation" || kind === "combined_validation",
+    [
+      "repository_validation",
+      "combined_validation",
+      "verification_check",
+    ].includes(kind),
     "INVALID_VALIDATION_ATTEMPT",
     "Validation attempt kind is invalid",
   );
@@ -646,7 +656,12 @@ function validateAttemptBudgetMetadata({
     "Validation attempt effective budget is invalid",
   );
   invariant(
-    ["operator", "plan_default", "project_default"].includes(budgetSource),
+    [
+      "operator",
+      "plan_default",
+      "project_default",
+      "verification_request",
+    ].includes(budgetSource),
     "INVALID_VALIDATION_ATTEMPT",
     "Validation attempt budget source is invalid",
   );
@@ -699,6 +714,35 @@ export function createCandidateBundle({
       candidate.repository_evidence,
       `${candidate.repository_id} repository evidence`,
     );
+    const admission = changeSet.verification_admissions.find(
+      (item) => item.admission_id === candidate.verification_admission_id,
+    );
+    invariant(
+      admission,
+      "INVALID_VERIFICATION_ADMISSION",
+      "Candidate must bind an available verification admission",
+    );
+    invariant(
+      admission.mode !== "independent_review" ||
+        candidate.verification_review_id !== null,
+      "INVALID_VERIFICATION_REVIEW",
+      "Independent review admission requires a passing review",
+    );
+    if (candidate.verification_review_id !== null) {
+      const review = changeSet.verification_reviews.find(
+        (item) => item.review_id === candidate.verification_review_id,
+      );
+      invariant(
+        review &&
+          review.admission_id === admission.admission_id &&
+          review.subject.repository_id === candidate.repository_id &&
+          review.subject.base_sha === candidate.base_sha &&
+          review.subject.candidate_sha === candidate.candidate_sha &&
+          verificationReviewAllowsCandidate(review),
+        "INVALID_VERIFICATION_REVIEW",
+        "Candidate independent review does not bind a passing exact subject",
+      );
+    }
   }
   validateEvidenceReference(combinedEvidence, "combined validation evidence");
   const sortedCandidates = [...candidates].sort(compareByRepositoryId);
@@ -714,6 +758,7 @@ export function createCandidateBundle({
       candidate_id: candidate.candidate_id,
       repository_evidence: candidate.repository_evidence,
       verification_admission_id: candidate.verification_admission_id,
+      verification_review_id: candidate.verification_review_id,
     })),
     combined_validation_evidence: combinedEvidence,
     missing_work_units: [],

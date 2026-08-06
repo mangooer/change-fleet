@@ -150,6 +150,39 @@ describe("read-only Runtime audit queries", () => {
     });
   });
 
+  test("attributes Verification Runtime cost separately while retaining one total", async (t) => {
+    const fixture = await createAuditFixture(
+      t,
+      "verification-usage",
+      IndependentUsageRuntime,
+    );
+    await fixture.service.executeChangeSet({
+      idempotency_key: "execute",
+      change_set_id: "change",
+    });
+    const audit = await createQuery(
+      fixture.service,
+      "2026-08-03T10:00:00.000Z",
+    ).getChangeSetAudit("change", { detail_page: 1, page_size: 100 });
+
+    assert.equal(audit.payload.usage.referenced_run_count, 3);
+    assert.equal(audit.payload.usage.observed_total_tokens, 580);
+    assert.deepEqual(audit.payload.outcomes.verification, { pass: 1 });
+    assert.equal(
+      audit.payload.runs.rows.filter(
+        (row) => row.identity.operation === "verification",
+      ).length,
+      1,
+    );
+    const verificationInvocation = fixture.runtime.invocations.find(
+      (invocation) => invocation.operation === "verification",
+    );
+    assert.doesNotMatch(
+      JSON.stringify(verificationInvocation),
+      /observed_total_tokens|provider_cost|runtime_invocation/u,
+    );
+  });
+
   test("keeps cancellation separate from WorkUnit failure", async (t) => {
     const fixture = await createAuditFixture(t, "cancelled", CancellationRuntime);
     await assert.rejects(
@@ -266,6 +299,17 @@ class UsageRuntime extends ScriptedRuntime {
       ],
     };
     return result;
+  }
+}
+
+class IndependentUsageRuntime extends UsageRuntime {
+  constructor(options) {
+    options.plan.verification_expectation = {
+      mode: "independent_review",
+      rationale: "The audit fixture requires one independent semantic review.",
+      escalation_triggers: ["scope_divergence"],
+    };
+    super(options);
   }
 }
 

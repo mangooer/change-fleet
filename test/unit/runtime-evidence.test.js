@@ -10,6 +10,7 @@ import {
   assertStructuredOutcome,
   EXECUTION_OUTCOME_SCHEMA,
   PLANNING_OUTCOME_SCHEMA,
+  VERIFICATION_OUTCOME_SCHEMA,
 } from "../../src/adapters/runtime/runtime-schemas.js";
 
 const PROFILE = {
@@ -117,6 +118,7 @@ describe("Runtime identity and evidence", () => {
   test("publishes strict operation schemas and validates tagged branches", () => {
     assert.equal(PLANNING_OUTCOME_SCHEMA.additionalProperties, false);
     assert.equal(EXECUTION_OUTCOME_SCHEMA.additionalProperties, false);
+    assert.equal(VERIFICATION_OUTCOME_SCHEMA.additionalProperties, false);
     const planSchema =
       PLANNING_OUTCOME_SCHEMA.properties.message.anyOf[0].properties.plan.anyOf[0];
     assert.equal(planSchema.required.includes("verification_expectation"), true);
@@ -126,6 +128,9 @@ describe("Runtime identity and evidence", () => {
       ),
       true,
     );
+    assertStrictObjectSchemas(PLANNING_OUTCOME_SCHEMA);
+    assertStrictObjectSchemas(EXECUTION_OUTCOME_SCHEMA);
+    assertStrictObjectSchemas(VERIFICATION_OUTCOME_SCHEMA);
     const planOutcome = {
       type: "conversation_message",
       message: { text: "ready", plan: { work_units: [{}] } },
@@ -141,6 +146,20 @@ describe("Runtime identity and evidence", () => {
         message: null,
         request: null,
       }),
+    );
+    const verificationOutcome = {
+      type: "verification_completed",
+      review_depth: "triage",
+      verdict: "pass",
+      summary: "No blocking issue found.",
+      findings: [],
+      notes: [],
+      human_decision: null,
+      requested_checks: [],
+    };
+    assert.equal(
+      assertStructuredOutcome("verification", verificationOutcome),
+      verificationOutcome,
     );
     assert.throws(() =>
       assertStructuredOutcome("execution", {
@@ -174,3 +193,21 @@ describe("Runtime identity and evidence", () => {
     );
   });
 });
+
+function assertStrictObjectSchemas(schema) {
+  // Provider 的 strict JSON Schema 要求每个对象都显式要求其全部字段，递归检查可防止嵌套命令再次漏项。
+  if (!schema || typeof schema !== "object") return;
+  if (schema.type === "object") {
+    assert.deepEqual(
+      [...(schema.required ?? [])].sort(),
+      Object.keys(schema.properties ?? {}).sort(),
+    );
+  }
+  for (const value of Object.values(schema)) {
+    if (Array.isArray(value)) {
+      for (const item of value) assertStrictObjectSchemas(item);
+    } else {
+      assertStrictObjectSchemas(value);
+    }
+  }
+}

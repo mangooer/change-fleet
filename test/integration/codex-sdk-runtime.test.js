@@ -195,6 +195,49 @@ describe("Codex SDK Runtime protocol", () => {
     assert.equal(threadOptions[0].approvalPolicy, "never");
   });
 
+  test("runs independent verification with a strict read-only schema and prompt", async () => {
+    const threadOptions = [];
+    const turnOptions = [];
+    const prompts = [];
+    const finalResponse = JSON.stringify({
+      type: "verification_completed",
+      review_depth: "deep_review",
+      verdict: "pass_with_notes",
+      summary: "The exact diff satisfies the confirmed contract.",
+      findings: [],
+      notes: [
+        { note_id: "note-1", message: "Another host remains unverified." },
+      ],
+      human_decision: null,
+      requested_checks: [],
+    });
+    const runtime = new CodexSdkRuntime({
+      ...RUNTIME_OPTIONS,
+      codexFactory() {
+        return {
+          startThread(options) {
+            threadOptions.push(options);
+            return {
+              async runStreamed(prompt, options_) {
+                prompts.push(prompt);
+                turnOptions.push(options_);
+                return { events: providerEvents(finalResponse) };
+              },
+            };
+          },
+        };
+      },
+    });
+
+    const result = await runtime.invoke(verificationInvocation(process.cwd()));
+
+    assert.equal(result.outcome.verdict, "pass_with_notes");
+    assert.equal(threadOptions[0].sandboxMode, "read-only");
+    assert.equal(turnOptions[0].outputSchema.additionalProperties, false);
+    assert.match(prompts[0], /Do not edit files, change Git state/u);
+    assert.match(prompts[0], /optional refactoring may only be non-blocking notes/u);
+  });
+
   test("preserves terminal failure evidence without accepting text output", async () => {
     const runtime = new CodexSdkRuntime({
       ...RUNTIME_OPTIONS,
@@ -328,6 +371,40 @@ function planningInvocation(repositoryPath) {
       paths: [repositoryPath],
     },
     workspace: null,
+    signal: null,
+  };
+}
+
+function verificationInvocation(repositoryPath) {
+  return {
+    operation: "verification",
+    agent_profile: {
+      ...PROFILE,
+      permissions: "operation_scoped",
+      network_access: false,
+    },
+    control_contract: {
+      schema_version: 3,
+      operation: "verification",
+      change_set_id: "change-1",
+      authorized_repositories: ["api"],
+    },
+    context_projection: {
+      schema_version: 8,
+      operation: "verification",
+      repositories: [{ repository_id: "api", root_path: repositoryPath }],
+      verification: {
+        candidate: {
+          base_sha: "a".repeat(40),
+          candidate_sha: "b".repeat(40),
+        },
+      },
+    },
+    capabilities: {
+      mode: "read_only",
+      paths: [repositoryPath],
+    },
+    workspace: { workspace_path: repositoryPath },
     signal: null,
   };
 }

@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { chmod, mkdir, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, test } from "node:test";
 
 import { ChangeFleetService } from "../../src/application/change-fleet-service.js";
+import { ChangeFleetError } from "../../src/domain/errors.js";
 import {
   createFixtureRoot,
   createGitRepository,
@@ -198,29 +199,190 @@ describe("post-Provider Candidate finalization recovery", () => {
     );
   });
 
-  test("persists independent-review admission and fails closed in this slice", async (t) => {
+  test("persists a passing independent review before Candidate promotion", async (t) => {
     const fixture = await createFixture(t, "independent-admission");
     const runtime = new ScriptedRuntime({ plan: fixture.plan });
     const service = await bootstrap(fixture, runtime);
 
-    await assert.rejects(
-      service.executeChangeSet({
-        idempotency_key: "execute-independent",
-        change_set_id: "change-1",
-        verification_admission_mode: "independent_review",
-      }),
-      { code: "INDEPENDENT_VERIFICATION_REQUIRED" },
-    );
+    const result = await service.executeChangeSet({
+      idempotency_key: "execute-independent",
+      change_set_id: "change-1",
+      verification_admission_mode: "independent_review",
+    });
     const state = await service.readChangeSet("change-1");
+    assert.equal(result.bundle_revision, 1);
     assert.equal(state.verification_admissions.length, 1);
     assert.equal(state.verification_admissions[0].mode, "independent_review");
-    assert.equal(state.work_units[0].state, "verification_pending");
-    assert.equal(state.candidates.length, 0);
-    assert.equal(state.validation_attempts.length, 0);
+    assert.equal(state.verification_reviews.length, 1);
+    assert.equal(state.verification_reviews[0].verdict, "pass");
+    assert.equal(state.work_units[0].state, "candidate_ready");
+    assert.equal(state.candidates.length, 1);
+    assert.equal(state.validation_attempts.length, 2);
     assert.equal(
       runtime.invocations.filter((invocation) => invocation.operation === "execution")
         .length,
       1,
+    );
+    assert.equal(
+      runtime.invocations.filter(
+        (invocation) => invocation.operation === "verification",
+      ).length,
+      1,
+    );
+  });
+
+  test("executes every additional check requested by one deep-review Run", async (t) => {
+    const fixture = await createFixture(t, "verification-check");
+    const runtime = new ScriptedRuntime({
+      plan: fixture.plan,
+      verificationOutcome: {
+        type: "verification_completed",
+        review_depth: "deep_review",
+        verdict: "pass_with_notes",
+        summary: "A focused exact-subject check closes the compatibility boundary.",
+        findings: [],
+        notes: [
+          { note_id: "host-note", message: "Another host remains unverified." },
+        ],
+        human_decision: null,
+        requested_checks: [
+          {
+            command_id: "verification-feature-check",
+            executable: process.execPath,
+            argv: [
+              "-e",
+              "const fs=require('node:fs');if(!fs.readFileSync('feature.txt','utf8').includes('api'))process.exit(2)",
+            ],
+            coverage_rationale: "Checks the exact implemented feature from the review workspace",
+            timeout_ms: 10_000,
+          },
+        ],
+      },
+    });
+    const service = await bootstrap(fixture, runtime);
+
+    await service.executeChangeSet({
+      idempotency_key: "execute-with-review-check",
+      change_set_id: "change-1",
+      verification_admission_mode: "independent_review",
+    });
+    const state = await service.readChangeSet("change-1");
+    const review = state.verification_reviews[0];
+    const verificationRun = await service.runStore.read(review.run_id);
+
+    assert.equal(review.review_depth, "deep_review");
+    assert.equal(review.check_status, "passed");
+    assert.equal(review.validation_attempt_ids.length, 1);
+    assert.deepEqual(
+      state.validation_attempts.map((attempt) => attempt.kind),
+      ["repository_validation", "verification_check", "combined_validation"],
+    );
+    assert.equal(
+      await stat(verificationRun.verification_workspace.workspace_path).catch(
+        () => null,
+      ),
+      null,
+    );
+  });
+
+  test("persists blocking findings without creating a Candidate", async (t) => {
+    const fixture = await createFixture(t, "verification-blocking");
+    const runtime = new ScriptedRuntime({
+      plan: fixture.plan,
+      verificationOutcome: {
+        type: "verification_completed",
+        review_depth: "deep_review",
+        verdict: "changes_required",
+        summary: "The implementation violates the confirmed output contract.",
+        findings: [
+          {
+            finding_id: "correctness-1",
+            category: "correctness",
+            message: "The exact Candidate writes the wrong public value.",
+            path: "feature.txt",
+          },
+        ],
+        notes: [],
+        human_decision: null,
+        requested_checks: [],
+      },
+    });
+    const service = await bootstrap(fixture, runtime);
+
+    await assert.rejects(
+      service.executeChangeSet({
+        idempotency_key: "execute-blocking-review",
+        change_set_id: "change-1",
+        verification_admission_mode: "independent_review",
+      }),
+      { code: "VERIFICATION_CHANGES_REQUIRED" },
+    );
+    const state = await service.readChangeSet("change-1");
+    assert.equal(state.verification_reviews[0].verdict, "changes_required");
+    assert.equal(state.work_units[0].state, "verification_changes_required");
+    assert.equal(state.candidates.length, 0);
+  });
+
+  test("fails closed when the read-only Runtime modifies its disposable workspace", async (t) => {
+    const fixture = await createFixture(t, "verification-mutation");
+    const runtime = new MutatingVerificationRuntime({ plan: fixture.plan });
+    const service = await bootstrap(fixture, runtime);
+
+    await assert.rejects(
+      service.executeChangeSet({
+        idempotency_key: "execute-mutating-review",
+        change_set_id: "change-1",
+        verification_admission_mode: "independent_review",
+      }),
+      { code: "VERIFICATION_WORKSPACE_MODIFIED" },
+    );
+    const state = await service.readChangeSet("change-1");
+    assert.equal(state.work_units[0].state, "verification_failed");
+    assert.equal(state.verification_reviews.length, 0);
+    assert.equal(state.candidates.length, 0);
+  });
+
+  test("abandons an interrupted verification and reuses passed deterministic evidence", async (t) => {
+    const fixture = await createFixture(t, "verification-restart");
+    const interruptedRuntime = new InterruptingVerificationRuntime({
+      plan: fixture.plan,
+    });
+    const service = await bootstrap(fixture, interruptedRuntime);
+    await assert.rejects(
+      service.executeChangeSet({
+        idempotency_key: "execute-interrupted-review",
+        change_set_id: "change-1",
+        verification_admission_mode: "independent_review",
+      }),
+      { code: "CONTROLLER_INTERRUPTED" },
+    );
+
+    const retryRuntime = new ScriptedRuntime({ plan: fixture.plan });
+    const reopened = await open(fixture, retryRuntime);
+    const result = await reopened.executeChangeSet({
+      idempotency_key: "execute-restarted-review",
+      change_set_id: "change-1",
+    });
+    const state = await reopened.readChangeSet("change-1");
+
+    assert.equal(result.bundle_revision, 1);
+    assert.equal(
+      state.validation_attempts.filter(
+        (attempt) => attempt.kind === "repository_validation",
+      ).length,
+      1,
+    );
+    assert.deepEqual(
+      state.work_units[0].verification_run_references.map(
+        (reference) => reference.status,
+      ),
+      ["abandoned", "completed"],
+    );
+    assert.equal(
+      retryRuntime.invocations.filter(
+        (invocation) => invocation.operation === "execution",
+      ).length,
+      0,
     );
   });
 
@@ -485,4 +647,38 @@ function runCli(arguments_) {
       else resolve({ exitCode, stdout, stderr });
     });
   });
+}
+
+class MutatingVerificationRuntime extends ScriptedRuntime {
+  async invoke(invocation) {
+    if (invocation.operation === "verification") {
+      await writeFile(
+        path.join(invocation.workspace.workspace_path, "review-write.txt"),
+        "not allowed\n",
+      );
+    }
+    return super.invoke(invocation);
+  }
+}
+
+class InterruptingVerificationRuntime extends ScriptedRuntime {
+  constructor(options) {
+    super(options);
+    this.verificationInterrupted = false;
+  }
+
+  async invoke(invocation) {
+    if (
+      invocation.operation === "verification" &&
+      !this.verificationInterrupted
+    ) {
+      this.verificationInterrupted = true;
+      this.invocations.push(structuredClone(invocation));
+      throw new ChangeFleetError(
+        "CONTROLLER_INTERRUPTED",
+        "Simulated controller loss during verification",
+      );
+    }
+    return super.invoke(invocation);
+  }
 }

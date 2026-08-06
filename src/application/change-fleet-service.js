@@ -32,13 +32,16 @@ import {
   admissionModeAtLeast,
   assertValidationAttemptBudgetRequestsMatchPlan,
   createCheckIdentity,
+  createVerificationReview,
   createVerificationAdmissionDecision,
+  normalizeVerificationOutcome,
   normalizeOperatorAdmissionMode,
   normalizeValidationAttemptBudgetRequests,
   normalizeVerificationPolicy,
   resolveValidationAttemptBudget,
   selectValidationAttemptBudgetRequest,
   validationEnvironmentIdentity,
+  verificationReviewAllowsCandidate,
 } from "../domain/verification.js";
 import {
   HARNESS_SELECTION_MODES,
@@ -84,6 +87,8 @@ export class ChangeFleetService {
     workspaceRoot,
     runtime,
     agentProfile,
+    verificationRuntime = runtime,
+    verificationAgentProfile = agentProfile,
     clock = () => new Date(),
     idFactory = (prefix) => `${prefix}-${randomUUID()}`,
     deliveryGitAdapter = new DeliveryGitAdapter(),
@@ -94,6 +99,11 @@ export class ChangeFleetService {
     this.runtime = runtime;
     // 生产构造必须显式装配 Profile；测试 Runtime 也只能通过测试代码主动注入。
     this.agentProfile = normalizeAgentProfile(agentProfile);
+    // 验证独立记录 Profile/Run；首个本地装配可复用 Provider，但调用者能够注入不同模型或 Runtime。
+    this.verificationRuntime = verificationRuntime;
+    this.verificationAgentProfile = normalizeAgentProfile(
+      verificationAgentProfile,
+    );
     this.clock = clock;
     this.idFactory = idFactory;
     this.instanceId = idFactory("controller");
@@ -386,6 +396,7 @@ export class ChangeFleetService {
       run_references: [],
       candidate_checkpoints: [],
       verification_admissions: [],
+      verification_reviews: [],
       validation_attempts: [],
       candidates: [],
       bundles: [],
@@ -1458,6 +1469,8 @@ export class ChangeFleetService {
               run_references: [],
               candidate_checkpoint_id: null,
               verification_admission_id: null,
+              verification_run_references: [],
+              verification_review_id: null,
               validation_attempt_ids: [],
               candidate: null,
               last_error: null,
@@ -1593,9 +1606,13 @@ export class ChangeFleetService {
         if (incomplete.length === 0) break;
         const ready = incomplete.find(
           (unit) =>
-            ["pending", "validation_pending", "validation_failed"].includes(
-              unit.state,
-            ) &&
+            [
+              "pending",
+              "validation_pending",
+              "validation_failed",
+              "verification_pending",
+              "verification_failed",
+            ].includes(unit.state) &&
             unit.dependencies.every(
               (dependency) =>
                 currentUnits.find(
@@ -2121,6 +2138,7 @@ export class ChangeFleetService {
 
   async recoverInterruptedRuns(changeSetId) {
     // 明确中断可重试；终态 Run 与 running WorkUnit 冲突时阻塞，不能猜测结果。
+    await this.recoverInterruptedVerificationRuns(changeSetId);
     const state = await this.controlStore.readChangeSet(changeSetId);
     const running = unitsForCurrentPlan(state).filter(
       (unit) => unit.state === "running",
@@ -2199,6 +2217,122 @@ export class ChangeFleetService {
         : "executing";
       current.updated_at = this.now();
     });
+  }
+
+  async recoverInterruptedVerificationRuns(changeSetId) {
+    const state = await this.controlStore.readChangeSet(changeSetId);
+    const verifying = unitsForCurrentPlan(state).filter(
+      (unit) => unit.state === "verifying",
+    );
+    if (verifying.length === 0) return;
+    const catalog = await this.controlStore.readCatalog();
+    const project = requireProject(catalog, state.project_id);
+    const harnessSelection = currentRepositoryHarnessSelection(state);
+    const recovered = [];
+
+    for (const workUnit of verifying) {
+      const reference = workUnit.verification_run_references.at(-1);
+      const run = reference ? await this.runStore.read(reference.run_id) : null;
+      if (run?.status === "running" && !run.runtime_evidence) {
+        const repository = requireRepository(project, workUnit.repository_id);
+        const selectedHarness = harnessSelection.repositories.find(
+          (item) => item.repository_id === workUnit.repository_id,
+        );
+        let overlaySnapshot = null;
+        if (
+          selectedHarness?.mode ===
+          HARNESS_SELECTION_MODES.EXACT_BASE_PLUS_OVERLAY
+        ) {
+          overlaySnapshot = await this.harnessSnapshotStore.read(
+            selectedHarness.artifact_reference,
+          );
+        }
+        let cleanupError = null;
+        try {
+          await this.repositoryWorker.cleanupVerificationWorkspace({
+            repository,
+            workspace: run.verification_workspace,
+            harnessSnapshot: overlaySnapshot,
+          });
+        } catch (error) {
+          cleanupError = error;
+        }
+        const completedAt = this.now();
+        await this.recordRuntimeEvidence({
+          runId: run.run_id,
+          invocation: null,
+          providerEvidence: null,
+          terminal: {
+            status: "abandoned",
+            outcome_type: "controller_restart",
+            error_code: cleanupError?.code ?? null,
+            completed_at: completedAt,
+          },
+        });
+        await this.runStore.update(run.run_id, (current) => {
+          current.status = "abandoned";
+          current.completed_at = completedAt;
+          current.outcome = { type: "controller_restart" };
+        });
+        recovered.push({
+          work_unit_id: workUnit.work_unit_id,
+          run_id: run.run_id,
+          status: cleanupError ? "blocked" : "abandoned",
+          error_code: cleanupError?.code ?? null,
+        });
+      } else {
+        recovered.push({
+          work_unit_id: workUnit.work_unit_id,
+          run_id: reference?.run_id ?? null,
+          status: "blocked",
+          error_code: "AMBIGUOUS_TERMINAL_RUN_RECOVERY",
+        });
+      }
+    }
+
+    await this.controlStore.transactChangeSet(changeSetId, (current) => {
+      for (const item of recovered) {
+        const unit = unitsForCurrentPlan(current).find(
+          (candidate) => candidate.work_unit_id === item.work_unit_id,
+        );
+        const unitReference = unit.verification_run_references.find(
+          (candidate) => candidate.run_id === item.run_id,
+        );
+        const aggregateReference = current.run_references.find(
+          (candidate) => candidate.run_id === item.run_id,
+        );
+        if (unitReference) unitReference.status = item.status;
+        if (aggregateReference) aggregateReference.status = item.status;
+        if (item.status === "abandoned") {
+          unit.state = "verification_pending";
+          unit.last_error = {
+            code: "VERIFICATION_RUN_ABANDONED_AFTER_RESTART",
+            run_id: item.run_id,
+          };
+        } else {
+          unit.state = "blocked";
+          unit.last_error = {
+            code: item.error_code,
+            run_id: item.run_id,
+          };
+          current.blockers.push({
+            code: item.error_code,
+            work_unit_id: item.work_unit_id,
+            run_id: item.run_id,
+          });
+        }
+      }
+      current.state = recovered.some((item) => item.status === "blocked")
+        ? "decision_required"
+        : "validating";
+      current.updated_at = this.now();
+    });
+    const blocked = recovered.find((item) => item.status === "blocked");
+    invariant(
+      !blocked,
+      blocked?.error_code ?? "AMBIGUOUS_TERMINAL_RUN_RECOVERY",
+      `Verification Run ${blocked?.run_id} could not be recovered safely`,
+    );
   }
 
   async prepareRetryableExecutions(changeSetId, commandId) {
@@ -2771,7 +2905,12 @@ export class ChangeFleetService {
     );
     invariant(
       workUnit &&
-        ["validation_pending", "validation_failed"].includes(workUnit.state) &&
+        [
+          "validation_pending",
+          "validation_failed",
+          "verification_pending",
+          "verification_failed",
+        ].includes(workUnit.state) &&
         workUnit.candidate_checkpoint_id &&
         !workUnit.candidate,
       "CANDIDATE_CHECKPOINT_NOT_RESUMABLE",
@@ -2844,48 +2983,733 @@ export class ChangeFleetService {
         current.updated_at = this.now();
       });
     }
-    if (admission.mode === "independent_review") {
-      await this.controlStore.transactChangeSet(changeSetId, (current) => {
-        const unit = unitsForCurrentPlan(current).find(
-          (item) => item.work_unit_id === workUnitId,
-        );
-        unit.state = "verification_pending";
-        unit.last_error = {
-          code: "INDEPENDENT_VERIFICATION_REQUIRED",
-          message: "Independent verification is required but not implemented in this slice",
-          verification_admission_id: admission.admission_id,
-        };
-        current.state = "blocked";
-        if (
-          !current.blockers.some(
-            (blocker) =>
-              blocker.code === "INDEPENDENT_VERIFICATION_REQUIRED" &&
-              blocker.verification_admission_id === admission.admission_id &&
-              blocker.resolved_at === undefined,
-          )
-        ) {
-          current.blockers.push({
-            code: "INDEPENDENT_VERIFICATION_REQUIRED",
-            work_unit_id: workUnitId,
-            checkpoint_id: checkpoint.checkpoint_id,
-            verification_admission_id: admission.admission_id,
-          });
-        }
-        current.updated_at = this.now();
-      });
-      throw new ChangeFleetError(
-        "INDEPENDENT_VERIFICATION_REQUIRED",
-        "Independent verification is required for the exact CandidateCheckpoint",
-        { verification_admission_id: admission.admission_id },
-      );
-    }
     const catalog = await this.controlStore.readCatalog();
     const project = requireProject(catalog, state.project_id);
     const repository = project.repositories.find(
       (item) => item.repository_id === checkpoint.repository_id,
     );
-    const attemptNumber = workUnit.validation_attempt_ids.length + 1;
+    const repositoryEvidence = await this.ensureRepositoryValidationPassed({
+      changeSetId,
+      workUnitId,
+      workUnit,
+      checkpoint,
+      repository,
+      projectPolicy: state.verification_policy,
+      attemptBudgetRequests,
+    });
+    let verificationReview = null;
+    if (admission.mode === "independent_review") {
+      verificationReview = await this.ensureIndependentVerificationPassed({
+        changeSetId,
+        workUnitId,
+        checkpoint,
+        admission,
+        repositoryEvidence,
+      });
+    }
+    const candidate = createCandidate({
+      repositoryId: checkpoint.repository_id,
+      targetRef: checkpoint.target_ref,
+      baseSha: checkpoint.base_sha,
+      candidateSha: checkpoint.candidate_sha,
+      workspaceId: checkpoint.workspace_id,
+      workspacePath: checkpoint.workspace_path,
+      changedPaths: checkpoint.changed_paths,
+      repositoryEvidence,
+      verificationAdmissionId: admission.admission_id,
+      verificationReviewId: verificationReview?.review_id ?? null,
+    });
+    await this.controlStore.transactChangeSet(changeSetId, (current) => {
+      const unit = unitsForCurrentPlan(current).find(
+        (item) => item.work_unit_id === workUnitId,
+      );
+      invariant(
+        unit?.candidate_checkpoint_id === checkpoint.checkpoint_id &&
+          (verificationReview
+            ? unit.state === "verification_passed" &&
+              unit.verification_review_id === verificationReview.review_id
+            : ["validation_pending", "validation_failed"].includes(
+                unit.state,
+              )) &&
+          unit.candidate === null,
+        "CANDIDATE_CHECKPOINT_STATE_MISMATCH",
+        "CandidateCheckpoint changed before Candidate promotion",
+      );
+      unit.state = "candidate_ready";
+      unit.candidate = candidate;
+      unit.last_error = null;
+      current.candidates.push(candidate);
+      resolveValidationBlockers(current, {
+        workUnitId,
+        resolvedAt: this.now(),
+      });
+      current.state = "executing";
+      current.updated_at = this.now();
+    });
+    return candidate;
+  }
+
+  async ensureIndependentVerificationPassed({
+    changeSetId,
+    workUnitId,
+    checkpoint,
+    admission,
+    repositoryEvidence,
+  }) {
+    let state = await this.controlStore.readChangeSet(changeSetId);
+    const existingReview = state.verification_reviews
+      .filter(
+        (review) =>
+          review.admission_id === admission.admission_id &&
+          review.checkpoint_id === checkpoint.checkpoint_id,
+      )
+      .at(-1);
+    if (verificationReviewAllowsCandidate(existingReview)) {
+      return structuredClone(existingReview);
+    }
+    if (
+      existingReview &&
+      ["changes_required", "human_decision_required"].includes(
+        existingReview.verdict,
+      )
+    ) {
+      throw new ChangeFleetError(
+        "VERIFICATION_REVIEW_BLOCKED",
+        "The existing independent verification requires correction or a human decision",
+        {
+          verification_review_id: existingReview.review_id,
+          verdict: existingReview.verdict,
+        },
+      );
+    }
+
+    const catalog = await this.controlStore.readCatalog();
+    const project = requireProject(catalog, state.project_id);
+    const repository = requireRepository(project, checkpoint.repository_id);
+    const plan = currentPlan(state);
+    const repositorySelection = currentRepositorySelection(state);
+    const repositoryHarnessSelection = currentRepositoryHarnessSelection(state);
+    const selectedRepository = repositorySelection.repositories.find(
+      (item) => item.repository_id === checkpoint.repository_id,
+    );
+    const selectedHarness = repositoryHarnessSelection.repositories.find(
+      (item) => item.repository_id === checkpoint.repository_id,
+    );
+    invariant(
+      selectedRepository &&
+        selectedHarness?.resolved_base_sha === checkpoint.base_sha,
+      "REPOSITORY_HARNESS_SELECTION_MISMATCH",
+      "Verification subject no longer matches the frozen Repository authority",
+    );
+    const workUnit = unitsForCurrentPlan(state).find(
+      (item) => item.work_unit_id === workUnitId,
+    );
+    const sourceRun = await this.runStore.read(checkpoint.source_run_id);
+    const attempt = (workUnit.verification_run_references ?? []).length + 1;
+    const runId = this.idFactory("run");
+    let workspace = null;
+    let overlaySnapshot = null;
+
+    try {
+      workspace = await this.repositoryWorker.prepareVerificationWorkspace({
+        repository,
+        candidateSha: checkpoint.candidate_sha,
+        harnessBaseSha: checkpoint.base_sha,
+        workspaceId: `verification-${runId}`,
+      });
+      if (
+        selectedHarness.mode ===
+        HARNESS_SELECTION_MODES.EXACT_BASE_PLUS_OVERLAY
+      ) {
+        overlaySnapshot = await this.harnessSnapshotStore.read(
+          selectedHarness.artifact_reference,
+        );
+        workspace = {
+          ...workspace,
+          harness_overlay: {
+            ...selectedHarness.artifact_reference,
+            paths: [...selectedHarness.resolved_relative_paths],
+          },
+        };
+        workspace = await this.repositoryWorker.materializeHarnessOverlay({
+          repository,
+          workspace,
+          snapshot: overlaySnapshot,
+        });
+      }
+    } catch (error) {
+      if (workspace) {
+        await this.repositoryWorker
+          .cleanupVerificationWorkspace({
+            repository,
+            workspace,
+            harnessSnapshot: overlaySnapshot,
+          })
+          .catch(() => {});
+      }
+      throw error;
+    }
+
+    let exactCandidateHarness;
+    try {
+      exactCandidateHarness = await this.repositoryWorker.discoverHarness(
+        repository,
+        checkpoint.candidate_sha,
+      );
+    } catch (error) {
+      await this.repositoryWorker
+        .cleanupVerificationWorkspace({
+          repository,
+          workspace,
+          harnessSnapshot: overlaySnapshot,
+        })
+        .catch(() => {});
+      throw error;
+    }
+    const frozenOverlayHarness = overlayHarnessResources(overlaySnapshot);
+    const availableHarness = [
+      ...exactCandidateHarness,
+      ...frozenOverlayHarness,
+    ];
+    const harnessObservation = repositoryHarnessObservation({
+      repositoryId: repository.repository_id,
+      exactBaseResources: exactCandidateHarness,
+      overlayResources: frozenOverlayHarness,
+    });
+    const run = {
+      schema_version: 1,
+      run_id: runId,
+      change_set_id: changeSetId,
+      work_unit_id: workUnitId,
+      operation: "verification",
+      attempt,
+      status: "running",
+      agent_profile: this.verificationAgentProfile,
+      repository_harness_selection: {
+        revision: repositoryHarnessSelection.revision,
+        repositories: [harnessSelectionForContext(selectedHarness)],
+      },
+      repository_harness_observation: {
+        repositories: [harnessObservation],
+      },
+      verification_workspace: workspace,
+      context_evidence: null,
+      context_projection_identity: null,
+      runtime_evidence: null,
+      created_at: this.now(),
+      completed_at: null,
+      outcome: null,
+    };
+    try {
+      await this.runStore.create(run);
+      await this.controlStore.transactChangeSet(changeSetId, (current) => {
+        const unit = unitsForCurrentPlan(current).find(
+          (item) => item.work_unit_id === workUnitId,
+        );
+        invariant(
+          unit?.candidate_checkpoint_id === checkpoint.checkpoint_id &&
+            unit.verification_admission_id === admission.admission_id &&
+            unit.candidate === null,
+          "CANDIDATE_CHECKPOINT_STATE_MISMATCH",
+          "Verification subject changed before Runtime dispatch",
+        );
+        unit.state = "verifying";
+        unit.verification_run_references.push({
+          run_id: runId,
+          attempt,
+          status: "running",
+        });
+        current.run_references.push({
+          run_id: runId,
+          operation: "verification",
+          plan_revision: plan.revision,
+          work_unit_id: workUnitId,
+          verification_admission_id: admission.admission_id,
+          attempt,
+          status: "running",
+        });
+        current.state = "validating";
+        current.updated_at = this.now();
+      });
+    } catch (error) {
+      await this.repositoryWorker
+        .cleanupVerificationWorkspace({
+          repository,
+          workspace,
+          harnessSnapshot: overlaySnapshot,
+        })
+        .catch(() => {});
+      throw error;
+    }
+
+    state = await this.controlStore.readChangeSet(changeSetId);
+    const currentUnit = unitsForCurrentPlan(state).find(
+      (item) => item.work_unit_id === workUnitId,
+    );
+    const controlContract = createControlContract({
+      operation: "verification",
+      changeSetId,
+      planRevision: plan.revision,
+      repositorySelectionRevision: repositorySelection.revision,
+      repositoryHarnessSelectionRevision:
+        repositoryHarnessSelection.revision,
+      workUnitId,
+      authorizedRepositories: [checkpoint.repository_id],
+      allowedOutcomes: ["verification_completed"],
+      humanGates: ["candidate_bundle_acceptance"],
+    });
+    const contextProjection = createContextProjection({
+      operation: "verification",
+      changeSet: state,
+      plan,
+      repositorySelection,
+      repositoryHarnessSelection,
+      workUnit: currentUnit,
+      repositories: [
+        {
+          repository_id: repository.repository_id,
+          branch_ref: selectedRepository.branch_ref,
+          target_ref: checkpoint.target_ref,
+          base_sha: checkpoint.base_sha,
+          candidate_sha: checkpoint.candidate_sha,
+          root_path: workspace.workspace_path,
+          harness_selection: harnessSelectionForContext(selectedHarness),
+          ...harnessResourcesForContext(availableHarness),
+        },
+      ],
+      capability: {
+        mode: "read_only",
+        paths: [workspace.workspace_path],
+      },
+      requiredEvidence: [
+        "exact_candidate_diff",
+        "repository_check_evidence",
+        "structured_verification_outcome",
+      ],
+      verificationPolicy: state.verification_policy,
+      verification: {
+        admission: structuredClone(admission),
+        candidate: {
+          checkpoint_id: checkpoint.checkpoint_id,
+          repository_id: checkpoint.repository_id,
+          target_ref: checkpoint.target_ref,
+          base_sha: checkpoint.base_sha,
+          candidate_sha: checkpoint.candidate_sha,
+          changed_paths: [...checkpoint.changed_paths],
+        },
+        source_execution: {
+          run_id: sourceRun.run_id,
+          outcome_type: sourceRun.outcome?.type ?? null,
+          summary: sourceRun.outcome?.summary ?? null,
+          reported_changed_paths:
+            sourceRun.outcome?.reported_changed_paths ?? [],
+        },
+        completed_checks: [
+          {
+            check: structuredClone(workUnit.repository_check),
+            status: "passed",
+            evidence: structuredClone(repositoryEvidence),
+          },
+        ],
+      },
+      historyReferences: [],
+    });
+    const invocation = {
+      operation: "verification",
+      agent_profile: this.verificationAgentProfile,
+      control_contract: controlContract,
+      context_projection: contextProjection,
+      capabilities: contextProjection.capability,
+      workspace,
+      signal: null,
+    };
+    let outcome = null;
+    let providerEvidence = null;
+    let runtimeError = null;
+    let checkResult = {
+      attemptIds: [],
+      failedError: null,
+      missingEvidence: false,
+    };
+    try {
+      const contextEvidence = assessInitialContext({
+        controlContract,
+        contextProjection,
+        agentProfile: this.verificationAgentProfile,
+        runtimeMeasurement: await measureInitialContext(
+          this.verificationRuntime,
+          invocation,
+        ),
+      });
+      await this.runStore.update(runId, (current) => {
+        current.context_evidence = contextEvidence;
+        current.context_projection_identity = {
+          schema_version: contextProjection.schema_version,
+          digest: sha256(contextProjection),
+        };
+      });
+      const result = await invokeRuntime(this.verificationRuntime, invocation, {
+        onEvent: (event) => this.appendRuntimeEvent(runId, event),
+      });
+      providerEvidence = result.provider_evidence;
+      outcome = normalizeVerificationOutcome(result.outcome, {
+        projectPolicy: state.verification_policy,
+        existingCommandIds: [
+          ...plan.work_units.map(
+            (item) => item.repository_check.command_id,
+          ),
+          plan.combined_check.command_id,
+        ],
+      });
+      await this.repositoryWorker.preflightVerificationWorkspace({
+        repository,
+        workspace,
+      });
+      checkResult = await this.executeVerificationRequestedChecks({
+        changeSetId,
+        workUnitId,
+        checkpoint,
+        repository,
+        workspace,
+        commands: outcome.requested_checks,
+        projectPolicy: state.verification_policy,
+      });
+      invariant(
+        !checkResult.missingEvidence,
+        "MISSING_REQUIRED_EVIDENCE",
+        "A verification-requested check failed without immutable evidence",
+      );
+    } catch (error) {
+      runtimeError = error;
+      providerEvidence = error.runtime_evidence ?? providerEvidence;
+    }
+    // 进程级中断保留 running Run 和一次性工作区，下一控制器据此执行确定性放弃与重试。
+    if (runtimeError?.code === "CONTROLLER_INTERRUPTED") {
+      throw runtimeError;
+    }
+    try {
+      await this.repositoryWorker.cleanupVerificationWorkspace({
+        repository,
+        workspace,
+        harnessSnapshot: overlaySnapshot,
+      });
+    } catch (error) {
+      runtimeError ??= error;
+    }
+
+    if (runtimeError) {
+      await this.recordRuntimeEvidence({
+        runId,
+        invocation,
+        providerEvidence,
+        terminal: {
+          status:
+            runtimeError.code === "RUNTIME_CANCELLED"
+              ? "cancelled"
+              : "failed",
+          outcome_type: "failed",
+          error_code: runtimeError.code ?? "UNEXPECTED_ERROR",
+          completed_at: this.now(),
+        },
+      });
+      await this.failRun(runId, runtimeError);
+      await this.controlStore.transactChangeSet(changeSetId, (current) => {
+        const unit = unitsForCurrentPlan(current).find(
+          (item) => item.work_unit_id === workUnitId,
+        );
+        unit.verification_run_references.at(-1).status = "failed";
+        const reference = current.run_references.find(
+          (item) => item.run_id === runId,
+        );
+        reference.status = "failed";
+        unit.state = "verification_failed";
+        unit.last_error = {
+          code: runtimeError.code ?? "UNEXPECTED_ERROR",
+          message: runtimeError.message,
+          run_id: runId,
+        };
+        current.state = "failed";
+        current.blockers.push({
+          code: runtimeError.code ?? "UNEXPECTED_ERROR",
+          work_unit_id: workUnitId,
+          checkpoint_id: checkpoint.checkpoint_id,
+          verification_admission_id: admission.admission_id,
+          run_id: runId,
+        });
+        current.updated_at = this.now();
+      });
+      throw runtimeError;
+    }
+
+    await this.runStore.appendEvent(runId, {
+      event_id: this.idFactory("event"),
+      type: "runtime.outcome",
+      at: this.now(),
+      payload: outcome,
+    });
+    const completedAt = this.now();
+    await this.recordRuntimeEvidence({
+      runId,
+      invocation,
+      providerEvidence,
+      terminal: {
+        status: "completed",
+        outcome_type: outcome.type,
+        error_code: null,
+        completed_at: completedAt,
+      },
+    });
+    await this.runStore.update(runId, (current) => {
+      current.status = "completed";
+      current.completed_at = completedAt;
+      current.outcome = {
+        type: outcome.type,
+        review_depth: outcome.review_depth,
+        verdict: outcome.verdict,
+        summary: outcome.summary,
+      };
+    });
+
+    const checkStatus =
+      outcome.requested_checks.length === 0
+        ? "not_required"
+        : checkResult.failedError
+          ? "failed"
+          : "passed";
+    const review = createVerificationReview({
+      admissionId: admission.admission_id,
+      checkpoint,
+      runId,
+      outcome,
+      validationAttemptIds: checkResult.attemptIds,
+      checkStatus,
+      createdAt: completedAt,
+    });
+    await this.controlStore.transactChangeSet(changeSetId, (current) => {
+      const unit = unitsForCurrentPlan(current).find(
+        (item) => item.work_unit_id === workUnitId,
+      );
+      invariant(
+        unit?.state === "verifying" &&
+          unit.candidate_checkpoint_id === checkpoint.checkpoint_id,
+        "CANDIDATE_CHECKPOINT_STATE_MISMATCH",
+        "Verification subject changed before its result was recorded",
+      );
+      unit.verification_run_references.at(-1).status = "completed";
+      const reference = current.run_references.find(
+        (item) => item.run_id === runId,
+      );
+      reference.status = "completed";
+      current.verification_reviews.push(review);
+      unit.verification_review_id = review.review_id;
+      if (checkResult.failedError) {
+        unit.state = "verification_failed";
+        unit.last_error = {
+          code: "VERIFICATION_CHECK_FAILED",
+          message: checkResult.failedError.message,
+          verification_review_id: review.review_id,
+        };
+        current.state = "failed";
+        current.blockers.push({
+          code: "VERIFICATION_CHECK_FAILED",
+          work_unit_id: workUnitId,
+          checkpoint_id: checkpoint.checkpoint_id,
+          verification_review_id: review.review_id,
+        });
+      } else if (review.verdict === "changes_required") {
+        unit.state = "verification_changes_required";
+        unit.last_error = {
+          code: "VERIFICATION_CHANGES_REQUIRED",
+          verification_review_id: review.review_id,
+        };
+        current.state = "blocked";
+        current.blockers.push({
+          code: "VERIFICATION_CHANGES_REQUIRED",
+          work_unit_id: workUnitId,
+          checkpoint_id: checkpoint.checkpoint_id,
+          verification_review_id: review.review_id,
+        });
+      } else if (review.verdict === "human_decision_required") {
+        unit.state = "verification_human_decision_required";
+        unit.last_error = {
+          code: "VERIFICATION_HUMAN_DECISION_REQUIRED",
+          verification_review_id: review.review_id,
+        };
+        current.state = "decision_required";
+        current.blockers.push({
+          code: "VERIFICATION_HUMAN_DECISION_REQUIRED",
+          work_unit_id: workUnitId,
+          checkpoint_id: checkpoint.checkpoint_id,
+          verification_review_id: review.review_id,
+        });
+      } else {
+        unit.state = "verification_passed";
+        unit.last_error = null;
+        resolveValidationBlockers(current, {
+          workUnitId,
+          resolvedAt: this.now(),
+        });
+        current.state = "validating";
+      }
+      current.updated_at = this.now();
+    });
+
+    if (checkResult.failedError) {
+      throw new ChangeFleetError(
+        "VERIFICATION_CHECK_FAILED",
+        "An independent verification check failed for the exact Candidate",
+        { verification_review_id: review.review_id },
+      );
+    }
+    if (review.verdict === "changes_required") {
+      throw new ChangeFleetError(
+        "VERIFICATION_CHANGES_REQUIRED",
+        "Independent verification requires Candidate changes",
+        { verification_review_id: review.review_id },
+      );
+    }
+    if (review.verdict === "human_decision_required") {
+      throw new ChangeFleetError(
+        "VERIFICATION_HUMAN_DECISION_REQUIRED",
+        "Independent verification requires a human decision",
+        { verification_review_id: review.review_id },
+      );
+    }
+    return review;
+  }
+
+  async executeVerificationRequestedChecks({
+    changeSetId,
+    workUnitId,
+    checkpoint,
+    repository,
+    workspace,
+    commands,
+    projectPolicy,
+  }) {
+    const attemptIds = [];
+    let failedError = null;
+    let missingEvidence = false;
+    for (const command of commands) {
+      const before = await this.controlStore.readChangeSet(changeSetId);
+      const checkIdentity = createCheckIdentity(command);
+      const attemptNumber =
+        before.validation_attempts.filter(
+          (attempt) =>
+            attempt.kind === "verification_check" &&
+            attempt.subject_id === checkpoint.checkpoint_id &&
+            attempt.check_identity?.check_identity_hash ===
+              checkIdentity.check_identity_hash,
+        ).length + 1;
+      const attemptBudget = resolveValidationAttemptBudget({
+        command,
+        projectPolicy,
+        commandSource: "verification_request",
+      });
+      const environmentIdentity = validationEnvironmentIdentity();
+      const startedAt = this.now();
+      let evidence;
+      let commandError = null;
+      try {
+        evidence = await this.validateRepositoryCandidate({
+          repository,
+          candidate: {
+            ...checkpoint,
+            workspace_id: workspace.workspace_id,
+            workspace_path: workspace.workspace_path,
+          },
+          command: {
+            ...command,
+            timeout_ms: attemptBudget.effective.timeout_ms,
+          },
+          checkIdentity,
+          attemptBudget,
+          environmentIdentity,
+          evidenceKind: "verification_check",
+        });
+      } catch (error) {
+        commandError = error;
+        evidence = error.details?.evidence ?? null;
+      }
+      const completedAt = this.now();
+      const attempt = evidence
+        ? createValidationAttempt({
+            kind: "verification_check",
+            subjectId: checkpoint.checkpoint_id,
+            attempt: attemptNumber,
+            status: commandError ? "failed" : "passed",
+            evidence,
+            errorCode: commandError?.code ?? null,
+            checkIdentity,
+            requestedBudget: attemptBudget.requested,
+            effectiveBudget: attemptBudget.effective,
+            budgetSource: attemptBudget.source,
+            budgetLimit: attemptBudget.limit,
+            environmentIdentity,
+            startedAt,
+            completedAt,
+          })
+        : null;
+      if (attempt) {
+        await this.controlStore.transactChangeSet(changeSetId, (current) => {
+          const unit = unitsForCurrentPlan(current).find(
+            (item) => item.work_unit_id === workUnitId,
+          );
+          current.validation_attempts.push(attempt);
+          unit.validation_attempt_ids.push(attempt.validation_attempt_id);
+          current.updated_at = this.now();
+        });
+        attemptIds.push(attempt.validation_attempt_id);
+      }
+      if (commandError) {
+        failedError ??= commandError;
+        missingEvidence ||= attempt === null;
+        if (
+          [
+            "CANDIDATE_HEAD_MISMATCH",
+            "DIRTY_CANDIDATE_WORKSPACE",
+            "CANDIDATE_CHANGED_PATHS_MISMATCH",
+            "VERIFICATION_WORKSPACE_HEAD_CHANGED",
+            "VERIFICATION_WORKSPACE_MODIFIED",
+          ].includes(commandError.code)
+        ) {
+          break;
+        }
+      }
+    }
+    return { attemptIds, failedError, missingEvidence };
+  }
+
+  async ensureRepositoryValidationPassed({
+    changeSetId,
+    workUnitId,
+    workUnit,
+    checkpoint,
+    repository,
+    projectPolicy,
+    attemptBudgetRequests,
+  }) {
     const checkIdentity = createCheckIdentity(workUnit.repository_check);
+    const latestState = await this.controlStore.readChangeSet(changeSetId);
+    const passedAttempt = latestState.validation_attempts.find(
+      (attempt) =>
+        attempt.kind === "repository_validation" &&
+        attempt.subject_id === checkpoint.checkpoint_id &&
+        attempt.status === "passed" &&
+        attempt.check_identity?.check_identity_hash ===
+          checkIdentity.check_identity_hash,
+    );
+    if (passedAttempt) {
+      // Checkpoint 与 check identity 都未改变时复用不可变证据，不因后续验证失败而重复昂贵命令。
+      return structuredClone(passedAttempt.evidence);
+    }
+
+    const attemptNumber =
+      latestState.validation_attempts.filter(
+        (attempt) =>
+          attempt.kind === "repository_validation" &&
+          attempt.subject_id === checkpoint.checkpoint_id,
+      ).length + 1;
     const budgetRequest = selectValidationAttemptBudgetRequest(
       attemptBudgetRequests,
       {
@@ -2896,7 +3720,7 @@ export class ChangeFleetService {
     );
     const attemptBudget = resolveValidationAttemptBudget({
       command: workUnit.repository_check,
-      projectPolicy: state.verification_policy,
+      projectPolicy,
       request: budgetRequest,
     });
     const environmentIdentity = validationEnvironmentIdentity();
@@ -2983,42 +3807,28 @@ export class ChangeFleetService {
       startedAt,
       completedAt,
     });
-    const candidate = createCandidate({
-      repositoryId: checkpoint.repository_id,
-      targetRef: checkpoint.target_ref,
-      baseSha: checkpoint.base_sha,
-      candidateSha: checkpoint.candidate_sha,
-      workspaceId: checkpoint.workspace_id,
-      workspacePath: checkpoint.workspace_path,
-      changedPaths: checkpoint.changed_paths,
-      repositoryEvidence,
-      verificationAdmissionId: admission.admission_id,
-    });
     await this.controlStore.transactChangeSet(changeSetId, (current) => {
       const unit = unitsForCurrentPlan(current).find(
         (item) => item.work_unit_id === workUnitId,
       );
       invariant(
         unit?.candidate_checkpoint_id === checkpoint.checkpoint_id &&
-          ["validation_pending", "validation_failed"].includes(unit.state) &&
           unit.candidate === null,
-        "CANDIDATE_CHECKPOINT_STATE_MISMATCH",
-        "CandidateCheckpoint changed before Candidate promotion",
+        "CANDIDATE_CHECKPOINT_SUBJECT_MISMATCH",
+        "CandidateCheckpoint changed before validation evidence was recorded",
       );
       current.validation_attempts.push(attempt);
       unit.validation_attempt_ids.push(attempt.validation_attempt_id);
-      unit.state = "candidate_ready";
-      unit.candidate = candidate;
+      unit.state = "validation_pending";
       unit.last_error = null;
-      current.candidates.push(candidate);
       resolveValidationBlockers(current, {
         workUnitId,
         resolvedAt: this.now(),
       });
-      current.state = "executing";
+      current.state = "validating";
       current.updated_at = this.now();
     });
-    return candidate;
+    return repositoryEvidence;
   }
 
   async validateRepositoryCandidate({
@@ -3028,6 +3838,7 @@ export class ChangeFleetService {
     checkIdentity,
     attemptBudget,
     environmentIdentity,
+    evidenceKind = "repository_validation",
   }) {
     // 包括 spawn 失败在内的每次尝试都先写 Evidence，再把引用附到控制聚合。
     let preflightError = null;
@@ -3057,7 +3868,7 @@ export class ChangeFleetService {
       }
     }
     const evidence = await this.evidenceStore.record({
-      kind: "repository_validation",
+      kind: evidenceKind,
       subject: {
         repository_id: candidate.repository_id,
         target_ref: candidate.target_ref,
@@ -3385,7 +4196,14 @@ export class ChangeFleetService {
         code: error.code ?? "UNEXPECTED_ERROR",
         message: error.message,
       };
-      if (!["candidate_review", "delivery_ready", "done"].includes(state.state)) {
+      const preservesVerificationState = [
+        "VERIFICATION_CHANGES_REQUIRED",
+        "VERIFICATION_HUMAN_DECISION_REQUIRED",
+      ].includes(command.error.code);
+      if (
+        !preservesVerificationState &&
+        !["candidate_review", "delivery_ready", "done"].includes(state.state)
+      ) {
         state.state = "failed";
         if (
           !state.blockers.some(
@@ -3417,7 +4235,12 @@ function hasResumableValidation(state) {
   return (
     units.some(
       (unit) =>
-        ["validation_pending", "validation_failed"].includes(unit.state) &&
+        [
+          "validation_pending",
+          "validation_failed",
+          "verification_pending",
+          "verification_failed",
+        ].includes(unit.state) &&
         isNonEmptyCheckpoint(
           state.candidate_checkpoints.find(
             (checkpoint) =>

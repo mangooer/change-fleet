@@ -320,9 +320,11 @@ After Provider implementation completes, `CandidateFinalizer` removes and verifi
 overlays, publishes the exact Git subject, and persists a CandidateCheckpoint before starting a
 repository check. It records one immutable deterministic admission for that checkpoint from the
 frozen Project policy, confirmed Plan expectation, optional operator elevation, and exact final
-facts. `basic` or `deterministic` admission continues; `independent_review` fails closed until the
-separate Verification Runtime slice exists. Each validation attempt appends immutable evidence;
-passing current evidence creates the ordinary Candidate.
+facts. `basic` or `deterministic` admission continues without another Runtime. For
+`independent_review`, a passed Plan-bound repository check starts one separately recorded read-only
+verification Run over a disposable exact-Candidate worktree. A bounded passing VerificationReview
+and any requested Runner check evidence create the ordinary Candidate; mutation, malformed output,
+blocking findings, or a human decision fails closed. Each validation attempt remains immutable.
 
 Resume is a deterministic application operation with a new caller idempotency key. It rechecks
 current revisions, source Run, workspace ownership, clean exact HEAD, ancestry, changed paths, and
@@ -485,10 +487,12 @@ On restart:
 6. resume only from the current ChangeSet and plan revision.
 
 An exact current CandidateCheckpoint may resume repository validation, and an unchanged current
-Candidate set may resume combined validation, without a Runtime call. Failed attempts remain
-immutable evidence. An operational retry may use a different bounded timeout while preserving the
-same semantic check and exact subject. Private pre-checkpoint recovery requires an explicit exact
-human gate and never becomes generic commit or workspace import.
+Candidate set may resume combined validation, without repeating execution. Interrupted
+verification abandons its incomplete Run and disposable worktree, reuses matching passed
+repository evidence, and starts one fresh verification Run. Failed attempts remain immutable
+evidence. An operational retry may use a different bounded timeout while preserving the same
+semantic check and exact subject. Private pre-checkpoint recovery requires an explicit exact human
+gate and never becomes generic commit or workspace import.
 
 Provider-native context may optimize continuation but is not lifecycle authority.
 The first real adapter abandons an incomplete Provider session after controller loss and starts a
@@ -531,8 +535,10 @@ An exact AgentProfile selects `host_user` or `operation_scoped`. The trusted-loc
 Codex `danger-full-access`, inherits the host environment, and leaves native Sandbox, network, Web
 Search, history, tools, and subagents to the selected Provider environment. The optional constrained
 mode retains planning `read-only`, execution `workspace-write`, disabled network, and a controlled
-environment. The adapter never silently falls back between modes. Provider setup and native
-Windows prompts remain external readiness concerns, not ChangeSet gates.
+environment. Verification is also `read-only`, uses a disposable detached worktree at the exact
+Candidate SHA, and fails closed when Git state changes. The adapter never silently falls back
+between modes. Provider setup and native Windows prompts remain external readiness concerns, not
+ChangeSet gates.
 
 The adapter uses strict JSON Schema terminal output and maps streamed items into bounded normalized
 events. Provider types and full transcripts remain adapter evidence. Only validated typed outcomes

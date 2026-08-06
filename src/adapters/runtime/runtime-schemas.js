@@ -12,7 +12,14 @@ const COMMAND_SCHEMA = Object.freeze({
     coverage_rationale: { type: "string" },
     timeout_ms: { type: "integer", minimum: 1 },
   },
-  required: ["command_id", "executable", "argv", "coverage_rationale"],
+  // OpenAI 严格结构要求 properties 中的字段全部进入 required；领域层仍可为非 Provider 输入补默认预算。
+  required: [
+    "command_id",
+    "executable",
+    "argv",
+    "coverage_rationale",
+    "timeout_ms",
+  ],
   additionalProperties: false,
 });
 
@@ -193,10 +200,105 @@ export const EXECUTION_OUTCOME_SCHEMA = Object.freeze({
   additionalProperties: false,
 });
 
+const VERIFICATION_FINDING_SCHEMA = Object.freeze({
+  type: "object",
+  properties: {
+    finding_id: { type: "string" },
+    category: {
+      type: "string",
+      enum: [
+        "confirmed_intent",
+        "repository_authority",
+        "correctness",
+        "security",
+        "data",
+        "compatibility",
+        "scope",
+        "evidence",
+      ],
+    },
+    message: { type: "string" },
+    path: { anyOf: [{ type: "string" }, { type: "null" }] },
+  },
+  required: ["finding_id", "category", "message", "path"],
+  additionalProperties: false,
+});
+
+const VERIFICATION_NOTE_SCHEMA = Object.freeze({
+  type: "object",
+  properties: {
+    note_id: { type: "string" },
+    message: { type: "string" },
+  },
+  required: ["note_id", "message"],
+  additionalProperties: false,
+});
+
+const HUMAN_DECISION_SCHEMA = Object.freeze({
+  type: "object",
+  properties: {
+    question: { type: "string" },
+    options: { type: "array", items: { type: "string" }, minItems: 2 },
+  },
+  required: ["question", "options"],
+  additionalProperties: false,
+});
+
+export const VERIFICATION_OUTCOME_SCHEMA = Object.freeze({
+  type: "object",
+  properties: {
+    type: { type: "string", enum: ["verification_completed"] },
+    review_depth: {
+      type: "string",
+      enum: ["triage", "deep_review"],
+    },
+    verdict: {
+      type: "string",
+      enum: [
+        "pass",
+        "pass_with_notes",
+        "changes_required",
+        "human_decision_required",
+      ],
+    },
+    summary: { type: "string" },
+    findings: {
+      type: "array",
+      items: VERIFICATION_FINDING_SCHEMA,
+      maxItems: 16,
+    },
+    notes: {
+      type: "array",
+      items: VERIFICATION_NOTE_SCHEMA,
+      maxItems: 16,
+    },
+    human_decision: {
+      anyOf: [HUMAN_DECISION_SCHEMA, { type: "null" }],
+    },
+    requested_checks: {
+      type: "array",
+      items: COMMAND_SCHEMA,
+      maxItems: 8,
+    },
+  },
+  required: [
+    "type",
+    "review_depth",
+    "verdict",
+    "summary",
+    "findings",
+    "notes",
+    "human_decision",
+    "requested_checks",
+  ],
+  additionalProperties: false,
+});
+
 export function schemaForOperation(operation) {
   // 未知操作必须在调用 Provider 前失败，不能退回无结构文本。
   if (operation === "planning") return PLANNING_OUTCOME_SCHEMA;
   if (operation === "execution") return EXECUTION_OUTCOME_SCHEMA;
+  if (operation === "verification") return VERIFICATION_OUTCOME_SCHEMA;
   throw new Error(`Unsupported Runtime operation ${operation}`);
 }
 
@@ -221,6 +323,27 @@ export function assertStructuredOutcome(operation, outcome) {
         "conversation_message requires one message and a null request",
       );
     }
+    return outcome;
+  }
+  if (
+    operation === "verification" &&
+    outcome.type === "verification_completed" &&
+    ["triage", "deep_review"].includes(outcome.review_depth) &&
+    [
+      "pass",
+      "pass_with_notes",
+      "changes_required",
+      "human_decision_required",
+    ].includes(outcome.verdict) &&
+    typeof outcome.summary === "string" &&
+    Array.isArray(outcome.findings) &&
+    Array.isArray(outcome.notes) &&
+    (outcome.human_decision === null ||
+      (outcome.human_decision &&
+        typeof outcome.human_decision === "object" &&
+        !Array.isArray(outcome.human_decision))) &&
+    Array.isArray(outcome.requested_checks)
+  ) {
     return outcome;
   }
   if (

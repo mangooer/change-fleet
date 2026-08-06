@@ -177,6 +177,15 @@ stable subject runs the Node.js 24 full deterministic check. A real Provider, br
 or independent Verification Runtime gate is excluded because those boundaries are unchanged or
 explicitly deferred.
 
+Decision 0024's second slice requires strict verification outcome and review tests; deterministic
+Codex adapter tests for the read-only operation; Real-Git integration for an exact disposable
+Candidate workspace, requested checks, mutation rejection, blocking and human verdicts, and restart
+without duplicate repository validation or execution; store migration; and context/audit proof of
+separate usage attribution without telemetry in Runtime input. The final stable subject runs the
+Node.js 24 full deterministic check and one authorized real Codex Provider flow because it adds a
+new Provider operation. Browser and GitHub write gates remain excluded because their behavior is
+unchanged.
+
 Decision 0018 requires close-only tests for exact request fields, bounded reasons, idempotent replay,
 quiescent unfinished states, active Run or command rejection, begun-delivery rejection, and terminal
 rejection. Restart and audit checks must prove that prior Runtime usage and all immutable subjects
