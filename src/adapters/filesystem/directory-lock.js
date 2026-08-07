@@ -51,7 +51,7 @@ export class DirectoryLock {
 
       const existing = await readOwner(lockPath);
       if (existing === null) {
-        const lockStat = await stat(lockPath).catch(() => null);
+        const lockStat = await statIfExists(lockPath);
         if (lockStat && Date.now() - lockStat.mtimeMs < 5_000) {
           throw busyError(lockPath, { state: "owner_pending" });
         }
@@ -85,6 +85,15 @@ export class DirectoryLock {
     }
     await rm(this.lockPath, { recursive: true, force: true });
     this.released = true;
+  }
+}
+
+async function statIfExists(targetPath) {
+  try {
+    return await stat(targetPath);
+  } catch (error) {
+    if (error.code === "ENOENT") return null;
+    throw error;
   }
 }
 

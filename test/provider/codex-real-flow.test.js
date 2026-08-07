@@ -4,7 +4,10 @@ import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 
-import { CodexSdkRuntime } from "../../src/adapters/runtime/codex-sdk-runtime.js";
+import {
+  CODEX_SDK_VERSION,
+  CodexSdkRuntime,
+} from "../../src/adapters/runtime/codex-sdk-runtime.js";
 import { ChangeFleetService } from "../../src/application/change-fleet-service.js";
 import { RuntimeAuditQueryService } from "../../src/application/runtime-audit-query-service.js";
 import {
@@ -298,7 +301,11 @@ test(
       );
       assert.equal(evidence.kind, "runtime_invocation");
       assert.equal(evidence.payload.provider.runtime, "codex-sdk");
-      assert.equal(evidence.payload.provider.sdk_version, "0.146.0");
+      assert.equal(
+        evidence.payload.provider.sdk_version,
+        CODEX_SDK_VERSION,
+      );
+      assert.equal(evidence.payload.provider.cli_version, null);
       assert.equal(evidence.payload.observed.effective_model, null);
       assert.equal(
         evidence.payload.usage_observations[0].coverage,

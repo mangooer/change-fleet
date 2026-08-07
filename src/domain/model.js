@@ -429,17 +429,6 @@ export function normalizePlanningMessageText(value, label = "message") {
   );
 }
 
-// 旧调用者可继续规范化已持久化的历史 Plan；新规划流程必须使用 normalizePlanContent。
-export function normalizePlan(input, options) {
-  const content = normalizePlanContent(input, options);
-  return {
-    revision: options.revision,
-    ...content,
-    created_at: options.createdAt,
-    status: "proposed",
-  };
-}
-
 export function createValidationSubject(changeSet, plan, candidates) {
   const exactCandidates = candidates
     .map(candidateIdentity)
@@ -510,7 +499,6 @@ export function createCandidateCheckpoint({
   changedPaths,
   sourceRunId,
   provenance = "automatic",
-  recoveryDecisionId = null,
   createdAt,
 }) {
   // Checkpoint 只冻结已发布 Git 主体；验证通过前不能借此获得 Candidate 权限。
@@ -535,16 +523,9 @@ export function createCandidateCheckpoint({
     source_run_id: normalizeId("source_run_id", sourceRunId),
   };
   invariant(
-    provenance === "automatic" || provenance === "legacy_candidate_recovery",
+    provenance === "automatic",
     "INVALID_CANDIDATE_CHECKPOINT",
     "CandidateCheckpoint provenance is invalid",
-  );
-  invariant(
-    provenance === "automatic"
-      ? recoveryDecisionId === null
-      : typeof recoveryDecisionId === "string",
-    "INVALID_CANDIDATE_CHECKPOINT",
-    "Legacy CandidateCheckpoint requires its recovery decision",
   );
   return {
     schema_version: 1,
@@ -553,10 +534,6 @@ export function createCandidateCheckpoint({
     workspace_path: requireString("workspace_path", workspacePath),
     changed_paths: normalizeUniqueStringArray(changedPaths),
     provenance,
-    recovery_decision_id:
-      recoveryDecisionId === null
-        ? null
-        : normalizeId("recovery_decision_id", recoveryDecisionId),
     created_at: requireString("created_at", createdAt),
   };
 }

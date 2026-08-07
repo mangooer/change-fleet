@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import { describe, test } from "node:test";
 
-import { CodexSdkRuntime } from "../../src/adapters/runtime/codex-sdk-runtime.js";
+import {
+  CODEX_SDK_VERSION,
+  CodexSdkRuntime,
+} from "../../src/adapters/runtime/codex-sdk-runtime.js";
 
 const PROFILE = {
   profile_id: "codex-default",
@@ -117,6 +120,11 @@ describe("Codex SDK Runtime protocol", () => {
 
     assert.equal(first.outcome.type, "conversation_message");
     assert.equal(first.provider_evidence.provider.thread_id, "thread-1");
+    assert.equal(
+      first.provider_evidence.provider.sdk_version,
+      CODEX_SDK_VERSION,
+    );
+    assert.equal(first.provider_evidence.provider.cli_version, null);
     assert.equal(
       first.provider_evidence.usage_observations[0].coverage,
       "aggregate_only",

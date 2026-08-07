@@ -899,16 +899,9 @@ function validateCombinedValidationSubject(record, state, bundle) {
     { bundle_id: bundle.bundle_id, plan_revision: bundle.plan_revision },
   );
   const expected = createValidationSubject(state, plan, bundle.candidates);
-  const legacyExpected = createLegacyValidationSubject(
-    state,
-    plan,
-    bundle.candidates,
-  );
   const evidenceSubjectHash = record.subject?.validation_subject_hash;
   invariant(
-    [expected.validation_subject_hash, legacyExpected.validation_subject_hash].includes(
-      evidenceSubjectHash,
-    ) &&
+    expected.validation_subject_hash === evidenceSubjectHash &&
       record.payload?.manifest?.validation_subject_hash ===
         evidenceSubjectHash &&
       record.payload?.manifest?.change_set_id === state.change_set_id &&
@@ -919,46 +912,18 @@ function validateCombinedValidationSubject(record, state, bundle) {
   );
 }
 
-function createLegacyValidationSubject(changeSet, plan, candidates) {
-  // v6 及更早版本把 timeout 放进检查身份；这里只为读取既有不可变证据重建旧哈希。
-  const subject = {
-    schema_version: 1,
-    change_set_id: changeSet.change_set_id,
-    plan_revision: plan.revision,
-    candidates: candidates
-      .map(candidateIdentity)
-      .sort((left, right) =>
-        left.repository_id.localeCompare(right.repository_id),
-      ),
-    required_check: {
-      command_id: plan.combined_check.command_id,
-      executable: plan.combined_check.executable,
-      argv: [...plan.combined_check.argv],
-      timeout_ms: plan.combined_check.timeout_ms,
-    },
-  };
-  return {
-    ...subject,
-    validation_subject_hash: sha256(subject),
-  };
-}
-
 function validateRuntimeEvidence(run, record) {
   const subject = record.subject ?? {};
   const payload = record.payload ?? {};
-  const acceptedOperations = new Set([
-    run.operation,
-    ...(run.legacy_operation ? [run.legacy_operation] : []),
-  ]);
   invariant(
     subject.run_id === run.run_id &&
       subject.attempt === run.attempt &&
-      acceptedOperations.has(subject.operation) &&
+      subject.operation === run.operation &&
       subject.change_set_id === run.change_set_id &&
       subject.work_unit_id === run.work_unit_id &&
       payload.run_id === run.run_id &&
       payload.attempt === run.attempt &&
-      acceptedOperations.has(payload.operation) &&
+      payload.operation === run.operation &&
       payload.change_set_id === run.change_set_id &&
       payload.work_unit_id === run.work_unit_id &&
       payload.terminal &&
@@ -971,7 +936,7 @@ function validateRuntimeEvidence(run, record) {
       Number.isFinite(Date.parse(payload.timing.completed_at)) &&
       Number.isSafeInteger(payload.timing.duration_ms) &&
       payload.timing.duration_ms >= 0 &&
-      ["completed", "failed", "cancelled", "interrupted", "abandoned"].includes(
+      ["completed", "failed", "cancelled", "interrupted"].includes(
         payload.terminal.status,
       ) &&
       Array.isArray(payload.usage_observations),

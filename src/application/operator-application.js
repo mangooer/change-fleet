@@ -17,7 +17,6 @@ const OPERATION_METHODS = Object.freeze({
     "reviseRepositoryHarnessSelection",
   "changeset.plan": "planChangeSet",
   "changeset.plan.confirm": "confirmPlanMessage",
-  "changeset.candidate.recover_legacy": "recoverLegacyCandidate",
   "changeset.execute": "executeChangeSet",
   "changeset.supervision.start": "startSupervision",
   "changeset.supervision.pause": "pauseSupervision",

@@ -129,11 +129,6 @@ describe("Runtime context admission", () => {
           feedback: { summary: "old full feedback" },
         },
         {
-          decision_id: "decision-recovery",
-          type: "legacy_candidate_recovery",
-          checkpoint_id: "candidate-checkpoint-secret",
-        },
-        {
           decision_id: "decision-closure",
           type: "changeset_closure",
           reason: {
@@ -145,7 +140,6 @@ describe("Runtime context admission", () => {
           decision_id: "decision-provider-retry",
           type: "provider_retry",
           source_run_id: "run-cost-history",
-          retired_candidate_checkpoint_id: "candidate-checkpoint-secret",
           provider_environment_path: "C:/secret/provider-environment",
         },
       ],

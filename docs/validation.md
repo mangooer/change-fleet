@@ -1,6 +1,6 @@
 # Validation Policy
 
-Status: Active policy; Node.js 24 deterministic commands and the WI-0005 opt-in Provider gate pass
+Status: Active policy
 
 ## Principles
 
@@ -11,10 +11,9 @@ Status: Active policy; Node.js 24 deterministic commands and the WI-0005 opt-in 
 - Preserve command, exit code, scope, concise observation, and unverified boundaries.
 - Do not treat Agent prose as deterministic execution evidence.
 - Do not rerun an expensive exact check solely to duplicate evidence.
-- A changed base or candidate SHA invalidates subject binding even when the patch text appears
-  equivalent.
-- Combined validation must identify the exact Candidate set and required check definition. Its
-  finalized evidence is then included in the CandidateBundle.
+- A changed base or Candidate SHA invalidates subject binding even when the patch appears equivalent.
+- Combined validation identifies the exact Candidate set and required check definition. Finalized
+  evidence becomes part of the CandidateBundle.
 
 ## Tiers
 
@@ -25,213 +24,96 @@ Status: Active policy; Node.js 24 deterministic commands and the WI-0005 opt-in 
 | Pure model or state decision | affected unit tests |
 | Store, lock, restart, or recovery | affected deterministic integration tests |
 | Git workspace or Candidate | affected real-Git integration tests |
-| Candidate checkpoint or validation resume | domain and schema tests plus store restart, real-Git preflight, immutable-attempt, zero-Runtime resume, and tamper integration tests |
+| Verification or Bundle review | exact-subject admission, check/review protocol, mutation rejection, feedback or Gate routing, restart, and audit tests |
 | Repository Harness overlay | selector and identity unit tests plus real-Git containment, restart, mutation, cleanup, and Candidate-exclusion integration tests |
-| Runtime adapter | deterministic protocol tests |
+| Runtime adapter | deterministic protocol, evidence, failure, and context-boundary tests |
 | Runtime audit projection | canonical usage and unknown semantics, required-reference integrity, restart reproduction, zero writes, and context exclusion |
-| Debug audit CLI route | exact grammar, process JSON, exit statuses, projection equivalence, missing-root behavior, and zero writes |
-| Unified local CLI | allowlist, application delegation, idempotency, process I/O, human gates, lifecycle path, and obsolete-entry removal |
-| ChangeSet closure | strict reason bounds, quiescence and delivery gates, history preservation, restart, audit retention, context exclusion, shared operation, and CLI path |
-| API or UI | affected tests plus one targeted user path |
+| Local CLI, HTTP, or UI | operation allowlist, shared application delegation, typed errors, caller idempotency, security boundary, and targeted user path |
+| ChangeSet closure | strict request bounds, quiescence and delivery gates, history preservation, restart, context exclusion, and shared operation path |
 | Multi-repository orchestration | real two-repository acceptance fixture |
 | Delivery integration | provider fixture plus exact target-movement case |
 
 ## Selection Rules
 
-Validation is selected twice: when a WorkItem is confirmed and again from its final diff before
-review. The WorkItem records each required, conditional, or explicitly excluded gate and why. A
-later scope or diff change requires reselection; it does not automatically require the full suite.
+Validation is selected when a WorkItem is confirmed and again from its final diff before review.
+The WorkItem records each required, conditional, or explicitly excluded gate and why. A later scope
+or diff change requires reselection; it does not automatically require the full suite.
 
 During implementation, run the smallest test file or command that covers the current edit. Before
-review, run the selected gates against the stable final code. Every changed production module must
-have at least one direct behavioral check, and every changed test file must execute. If no reliable
+review, run the selected gates against stable final code. Every changed production module must have
+at least one direct behavioral check, and every changed test file must execute. If no reliable
 dependency boundary is known, escalate to the nearest parent suite and record that uncertainty.
 
-`npm run check` is required when at least one of these conditions applies:
+`npm run check` is required when at least one condition applies:
 
 - the final diff changes shared domain contracts, persisted schemas, package dependencies, module
   loading, or the test runner;
 - the change crosses several tiers such as lifecycle, stores, workspaces, Runtime, and acceptance;
-- no bounded test set can cover the affected dependency surface with reasonable confidence;
+- no bounded test set covers the affected dependency surface with reasonable confidence;
 - an accepted Proposal, Decision, WorkItem, release, or merge policy explicitly requires it.
 
 `npm run check` is not required merely because files changed. Documentation-only work runs no Node
 tests. An isolated module with direct unit or integration coverage may stop after those selected
-checks. A changed test fixture must run every test file that consumes it or the nearest owning
-suite when consumers are not reliably enumerable.
+checks. A changed fixture must run every known consumer or the nearest owning suite when consumers
+cannot be enumerated reliably.
 
-Run an expensive full gate only after code has stabilized. A later evidence, comment, or
+Run an expensive full gate only after code stabilizes. A later evidence, comment, or
 documentation-only edit does not invalidate it. A later production, dependency, test-runner, or
-behavioral test change does invalidate the relevant subject; reselect the smallest gates, and rerun
-the full suite only when one of the full-suite conditions still applies.
+behavioral-test edit invalidates the relevant subject; reselect the smallest gates and rerun the
+full suite only while a full-suite condition still applies.
 
 ## Current Commands
 
-Documentation-only changes require the following command plus targeted link and eager-size
-inspection; they do not require Node tests:
+Documentation-only changes require this command plus targeted link and eager-size inspection:
 
 ```sh
 git diff --check
 ```
-
-Decision 0006 accepts this implementation command contract:
 
 | Package command | Scope |
 | --- | --- |
 | `npm test` | Pure domain and application tests |
 | `npm run test:integration` | Filesystem, locks, recovery, real-Git workspaces, and Candidate identity |
 | `npm run test:acceptance` | Serial real two-repository flow |
-| `npm run test:provider:codex` | Opt-in real Codex single-Repository flow; requires `CHANGEFLEET_RUN_REAL_CODEX=1` and external credentials |
-| `npm run check` | Fail-fast Node.js 24 guard, then all accepted test scopes |
+| `npm run test:provider:codex` | Opt-in real Codex flow; requires `CHANGEFLEET_RUN_REAL_CODEX=1` and external credentials |
+| `npm run test:ui` | Selected browser paths; requires the pinned Playwright browser |
+| `npm run check` | Fail-fast Node.js 24 guard, then all deterministic accepted scopes |
 
-WI-0001 implements the deterministic commands in the private package. WI-0003 adds the real
-Provider command but deliberately keeps it outside the normal fast suite. A WorkItem that selects
-`npm run check` must run it under Node.js 24; a passing run under another major is only compatibility
-evidence. The check entry point validates its actual process major before dispatching tests and
-fails immediately with `UNSUPPORTED_NODE_VERSION` when PATH selected another major.
+A WorkItem that selects `npm run check` runs it under Node.js 24. The check entry point validates
+the actual process major and fails with `UNSUPPORTED_NODE_VERSION` when PATH selects another major.
 
 The real Provider command is a development-validation gate. `CHANGEFLEET_RUN_REAL_CODEX=1` prevents
-accidental nondeterministic external execution; it is not a product Runtime switch, a Codex SDK
-per-Run approval, or part of `npm run check`. Select the gate only when the WorkItem or final diff
-crosses Provider invocation, Runtime-host provisioning, Provider evidence capture, or another
-explicit end-to-end boundary. Within this repository, the user has granted standing authorization
-to run a selected real Codex gate without another conversational confirmation. Repository scope,
-network, full-host access, destructive delivery, or a new external-cost class still requires its
-own authority. A skipped gate is never reported as passed.
+accidental nondeterministic execution; it is not a product Runtime switch or per-Run approval.
+Select it only when the final diff crosses Provider invocation, Runtime-host provisioning,
+Provider evidence capture, or another explicit end-to-end boundary. Within this repository, the
+user has granted standing authority to run a selected real Codex gate without another
+conversational confirmation. Repository scope, network, full-host access, destructive delivery,
+or a new external-cost class still requires its own authority. A skipped gate is never reported as
+passed.
 
-The accepted audit-projection boundary requires deterministic tests to prove canonical observation
-selection, null preservation, distinct duration and outcome semantics, exact source identity,
-bounded pagination, typed failure for malformed required evidence, restart reproduction, and zero
-mutation of control state, evidence, workspaces, Git, or registered repositories. A context
-regression must prove that audit fields do not enter ordinary Runtime input. A selected real Codex
-source-to-projection check follows the development Provider rule above and is not repeated merely
-because presentation code changed.
+Real GitHub validation is an external-write gate, not part of `npm run check` and not covered by the
+standing real Codex permission. Before running it, record the exact repository, branch namespace,
+PR visibility, expected writes, human merge behavior, and cleanup authority. An omitted real
+GitHub gate remains explicitly unverified when deterministic Git and `gh` fixture tests pass.
 
-Decision 0013's exact-id audit boundary continues beneath the unified CLI debug namespace. Success
-and representative failures preserve the control-root digest, an absent root remains absent, and
-the command is compared with the direct query projection under the same locale and pagination.
-This presentation path does not repeat the paid Provider gate.
+Verification, review, and supervision tests bind every decision to the exact immutable subject and
+prove that Runtime output remains a proposal. Deterministic control code owns admission, budgets,
+transitions, mutation checks, Feedback and Gate routing, and final human authority. Tests should
+exercise the current coarse phase and generic Run lifecycle rather than preserve superseded
+operation-specific states or private schema migrations.
 
-Decision 0014 requires the unified CLI to prove explicit operator-command allowlisting, unchanged
-application input and result delegation, caller idempotency, typed process failure, and one complete
-current local lifecycle path. Audit migration must retain Decision 0013's projection and zero-write
-checks. Final review also inspects `bin/`, package scripts, documentation, and tests to prove the
-standalone audit entry point and every unowned temporary executable are absent. Real Provider
-validation follows the shared development rule above rather than a CLI-specific permission gate.
+Local adapters exercise shared application operations, never shell through the CLI. Browser tests
+are selected when browser assets, view models, HTTP behavior, or local-browser security change.
+Missing Playwright packages or browser binaries fail a selected gate closed; generated screenshots,
+traces, reports, and browser binaries stay outside Git and control state.
 
-Decision 0015 requires deterministic GitHub delivery tests at four boundaries: pure binding and
-request identity; structured `gh` argv and bounded JSON normalization; real local Git remote
-publication, non-force conflict, target movement, and reachability; and complete application
-recovery through single- and multi-Repository acceptance. Tests must distinguish closed-unmerged,
-Candidate-diverged, integration-stale, partial merge, and exact completion. Provider fixtures stay
-under test support and cannot be selected by production configuration.
-
-Real GitHub validation is an external-write gate, not part of `npm run check` and not authorized by
-the standing real Codex test permission. Before running it, record the exact repository, branch
-namespace, PR visibility, expected writes, human merge behavior, and cleanup authority. An omitted
-real GitHub gate remains explicitly unverified even when deterministic Git and `gh` fixture tests
-pass.
-
-Decision 0016 requires selected tests for the bounded ChangeSet list, exact-subject UI projection,
-explicit HTTP route allowlist, body and output limits, typed error mapping, loopback/Host/Origin and
-session/CSRF checks, graceful shutdown, zero-mutation GET behavior, caller idempotency, stale Bundle
-decisions, delivery reconciliation, and Runtime-context exclusion. The existing isolated audit CLI
-keeps its stronger zero-capability process tests even when the local lifecycle server presents the
-same bounded audit facts.
-
-The first UI WorkItem may add one exact pinned `@playwright/test` development dependency and an
-explicit Chromium install step. Its `test:ui` gate is required when browser assets, view models,
-HTTP behavior, or local-browser security change. Documentation-only and unrelated domain changes
-do not launch or download a browser. Missing `@playwright/test` or the pinned Chromium binary must
-fail the selected Repository gate closed rather than report pass; generated screenshots, traces,
-reports, and browser binaries stay outside Git and control state.
-
-Decision 0017 requires deterministic tests for CandidateCheckpoint identity and persistence,
-immutable failed validation evidence, restart and zero-Runtime repository or combined resume,
-human-gated exact legacy recovery, and tampered-subject rejection. Native Windows integration must
-prove `npm.cmd` resolution, metacharacter argv preservation, effective-invocation evidence, timeout,
-and cancellation without exposing a caller-provided shell command.
-
-Context regression must prove that only bounded current `request_revision` feedback enters the
-handling feedback-triggered execution Run while checkpoint details, host locators, output, complete review artifacts,
-and older decisions remain excluded. WI-0010 changes shared domain contracts, persisted schema,
-stores, Git workspaces, command launch, context, and CLI behavior, so its final stable subject must
-run `npm run check` under Node.js 24. Another real Provider call is excluded; actual WI-0009 legacy
-recovery is an operational continuation only after WI-0010 is accepted and landed.
-
-Decisions 0022 and 0023 require exact per-finding assessment completeness, uniqueness, allowed
-dispositions, ordering, and bounds without treating reviewer claims as truth. Tests must prove that
-planning messages allocate no Plan revision, exact message approval creates the next confirmed
-revision, ordinary Bundle feedback handling keeps that revision, and typed contract invalidation is the
-only route back to planning. Migration must deterministically retire incompatible unconfirmed v5
-Plan records. This shared domain, store, Runtime, CLI, and UI contract selects the Node.js 24 full
-deterministic check and one authorized real Provider planning flow.
-
-Decision 0024's first deterministic slice requires direct domain tests for admission precedence,
-fast-path bounds, immutable identity, check identity, and attempt-budget maxima; store migration
-tests for frozen Project policy and legacy Plans; and exact CandidateCheckpoint integration proving
-bounded timeout retry without a Plan revision or Runtime invocation. Audit tests must bind attempt
-metadata to immutable EvidenceStore content and keep it outside ordinary Runtime context. Because
-this slice changes shared domain, schema, store, lifecycle, recovery, and audit contracts, its final
-stable subject runs the Node.js 24 full deterministic check. A real Provider, browser, GitHub write,
-or independent Verification Runtime gate is excluded because those boundaries are unchanged or
-explicitly deferred.
-
-Decision 0024's second slice requires strict verification outcome and review tests; deterministic
-Codex adapter tests for the read-only operation; Real-Git integration for an exact disposable
-Candidate workspace, requested checks, mutation rejection, blocking and human verdicts, and restart
-without duplicate repository validation or execution; store migration; and context/audit proof of
-separate usage attribution without telemetry in Runtime input. The final stable subject runs the
-Node.js 24 full deterministic check and one authorized real Codex Provider flow because it adds a
-new Provider operation. Browser and GitHub write gates remain excluded because their behavior is
-unchanged.
-
-Decision 0025 replaces Decision 0024's third-slice workflow names with one unified lifecycle.
-Validation requires transition-table coverage; common Run completion, failure, interruption,
-cancellation, continuation, and feedback lineage; exhaustive v9-to-v10 migration fixtures; and
-Real-Git proof that feedback-triggered execution and later verification retain exact checkpoint and
-cost evidence. Multi-repository acceptance must observe one current WorkUnit in `verification`
-while another is in `execution`, with the ChangeSet remaining `working`. Runtime-context tests expose
-only current feedback, while audit tests retain complete immutable lineage outside Runtime input.
-Operation adapters and local UI must present derived activity and generic Feedback, Gate, continue,
-and interruption behavior without compound persisted states. Because this replacement changes the
-shared schema, migration, Runtime contracts, recovery, CLI, HTTP, and UI, its stable subject runs the
-Node.js 24 full deterministic check, selected UI gate, and one authorized real Codex Provider flow.
-GitHub external writes remain excluded because delivery behavior is unchanged.
-
-Decision 0018 requires close-only tests for exact request fields, bounded reasons, idempotent replay,
-quiescent unfinished states, active Run or command rejection, begun-delivery rejection, and terminal
-rejection. Restart and audit checks must prove that prior Runtime usage and all immutable subjects
-remain readable while the closure decision stays outside Runtime context. Shared application and
-CLI tests must prove that close delegates without creating a successor or invoking Runtime, Git,
-validation, workspace cleanup, or delivery. The slice does not select a real Provider, browser, or
-GitHub external-write gate.
-
-Decision 0026 requires pure action-policy and budget tests; v10 migration and interrupted-Run
-recovery; Real-Git forced, failed-check/Feedback, and multi-Repository routes; strict supervision
-Runtime protocol; audit/context exclusion; and shared operation, CLI, HTTP, and browser coverage.
-The stable implementation runs the Node.js 24 full deterministic check and one authorized real
-Codex flow covering the new read-only supervision purpose. Real GitHub writes remain excluded
-because autonomous authority stops before Bundle acceptance and delivery.
-
-Decision 0027 requires strict admission, exact-subject assessment, structured finding and legacy-
-Plan migration tests; Real-Git one- and two-Repository passage, Feedback, Gate, mutation, stale-
-identity and restart routes; common Run recovery; audit/context exclusion; and shared local-surface
-coverage. Its stable implementation runs the Node.js 24 full deterministic check and one authorized
-real Codex flow covering the new read-only `review` purpose and one bounded same-Plan repair. Real
-GitHub writes remain excluded because Bundle acceptance and delivery identity are unchanged.
-
-The recommended first real GitHub gate is the accepted UI WorkItem's exact Candidate rather than a
-disposable smoke change. It remains separately authorized under the repository, branch, PR, merge,
-and cleanup rules above; Proposal or WorkItem acceptance alone does not grant the write.
-
-For Harness documentation, also inspect the byte sizes of `AGENTS.md`, `WORKFLOW.md`, and
-`docs/current-state.md` against the soft limits in `docs/harness.md`. This is a maintenance
-observation, not proof of provider token usage or the proposed 70-percent Runtime bound.
+For Harness documentation, inspect the byte sizes of `AGENTS.md`, `WORKFLOW.md`, and
+`docs/current-state.md` against `docs/harness.md`. This is a maintenance observation, not proof of
+Provider token usage or the 70-percent Runtime target.
 
 ## Acceptance Evidence
 
-Every implementation WorkItem should record:
+Every implementation WorkItem records:
 
 ```text
 command

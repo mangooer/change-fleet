@@ -195,7 +195,6 @@ node ./bin/changefleet.js changeset plan --config changefleet.json --request pla
 node ./bin/changefleet.js changeset plan confirm --config changefleet.json --request confirm.json
 node ./bin/changefleet.js changeset feedback submit --config changefleet.json --request feedback.json
 node ./bin/changefleet.js changeset gate resolve --config changefleet.json --request gate.json
-node ./bin/changefleet.js changeset candidate recover-legacy --config changefleet.json --request recovery.json
 node ./bin/changefleet.js changeset execute --config changefleet.json --request execute.json
 node ./bin/changefleet.js changeset supervision start --config changefleet.json --request supervision-start.json
 node ./bin/changefleet.js changeset supervision pause --config changefleet.json --request supervision-pause.json
@@ -267,10 +266,9 @@ node ./bin/changefleet.js debug audit changeset <change_set_id> --control-root <
 ```
 
 Success writes one bounded JSON result to stdout. Failure writes one typed localized JSON diagnostic
-to stderr. The CLI cannot discover roots or subjects, select a fake Runtime, or expose internal
-recovery helpers. `candidate recover-legacy` is the sole explicit human-gated private-schema
-recovery operation; it requires the exact current plan, WorkUnit, completed Run, base, candidate,
-and actor. Its current grammar is experimental rather than a released compatibility contract.
+to stderr. The CLI cannot discover roots or subjects, select a fake Runtime, expose internal
+recovery helpers, or rewrite an obsolete private Control Store. This unreleased baseline accepts
+only the current exact storage schema.
 
 `serve` keeps one foreground loopback server alive for the repository-owned browser console. It
 reuses the shared application and query services directly rather than shelling back into the CLI.

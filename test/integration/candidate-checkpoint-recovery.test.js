@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
 import { chmod, mkdir, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, test } from "node:test";
@@ -718,106 +717,6 @@ describe("post-Provider Candidate finalization recovery", () => {
     );
   });
 
-  test("requires an exact human gate for a private pre-checkpoint record", async (t) => {
-    const fixture = await createFixture(t, "legacy");
-    const commandName = `changefleet-legacy-check-${process.pid}`;
-    fixture.plan.work_units[0].repository_check = {
-      command_id: "legacy-check",
-      executable: commandName,
-      argv: [],
-      coverage_rationale: "Checks the exact legacy Candidate",
-      timeout_ms: 10_000,
-    };
-    const binRoot = path.join(fixture.root, "bin");
-    await mkdir(binRoot);
-    const previousPath = process.env.PATH;
-    process.env.PATH = `${binRoot}${path.delimiter}${previousPath}`;
-    t.after(() => {
-      process.env.PATH = previousPath;
-    });
-    const runtime = new ScriptedRuntime({ plan: fixture.plan });
-    const service = await bootstrap(fixture, runtime);
-    await assert.rejects(
-      service.executeChangeSet({
-        idempotency_key: "execute-fails",
-        change_set_id: "change-1",
-      }),
-      { code: "COMMAND_SPAWN_FAILED" },
-    );
-    const checkpointState = await service.readChangeSet("change-1");
-    const originalCheckpoint = checkpointState.candidate_checkpoints[0];
-    await service.controlStore.transactChangeSet("change-1", (state) => {
-      // 测试夹具退化成 WI-0009 的 v4 形状；生产代码不提供此类原始状态写入口。
-      state.candidate_checkpoints = [];
-      state.validation_attempts = [];
-      const workUnit = state.work_units[0];
-      workUnit.candidate_checkpoint_id = null;
-      workUnit.validation_attempt_ids = [];
-      workUnit.phase = "execution";
-    });
-
-    const request = {
-      idempotency_key: "legacy-recovery",
-      change_set_id: "change-1",
-      plan_revision: 1,
-      work_unit_id: "api-unit",
-      source_run_id: originalCheckpoint.source_run_id,
-      base_sha: originalCheckpoint.base_sha,
-      candidate_sha: originalCheckpoint.candidate_sha,
-      actor: "operator",
-    };
-    await assert.rejects(
-      service.recoverLegacyCandidate({
-        ...request,
-        idempotency_key: "legacy-wrong-sha",
-        candidate_sha: originalCheckpoint.base_sha,
-      }),
-      { code: "CANDIDATE_HEAD_MISMATCH" },
-    );
-    const configPath = path.join(fixture.root, "changefleet.json");
-    const requestPath = path.join(fixture.root, "legacy-recovery.json");
-    await writeFile(configPath, JSON.stringify(cliConfig(fixture)));
-    await writeFile(requestPath, JSON.stringify(request));
-    const recoveryCommand = [
-      "changeset",
-      "candidate",
-      "recover-legacy",
-      "--config",
-      configPath,
-      "--request",
-      requestPath,
-    ];
-    const recoveryResult = await runCli(recoveryCommand);
-    assert.equal(recoveryResult.exitCode, 0);
-    const recovery = JSON.parse(recoveryResult.stdout);
-    assert.equal(recovery.status, "validation_pending");
-    const repeatedRecovery = await runCli(recoveryCommand);
-    assert.equal(repeatedRecovery.exitCode, 0);
-    assert.deepEqual(JSON.parse(repeatedRecovery.stdout), recovery);
-    const recoveredState = await service.readChangeSet("change-1");
-    assert.equal(recoveredState.phase, "working");
-    assert.equal(recoveredState.work_units[0].phase, "verification");
-    assert.equal(recoveredState.candidate_checkpoints.length, 1);
-    assert.equal(
-      recoveredState.candidate_checkpoints[0].provenance,
-      "legacy_candidate_recovery",
-    );
-    assert.equal(
-      recoveredState.decisions.at(-1).type,
-      "legacy_candidate_recovery",
-    );
-
-    await writePassingLauncher(binRoot, commandName);
-    const resumeRuntime = new ScriptedRuntime({ plan: fixture.plan });
-    const reopened = await open(fixture, resumeRuntime);
-    await reopened.executeChangeSet({
-      idempotency_key: "execute-after-legacy-recovery",
-      change_set_id: "change-1",
-    });
-    assert.equal(resumeRuntime.invocations.length, 0);
-    assert.equal((await reopened.readChangeSet("change-1")).phase, "review");
-  });
-
   test("retries combined validation over unchanged Candidates without Runtime", async (t) => {
     const fixture = await createFixture(t, "combined");
     await writeFile(fixture.combinedScript, "process.exit(9);\n");
@@ -914,10 +813,6 @@ function open(fixture, runtime) {
   });
 }
 
-async function writePassingLauncher(binRoot, commandName) {
-  return writeLauncher(binRoot, commandName, "process.exit(0);");
-}
-
 async function writeLauncher(binRoot, commandName, source) {
   if (process.platform === "win32") {
     const scriptPath = path.join(binRoot, `${commandName}.mjs`);
@@ -931,55 +826,6 @@ async function writeLauncher(binRoot, commandName, source) {
   const launcher = path.join(binRoot, commandName);
   await writeFile(launcher, `#!/usr/bin/env node\n${source}\n`);
   await chmod(launcher, 0o755);
-}
-
-function cliConfig(fixture) {
-  return {
-    schema_version: 1,
-    control_root: fixture.controlRoot,
-    workspace_root: fixture.workspaceRoot,
-    locale: "en",
-    runtime: {
-      adapter: "codex-sdk",
-      credential_source: "local_codex_home",
-      codex_home: "./provider-home",
-    },
-    agent_profile: {
-      profile_id: "local-codex-profile",
-      revision: 1,
-      provider: "openai",
-      runtime: "codex-sdk",
-      model: "gpt-5.4",
-      reasoning: "medium",
-      permissions: "operation_scoped",
-      network_access: false,
-      skills: [],
-      credential_profile_id: "local-codex-credentials",
-    },
-  };
-}
-
-function runCli(arguments_) {
-  return new Promise((resolve, reject) => {
-    const commandPath = path.join(process.cwd(), "bin", "changefleet.js");
-    const child = spawn(process.execPath, [commandPath, ...arguments_], {
-      cwd: process.cwd(),
-      windowsHide: true,
-      shell: false,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    let stdout = "";
-    let stderr = "";
-    child.stdout.setEncoding("utf8");
-    child.stderr.setEncoding("utf8");
-    child.stdout.on("data", (chunk) => (stdout += chunk));
-    child.stderr.on("data", (chunk) => (stderr += chunk));
-    child.once("error", reject);
-    child.once("exit", (exitCode, signal) => {
-      if (signal) reject(new Error(`CLI terminated by ${signal}`));
-      else resolve({ exitCode, stdout, stderr });
-    });
-  });
 }
 
 class MutatingVerificationRuntime extends ScriptedRuntime {

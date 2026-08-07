@@ -4,7 +4,6 @@ import path from "node:path";
 import { describe, test } from "node:test";
 
 import { ChangeFleetService } from "../../src/application/change-fleet-service.js";
-import { createCandidateCheckpoint } from "../../src/domain/model.js";
 import {
   createFixtureRoot,
   createGitRepository,
@@ -100,76 +99,6 @@ describe("pre-Candidate execution retry", () => {
     assert.equal(recovered.phase, "review");
     assert.equal(recovered.candidate_checkpoints.length, 1);
     assert.equal(recovered.work_units[0].run_references.length, 2);
-  });
-
-  test("retires a legacy empty checkpoint but preserves it as audit history", async (t) => {
-    const fixture = await createFixture(t, "legacy-empty");
-    const emptyRuntime = new ScriptedRuntime({
-      plan: fixture.plan,
-      executionOutcome: {
-        type: "implementation_completed",
-        summary: "nothing changed",
-        changed_paths: [],
-        blocker: null,
-      },
-    });
-    const service = await bootstrap(fixture, emptyRuntime);
-    await assert.rejects(
-      execute(service, "execute-empty"),
-      { code: "EMPTY_IMPLEMENTATION_RESULT" },
-    );
-    const failed = await service.readChangeSet("change-1");
-    const unit = failed.work_units[0];
-    const sourceRunId = unit.run_references[0].run_id;
-    const emptyCheckpoint = createCandidateCheckpoint({
-      changeSetId: failed.change_set_id,
-      intentRevision: failed.current_intent_revision,
-      planRevision: failed.current_plan_revision,
-      repositorySelectionRevision: failed.current_repository_selection_revision,
-      repositoryHarnessSelectionRevision:
-        failed.current_repository_harness_selection_revision,
-      workUnitId: unit.work_unit_id,
-      repositoryId: unit.repository_id,
-      targetRef: unit.target_ref,
-      baseSha: unit.base_sha,
-      candidateSha: unit.base_sha,
-      workspaceId: unit.workspace.workspace_id,
-      workspacePath: unit.workspace.workspace_path,
-      changedPaths: [],
-      sourceRunId,
-      createdAt: new Date().toISOString(),
-    });
-    await service.controlStore.transactChangeSet("change-1", (state) => {
-      // 模拟旧实现已错误持久化的 base-equal Checkpoint；生产入口不会再创建该形状。
-      state.candidate_checkpoints.push(emptyCheckpoint);
-      state.work_units[0].candidate_checkpoint_id = emptyCheckpoint.checkpoint_id;
-      state.work_units[0].phase = "verification";
-      state.work_units[0].last_error = {
-        code: "REPOSITORY_VALIDATION_FAILED",
-        message: "legacy empty checkpoint",
-      };
-    });
-
-    const retryRuntime = new ScriptedRuntime({ plan: fixture.plan });
-    const reopened = await open(fixture, retryRuntime);
-    await execute(reopened, "execute-legacy-empty-retry");
-    const recovered = await reopened.readChangeSet("change-1");
-
-    assert.equal(recovered.phase, "review");
-    assert.equal(recovered.candidate_checkpoints.length, 2);
-    assert.equal(
-      recovered.candidate_checkpoints.some(
-        (checkpoint) => checkpoint.checkpoint_id === emptyCheckpoint.checkpoint_id,
-      ),
-      true,
-    );
-    const retryDecision = recovered.decisions.find(
-      (decision) => decision.type === "provider_retry",
-    );
-    assert.equal(
-      retryDecision.retired_candidate_checkpoint_id,
-      emptyCheckpoint.checkpoint_id,
-    );
   });
 
   test("refuses to reset a dirty failed workspace before retry", async (t) => {

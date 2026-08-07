@@ -37,7 +37,7 @@ export class RepositoryWorker {
     // 登记阶段只解析真实 Git 根目录和目标 ref，不清理或修改用户 checkout。
     normalizeId("repository_id", repositoryId);
     const configuredPath = path.resolve(locator);
-    const configuredStat = await stat(configuredPath).catch(() => null);
+    const configuredStat = await statIfExists(configuredPath);
     invariant(
       configuredStat?.isDirectory(),
       "INVALID_REPOSITORY_LOCATOR",
@@ -63,10 +63,7 @@ export class RepositoryWorker {
         ? await discoverCurrentRef(root)
         : normalizeTargetRef(defaultTargetRef);
     await resolveCommit(root, targetRef);
-    const canonicalRemote = await git(root, ["remote", "get-url", "origin"])
-      // 登记只保存无凭据定位；真实认证继续由宿主 Git/gh 管理。
-      .then((value) => redactRemoteCredentials(value.trim()))
-      .catch(() => null);
+    const canonicalRemote = await discoverCanonicalRemote(root);
     return {
       repository_id: repositoryId,
       locator: {
@@ -322,7 +319,7 @@ export class RepositoryWorker {
         workspace.workspace_path,
         file.relative_path,
       );
-      if (await lstat(target).catch(() => null)) existing.push(target);
+      if (await lstatIfExists(target)) existing.push(target);
     }
     if (existing.length > 0) {
       await this.verifyHarnessOverlay({ repository, workspace, snapshot });
@@ -357,7 +354,7 @@ export class RepositoryWorker {
         workspace.workspace_path,
         file.relative_path,
       );
-      const targetStat = await lstat(target).catch(() => null);
+      const targetStat = await lstatIfExists(target);
       invariant(
         targetStat?.isFile() && !targetStat.isSymbolicLink(),
         "HARNESS_OVERLAY_MODIFIED",
@@ -451,7 +448,7 @@ export class RepositoryWorker {
         file.relative_path,
       );
       invariant(
-        !(await lstat(target).catch(() => null)),
+        !(await lstatIfExists(target)),
         "HARNESS_OVERLAY_CLEANUP_FAILED",
         `Harness overlay path remains after cleanup: ${file.relative_path}`,
         { path: file.relative_path },
@@ -472,7 +469,7 @@ export class RepositoryWorker {
     );
     await assertCommitExists(repository.resolved_git_root, baseSha);
 
-    const workspaceStat = await stat(workspacePath).catch(() => null);
+    const workspaceStat = await statIfExists(workspacePath);
     if (!workspaceStat) {
       await mkdir(path.dirname(workspacePath), { recursive: true });
       await git(repository.resolved_git_root, ["worktree", "prune"]);
@@ -516,7 +513,7 @@ export class RepositoryWorker {
     );
     await assertCommitExists(repository.resolved_git_root, baseSha);
 
-    const workspaceStat = await stat(workspacePath).catch(() => null);
+    const workspaceStat = await statIfExists(workspacePath);
     if (!workspaceStat) {
       await mkdir(path.dirname(workspacePath), { recursive: true });
       await git(repository.resolved_git_root, ["worktree", "prune"]);
@@ -570,7 +567,7 @@ export class RepositoryWorker {
     );
     await assertCommitExists(repository.resolved_git_root, candidateSha);
 
-    const workspaceStat = await stat(workspacePath).catch(() => null);
+    const workspaceStat = await statIfExists(workspacePath);
     if (!workspaceStat) {
       await mkdir(path.dirname(workspacePath), { recursive: true });
       await git(repository.resolved_git_root, ["worktree", "prune"]);
@@ -676,9 +673,7 @@ export class RepositoryWorker {
       "INVALID_PLANNING_WORKSPACE",
       "Only a planning workspace may use the planning cleanup path",
     );
-    const workspaceStat = await stat(workspace.workspace_path).catch(
-      () => null,
-    );
+    const workspaceStat = await statIfExists(workspace.workspace_path);
     if (!workspaceStat) {
       // 重启可能发生在 worktree 已删除、Run 尚未落终态之间；prune 后把缺失视为幂等清理完成。
       await git(repository.resolved_git_root, ["worktree", "prune"]);
@@ -731,9 +726,7 @@ export class RepositoryWorker {
       "INVALID_VERIFICATION_WORKSPACE",
       "Only a verification workspace may use the verification cleanup path",
     );
-    const workspaceStat = await stat(workspace.workspace_path).catch(
-      () => null,
-    );
+    const workspaceStat = await statIfExists(workspace.workspace_path);
     if (!workspaceStat) {
       await git(repository.resolved_git_root, ["worktree", "prune"]);
       return;
@@ -837,38 +830,6 @@ export class RepositoryWorker {
       round_changed_paths: roundChangedPaths,
       // no_change 只比较本轮起点；反馈执行可以保留原始 Candidate base 身份。
       no_change: candidateSha === expectedHead,
-    };
-    await this.preflightCandidate({ repository, candidate });
-    return candidate;
-  }
-
-  async recoverPublishedCandidate({
-    repository,
-    workspace,
-    baseSha,
-    candidateSha,
-  }) {
-    // 旧记录恢复只重建已存在的精确 Git 主体，不提交、reset 或采用脏文件。
-    invariant(
-      workspace?.repository_id === repository.repository_id &&
-        workspace.base_sha === baseSha,
-      "LEGACY_RECOVERY_SUBJECT_MISMATCH",
-      "Legacy recovery workspace does not match the exact Repository and base",
-    );
-    const changedPaths = await changedPathsBetween(
-      workspace.workspace_path,
-      baseSha,
-      candidateSha,
-    );
-    const candidate = {
-      repository_id: repository.repository_id,
-      target_ref: workspace.target_ref,
-      base_sha: baseSha,
-      candidate_sha: candidateSha,
-      workspace_id: workspace.workspace_id,
-      workspace_path: workspace.workspace_path,
-      changed_paths: changedPaths,
-      no_change: candidateSha === baseSha,
     };
     await this.preflightCandidate({ repository, candidate });
     return candidate;
@@ -1292,7 +1253,7 @@ async function assertContainedRegularFile(repositoryRoot, relativePath) {
   let current = root;
   for (const segment of relativePath.split("/")) {
     current = path.join(current, segment);
-    const currentStat = await lstat(current).catch(() => null);
+    const currentStat = await lstatIfExists(current);
     invariant(
       currentStat && !currentStat.isSymbolicLink(),
       "UNSAFE_HARNESS_PATH",
@@ -1335,7 +1296,7 @@ async function assertSafeWorkspaceParents(workspaceRoot, target) {
   let current = path.resolve(workspaceRoot);
   for (const segment of relative.split(path.sep).filter(Boolean)) {
     current = path.join(current, segment);
-    const currentStat = await lstat(current).catch(() => null);
+    const currentStat = await lstatIfExists(current);
     invariant(
       !currentStat ||
         (currentStat.isDirectory() && !currentStat.isSymbolicLink()),
@@ -1419,6 +1380,38 @@ function splitNull(value) {
 
 function samePath(left, right) {
   return path.resolve(left).toLowerCase() === path.resolve(right).toLowerCase();
+}
+
+async function discoverCanonicalRemote(root) {
+  try {
+    const value = await git(root, ["remote", "get-url", "origin"]);
+    // 注册只保存无凭据定位；真实认证继续由宿主 Git/gh 管理。
+    return redactRemoteCredentials(value.trim());
+  } catch (error) {
+    // origin 本来就是可选配置；其他 Git 或系统错误必须显式暴露。
+    if (/No such remote ['"]origin['"]/u.test(String(error.stderr ?? ""))) {
+      return null;
+    }
+    throw error;
+  }
+}
+
+async function statIfExists(target) {
+  try {
+    return await stat(target);
+  } catch (error) {
+    if (error?.code === "ENOENT") return null;
+    throw error;
+  }
+}
+
+async function lstatIfExists(target) {
+  try {
+    return await lstat(target);
+  } catch (error) {
+    if (error?.code === "ENOENT") return null;
+    throw error;
+  }
 }
 
 function redactRemoteCredentials(value) {

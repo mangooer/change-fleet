@@ -104,6 +104,10 @@ describe("ChangeSet Repository selection", () => {
       invocation.control_contract.repository_selection_revision,
       1,
     );
+    assert.deepEqual(invocation.control_contract.allowed_outcomes, [
+      "conversation_message",
+      "repository_selection_change_request",
+    ]);
     assert.equal(
       invocation.context_projection.repositories[0].base_sha,
       selectedSha,

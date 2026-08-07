@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { appendFile, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { canonicalStringify } from "../../domain/canonical-json.js";
@@ -21,36 +21,6 @@ export class RunStore {
 
   async initialize() {
     await mkdir(this.runsRoot, { recursive: true });
-    const entries = await readdir(this.runsRoot, { withFileTypes: true });
-    for (const entry of entries) {
-      if (!entry.isDirectory()) continue;
-      const run = await readJsonFile(this.runPath(entry.name), {
-        allowMissing: true,
-      });
-      if (!run) continue;
-      let changed = false;
-      // 旧 Run 仅在存储边界归一化；原始事件和不可变调用证据保持历史原貌。
-      if (run.operation === "correction") {
-        run.operation = "execution";
-        run.trigger = "feedback";
-        run.legacy_operation = "correction";
-        changed = true;
-      }
-      if (run.status === "abandoned") {
-        run.status = "interrupted";
-        run.legacy_status = "abandoned";
-        changed = true;
-      }
-      if (!run.trigger) {
-        run.trigger = "initial";
-        changed = true;
-      }
-      if (!("continuation_of_run_id" in run)) {
-        run.continuation_of_run_id = null;
-        changed = true;
-      }
-      if (changed) await writeJsonFileAtomic(this.runPath(entry.name), run);
-    }
   }
 
   async create(run) {

@@ -214,11 +214,11 @@ export class GithubDeliveryService {
         try {
           await this.preflightSubject(subject);
         } catch (error) {
-          await this.recordFailure(
-            change_set_id,
-            subject.request,
+          await this.preservePrimaryFailure(
             error,
-          ).catch(() => {});
+            "delivery_preflight_failure_persistence",
+            () => this.recordFailure(change_set_id, subject.request, error),
+          );
           throw error;
         }
       }
@@ -234,11 +234,11 @@ export class GithubDeliveryService {
       });
     } catch (error) {
       if (error?.code !== "CONTROLLER_INTERRUPTED") {
-        await this.failCommand(
-          change_set_id,
-          idempotency_key,
+        await this.preservePrimaryFailure(
           error,
-        ).catch(() => {});
+          "delivery_command_failure_persistence",
+          () => this.failCommand(change_set_id, idempotency_key, error),
+        );
       }
       throw error;
     }
@@ -321,11 +321,11 @@ export class GithubDeliveryService {
       });
     } catch (error) {
       if (error?.code !== "CONTROLLER_INTERRUPTED") {
-        await this.failCommand(
-          change_set_id,
-          idempotency_key,
+        await this.preservePrimaryFailure(
           error,
-        ).catch(() => {});
+          "delivery_command_failure_persistence",
+          () => this.failCommand(change_set_id, idempotency_key, error),
+        );
       }
       throw error;
     }
@@ -484,7 +484,11 @@ export class GithubDeliveryService {
       });
     } catch (error) {
       if (error?.code !== "CONTROLLER_INTERRUPTED") {
-        await this.recordFailure(changeSetId, request, error).catch(() => {});
+        await this.preservePrimaryFailure(
+          error,
+          "delivery_failure_persistence",
+          () => this.recordFailure(changeSetId, request, error),
+        );
       }
       throw error;
     } finally {
@@ -520,7 +524,11 @@ export class GithubDeliveryService {
       });
     } catch (error) {
       if (error?.code !== "CONTROLLER_INTERRUPTED") {
-        await this.recordFailure(changeSetId, request, error).catch(() => {});
+        await this.preservePrimaryFailure(
+          error,
+          "delivery_failure_persistence",
+          () => this.recordFailure(changeSetId, request, error),
+        );
       }
       throw error;
     } finally {
@@ -643,6 +651,9 @@ export class GithubDeliveryService {
             1_024,
           ),
           details: error?.details ?? null,
+          secondary_failures: structuredClone(
+            error?.secondary_failures ?? [],
+          ),
         },
       },
     });
@@ -678,10 +689,27 @@ export class GithubDeliveryService {
           0,
           1_024,
         ),
+        secondary_failures: structuredClone(
+          error?.secondary_failures ?? [],
+        ),
       };
       deriveAggregateDeliveryState(state);
       state.updated_at = this.now();
     });
+  }
+
+  async preservePrimaryFailure(primaryError, stage, operation) {
+    // 交付审计写入失败不会覆盖最初的远端或 Git 错误，但会随主错误返回。
+    try {
+      await operation();
+    } catch (secondaryError) {
+      primaryError.secondary_failures ??= [];
+      primaryError.secondary_failures.push({
+        stage,
+        code: secondaryError?.code ?? "UNEXPECTED_ERROR",
+        message: secondaryError?.message ?? String(secondaryError),
+      });
+    }
   }
 
   now() {

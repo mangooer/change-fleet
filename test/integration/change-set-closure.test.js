@@ -107,16 +107,6 @@ describe("explicit ChangeSet closure", () => {
           current_repository_harness_selection_revision: 1,
         }),
       () =>
-        fixture.service.recoverLegacyCandidate({
-          idempotency_key: "recovery-after-close",
-          change_set_id: "change-close",
-          plan_revision: 1,
-          work_unit_id: "api-unit",
-          source_run_id: "run-1",
-          base_sha: "a".repeat(40),
-          candidate_sha: "b".repeat(40),
-        }),
-      () =>
         fixture.service.recordBundleDecision({
           idempotency_key: "decision-after-close",
           change_set_id: "change-close",

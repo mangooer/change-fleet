@@ -109,6 +109,8 @@ try {
       Array.from(document.querySelectorAll(".pill")).some(
         (element) => element.textContent?.trim() === "terminal / complete",
       ),
+    // Playwright 的第二个参数是传给页面函数的值，超时选项必须放在第三个参数。
+    undefined,
     { timeout: 60_000 },
   );
 

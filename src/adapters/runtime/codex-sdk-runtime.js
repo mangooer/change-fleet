@@ -1,6 +1,7 @@
 import { Codex } from "@openai/codex-sdk";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
+import changeFleetPackage from "../../../package.json" with { type: "json" };
 
 import {
   canonicalStringify,
@@ -17,8 +18,11 @@ import {
   schemaForOperation,
 } from "./runtime-schemas.js";
 
-export const CODEX_SDK_VERSION = "0.146.0";
-export const CODEX_CLI_VERSION = "0.146.0";
+// SDK 版本以唯一的依赖声明为准，避免升级依赖后审计证据仍写入旧版本。
+export const CODEX_SDK_VERSION =
+  changeFleetPackage.dependencies["@openai/codex-sdk"];
+// SDK 适配器无法独立观测其内部 CLI 版本，不把依赖版本伪装成观测事实。
+export const CODEX_CLI_VERSION = null;
 
 const PASSTHROUGH_ENVIRONMENT_KEYS = new Set([
   "APPDATA",

@@ -2,18 +2,19 @@
 
 Updated: 2026-08-07
 
-This projects accepted direction, implementation, active gaps, and the next task. `SPEC.md` owns
+This project's accepted direction, implementation, active gaps, and the next task. `SPEC.md` owns
 the contract; Decisions own rationale; WorkItems and Git own implementation evidence.
 
 ## Current Baseline
 
 - WI-0001 through WI-0018 are complete. Abandoned predecessor attempts remain audit history rather
   than current authority.
-- WI-0019 entered local `main` at `bde27ff`; Decision 0025 replaces operation-specific repair states
-  with coarse phases, generic Runs, Feedback, Gates, and one recovery path.
-- WI-0020 entered local `main` at `3da554f`; its Node 24 deterministic and real Codex gates pass.
-- WI-0021 entered local `main` through accepted implementation commit `47f721d`; its Node 24
-  deterministic and real Codex gates pass.
+- Local `main` at `20b2b9c` includes WI-0019 through WI-0021 and their selected gates. Decision
+  0025 replaces operation-specific repair states with coarse phases, generic Runs, Feedback, Gates,
+  and one recovery path.
+- Branch-local [WI-0022](work-items/WI-0022-control-kernel-debt-cleanup.md) is `done` but unlanded;
+  it removes private migration/recovery, consolidates Run/Bundle mechanics, and retains lifecycle
+  reserves.
 - Agent Runtimes own semantic work. ChangeFleet owns cross-repository authorization, revisions,
   scheduling, exact Git and Bundle subjects, evidence, recovery, and human gates.
 
@@ -36,8 +37,8 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 - WorkUnits may run in parallel; delivery to one `repository_id + target_ref` is serialized, and
   cross-repository compensation never promises universal atomic rollback.
 - GitHub delivery publishes exact Candidates to human-merged PRs and records bounded results.
-- The accepted next surface is a foreground loopback review and delivery console with bounded
-  ChangeSet discovery, exact Bundle decisions, delivery actions, and no CLI invocation.
+- A foreground loopback console exposes bounded ChangeSet discovery, exact Bundle decisions, and
+  delivery actions through shared operations without invoking the CLI.
 - Landed slices expose shared operations through one experimental CLI and isolated debug audit.
 - The first production Provider uses the pinned Codex SDK, a narrow Runtime port, one fresh thread
   per attempt, structured outcomes, exact-base planning worktrees, and WorkUnit-scoped writes.
@@ -104,6 +105,8 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
   still advances exact eligible units serially.
 - Runtime Kit, Codex App Server, another Provider, Linear, pricing, dashboards, and continuous
   context enforcement are deferred.
+- WI-0022's real Codex gate is unverified: account capacity rejected planning; SDK protocol tests
+  pass.
 
 ## Next Recommended Task
 

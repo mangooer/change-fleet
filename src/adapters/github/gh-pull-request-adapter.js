@@ -91,11 +91,22 @@ export class GhPullRequestAdapter {
       ]);
     } catch (error) {
       // 外部创建成功但本地未收到结果时，先按精确 head/base 恢复，避免盲目再建 PR。
-      const recovered = await this.findPullRequest({
-        githubRepository: repository,
-        headBranch,
-        targetRef,
-      }).catch(() => null);
+      let recovered = null;
+      try {
+        recovered = await this.findPullRequest({
+          githubRepository: repository,
+          headBranch,
+          targetRef,
+        });
+      } catch (recoveryError) {
+        // 恢复查询失败不能覆盖首次创建错误，但必须随主错误返回给审计边界。
+        error.secondary_failures ??= [];
+        error.secondary_failures.push({
+          stage: "github_pull_request_recovery",
+          code: recoveryError?.code ?? "UNEXPECTED_ERROR",
+          message: recoveryError?.message ?? String(recoveryError),
+        });
+      }
       if (recovered) return recovered;
       throw error;
     }

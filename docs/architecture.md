@@ -388,9 +388,8 @@ Resume is a deterministic application operation with a new caller idempotency ke
 current revisions, source Run, workspace ownership, clean exact HEAD, ancestry, changed paths, and
 the unchanged semantic check before repository or combined validation. A caller may change only an
 attempt timeout within the frozen Project maximum; requested and effective budgets remain immutable
-attempt evidence. Resume never calls the Agent Runtime. A separate human-gated legacy operation may
-construct only the exact pre-checkpoint shape after the same proof and records distinct recovery
-provenance.
+attempt evidence. Resume never calls the Agent Runtime. Obsolete private pre-checkpoint records are
+not imported or rewritten by the current baseline.
 
 ### BundleAssembler
 
@@ -552,8 +551,8 @@ Candidate set may resume combined validation, without repeating execution. Inter
 or Bundle review abandons its incomplete Run and disposable read-only resources, reuses matching
 passed deterministic evidence, and starts one fresh same-purpose Run only for the unchanged exact
 subject. Failed attempts remain immutable evidence. An operational retry may use a different bounded
-timeout while preserving the same semantic check and exact subject. Private pre-checkpoint recovery
-requires an explicit exact human gate and never becomes generic commit or workspace import.
+timeout while preserving the same semantic check and exact subject. Obsolete private pre-checkpoint
+records are not imported or rewritten by the current baseline.
 
 One generic reconciler handles all persisted running Runs. It records an unprovable invocation as
 `interrupted`, retains the owning ChangeSet and WorkUnit phase, then applies the bounded workspace

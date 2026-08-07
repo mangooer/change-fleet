@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
+import { ChangeFleetService } from "../../src/application/change-fleet-service.js";
 import { normalizeAgentProfile } from "../../src/domain/agent-profile.js";
 import {
   createCodexAggregateUsageObservation,
@@ -28,6 +29,28 @@ const PROFILE = {
 };
 
 describe("Runtime identity and evidence", () => {
+  test("derives distinct read-only Profile identities from a maximum-length base id", () => {
+    const service = new ChangeFleetService({
+      controlRoot: ".changefleet-test-control",
+      workspaceRoot: ".changefleet-test-workspaces",
+      runtime: { invoke: async () => ({}) },
+      agentProfile: { ...PROFILE, profile_id: "p".repeat(128) },
+    });
+
+    assert.notEqual(
+      service.supervisionAgentProfile.profile_id,
+      service.agentProfile.profile_id,
+    );
+    assert.notEqual(
+      service.reviewAgentProfile.profile_id,
+      service.agentProfile.profile_id,
+    );
+    assert.notEqual(
+      service.supervisionAgentProfile.profile_id,
+      service.reviewAgentProfile.profile_id,
+    );
+  });
+
   test("requires an explicit versioned and non-secret Agent Profile", () => {
     assert.deepEqual(normalizeAgentProfile(PROFILE), PROFILE);
     assert.throws(

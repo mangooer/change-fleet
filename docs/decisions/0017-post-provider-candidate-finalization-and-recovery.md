@@ -1,6 +1,7 @@
 # 0017: Preserve Post-Provider Candidate Finalization And Recovery
 
-Status: Accepted
+Status: Accepted (operation-specific recovery state revised by Decision 0025; legacy recovery
+surface removed by WI-0022)
 
 Date: 2026-08-04
 

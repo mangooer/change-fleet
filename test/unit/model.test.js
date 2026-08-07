@@ -10,7 +10,6 @@ import {
   createValidationAttempt,
   createValidationSubject,
   normalizeChangeSetCloseRequest,
-  normalizePlan,
   normalizePlanContent,
   normalizeRepositorySelectionRequest,
   normalizeRevisionFeedback,
@@ -91,17 +90,25 @@ describe("domain model", () => {
   });
 
   test("normalizes the exact authorized two-node plan", () => {
-    const plan = normalizePlan(planInput(), {
-      project,
-      bases,
-      intentRevision: 1,
-      repositorySelectionRevision: 1,
-      repositoryHarnessSelectionRevision: 1,
-      revision: 1,
-      createdAt: "2026-07-30T00:00:00.000Z",
-    });
+    const plan = createConfirmedPlan(
+      normalizePlanContent(planInput(), {
+        project,
+        bases,
+        intentRevision: 1,
+        repositorySelectionRevision: 1,
+        repositoryHarnessSelectionRevision: 1,
+      }),
+      {
+        revision: 1,
+        confirmedAt: "2026-07-30T00:00:00.000Z",
+        agentProfile: { profile_id: "profile" },
+        planningRunId: "run-1",
+        sourceMessageId: "message-1",
+        sourceContentDigest: "a".repeat(64),
+      },
+    );
 
-    assert.equal(plan.status, "proposed");
+    assert.equal(plan.status, "confirmed");
     assert.deepEqual(plan.work_units[1].dependencies, ["api"]);
     assert.equal(plan.work_units[0].base_sha, "a".repeat(40));
   });
@@ -111,14 +118,12 @@ describe("domain model", () => {
     expanded.work_units[1].repository_id = "billing";
     assert.throws(
       () =>
-        normalizePlan(expanded, {
+        normalizePlanContent(expanded, {
           project,
           bases,
           intentRevision: 1,
           repositorySelectionRevision: 1,
           repositoryHarnessSelectionRevision: 1,
-          revision: 1,
-          createdAt: "2026-07-30T00:00:00.000Z",
         }),
       { code: "SCOPE_EXPANSION_REQUIRED" },
     );
@@ -127,14 +132,12 @@ describe("domain model", () => {
     cyclic.work_units[0].dependencies = ["web"];
     assert.throws(
       () =>
-        normalizePlan(cyclic, {
+        normalizePlanContent(cyclic, {
           project,
           bases,
           intentRevision: 1,
           repositorySelectionRevision: 1,
           repositoryHarnessSelectionRevision: 1,
-          revision: 1,
-          createdAt: "2026-07-30T00:00:00.000Z",
         }),
       { code: "WORK_UNIT_DEPENDENCY_CYCLE" },
     );
@@ -142,14 +145,12 @@ describe("domain model", () => {
 
   test("accepts a plan that changes one explicitly registered Repository", () => {
     const oneRepository = planInput({ work_units: [planInput().work_units[0]] });
-    const plan = normalizePlan(oneRepository, {
+    const plan = normalizePlanContent(oneRepository, {
       project,
       bases,
       intentRevision: 1,
       repositorySelectionRevision: 1,
       repositoryHarnessSelectionRevision: 1,
-      revision: 1,
-      createdAt: "2026-07-30T00:00:00.000Z",
     });
     assert.deepEqual(plan.work_units.map((unit) => unit.repository_id), ["api"]);
   });
@@ -183,11 +184,9 @@ describe("domain model", () => {
       repositorySelectionRevision: 1,
       repositoryHarnessSelectionRevision: 1,
       revisionFeedback,
-      revision: 2,
-      createdAt: "2026-08-05T00:00:00.000Z",
     };
 
-    const plan = normalizePlan(revised, options);
+    const plan = normalizePlanContent(revised, options);
     assert.deepEqual(
       plan.revision_feedback_assessments.map((item) => [
         item.finding_id,
@@ -200,7 +199,7 @@ describe("domain model", () => {
     );
     assert.throws(
       () =>
-        normalizePlan(
+        normalizePlanContent(
           planInput({ revision_feedback_assessments: [] }),
           options,
         ),
@@ -208,7 +207,7 @@ describe("domain model", () => {
     );
     assert.throws(
       () =>
-        normalizePlan(
+        normalizePlanContent(
           planInput({
             revision_feedback_assessments: [
               revised.revision_feedback_assessments[0],
@@ -231,15 +230,23 @@ describe("domain model", () => {
       ],
       verification_reviews: [],
     };
-    const plan = normalizePlan(planInput(), {
-      project,
-      bases,
-      intentRevision: 1,
-      repositorySelectionRevision: 1,
-      repositoryHarnessSelectionRevision: 1,
-      revision: 1,
-      createdAt: "2026-07-30T00:00:00.000Z",
-    });
+    const plan = createConfirmedPlan(
+      normalizePlanContent(planInput(), {
+        project,
+        bases,
+        intentRevision: 1,
+        repositorySelectionRevision: 1,
+        repositoryHarnessSelectionRevision: 1,
+      }),
+      {
+        revision: 1,
+        confirmedAt: "2026-07-30T00:00:00.000Z",
+        agentProfile: { profile_id: "profile" },
+        planningRunId: "run-1",
+        sourceMessageId: "message-1",
+        sourceContentDigest: "a".repeat(64),
+      },
+    );
     const candidates = [
       createCandidate({
         repositoryId: "web",

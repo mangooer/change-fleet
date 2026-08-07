@@ -136,8 +136,6 @@ const MESSAGES = {
     CANDIDATE_CHECKPOINT_SUBJECT_MISMATCH: "候选检查点与当前精确工作单元不一致。",
     CANDIDATE_CHECKPOINT_RUN_MISMATCH: "候选检查点的来源运行不一致。",
     CANDIDATE_CHECKPOINT_STATE_MISMATCH: "候选检查点持久化状态不一致。",
-    LEGACY_RECOVERY_SUBJECT_MISMATCH: "旧记录恢复主体与当前精确工作单元不一致。",
-    LEGACY_RECOVERY_RUN_MISMATCH: "旧记录恢复来源运行不一致。",
     STALE_PLAN_REVISION: "指定计划已不是当前确认版本。",
     IDEMPOTENCY_KEY_REUSED: "同一个幂等键不能用于不同输入。",
     LOCK_BUSY: "控制面当前被另一个执行者占用。",
@@ -316,8 +314,6 @@ const MESSAGES = {
     CANDIDATE_CHECKPOINT_SUBJECT_MISMATCH: "The CandidateCheckpoint does not match the current exact WorkUnit.",
     CANDIDATE_CHECKPOINT_RUN_MISMATCH: "The CandidateCheckpoint source Run does not match.",
     CANDIDATE_CHECKPOINT_STATE_MISMATCH: "CandidateCheckpoint persistence state does not match.",
-    LEGACY_RECOVERY_SUBJECT_MISMATCH: "The legacy recovery subject does not match the current exact WorkUnit.",
-    LEGACY_RECOVERY_RUN_MISMATCH: "The legacy recovery source Run does not match.",
     STALE_PLAN_REVISION: "The specified plan is no longer the current confirmed revision.",
     IDEMPOTENCY_KEY_REUSED: "The same idempotency key cannot be used with different input.",
     LOCK_BUSY: "The control plane is currently owned by another executor.",
@@ -372,14 +368,4 @@ export function diagnosticMessage(code, { locale = DEFAULT_LOCALE, fallback } = 
   // 翻译缺失时使用调用边界提供的原始说明，未知语言确定性回退到英文目录。
   const resolvedLocale = normalizeLocale(locale);
   return MESSAGES[resolvedLocale][code] ?? fallback ?? `ChangeFleet 错误：${code}`;
-}
-
-// 边缘界面应调用此函数切换展示语言，而不是匹配或重写稳定错误码。
-export function presentDiagnostic(error, locale = DEFAULT_LOCALE) {
-  return {
-    code: error.code ?? "UNEXPECTED_ERROR",
-    message: diagnosticMessage(error.code ?? "UNEXPECTED_ERROR", { locale, fallback: error.message }),
-    details: error.details,
-    locale: normalizeLocale(locale),
-  };
 }

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { writeFile } from "node:fs/promises";
+import { stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, test } from "node:test";
 
@@ -327,6 +327,17 @@ describe("Plan-confirmed autonomous supervision", () => {
     const gate = state.gates.find((candidate) => candidate.status === "open");
     assert.equal(gate.kind, "bundle_review_failure");
     assert.equal(gate.bundle_id, state.bundles.at(-1).bundle_id);
+    const bundle = state.bundles.at(-1);
+    await assert.rejects(
+      fixture.service.recordBundleDecision({
+        idempotency_key: "accept-failed-review",
+        change_set_id: fixture.changeSetId,
+        bundle_revision: bundle.revision,
+        bundle_hash: bundle.bundle_hash,
+        decision: "accept",
+      }),
+      { code: "BUNDLE_REVIEW_REQUIRED" },
+    );
   });
 
   test("rejects and cleans a Review Runtime that writes its disposable Candidate workspace", async (t) => {
@@ -427,6 +438,17 @@ describe("Plan-confirmed autonomous supervision", () => {
         (row) => row.identity.operation === "supervision",
       ),
       true,
+    );
+    await assert.rejects(
+      stat(
+        path.join(
+          fixture.root,
+          "workspaces",
+          ".changefleet-supervision",
+          fixture.changeSetId,
+        ),
+      ),
+      { code: "ENOENT" },
     );
   });
 

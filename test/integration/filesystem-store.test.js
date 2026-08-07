@@ -95,33 +95,4 @@ describe("filesystem control and evidence stores", () => {
     assert.ok(Buffer.byteLength(lines.at(-1)) < 64 * 1024);
   });
 
-  test("normalizes legacy correction and abandoned Run identity once", async (t) => {
-    const root = await createFixtureRoot(t, "changefleet-legacy-run-");
-    const runRoot = path.join(root, "runs", "run-legacy");
-    await mkdir(runRoot, { recursive: true });
-    await writeFile(
-      path.join(runRoot, "run.json"),
-      JSON.stringify({
-        schema_version: 1,
-        run_id: "run-legacy",
-        operation: "correction",
-        attempt: 1,
-        status: "abandoned",
-        created_at: "2026-08-06T00:00:00.000Z",
-      }),
-      "utf8",
-    );
-
-    const store = new RunStore(root);
-    await store.initialize();
-    await store.initialize();
-    const run = await store.read("run-legacy");
-
-    assert.equal(run.operation, "execution");
-    assert.equal(run.trigger, "feedback");
-    assert.equal(run.status, "interrupted");
-    assert.equal(run.continuation_of_run_id, null);
-    assert.equal(run.legacy_operation, "correction");
-    assert.equal(run.legacy_status, "abandoned");
-  });
 });

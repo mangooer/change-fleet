@@ -1000,10 +1000,8 @@ preflight and cleanup adapters, but retain the same owning phase. A fresh same-p
 continue only after exact authority and resource identity are proven. Completed checkpoints and
 passing checks are reused and completed Runtime invocations are never repeated.
 
-For private records created before this checkpoint contract, one explicit human-gated recovery
-operation may bind an exact completed Run and owned clean workspace to an exact base and candidate
-SHA. It records distinct provenance and cannot guess, reset, adopt dirty state, change a confirmed
-plan, or import arbitrary commits.
+Obsolete private pre-checkpoint records are not imported or rewritten by the current baseline.
+The legacy recovery surface is removed; exact current checkpoints are the only recovery subject.
 
 Commands remain structured executable-plus-argv data. Native executables use direct process launch;
 on Windows only, a resolved `.cmd` or `.bat` may use one reviewed argv-preserving adapter with the

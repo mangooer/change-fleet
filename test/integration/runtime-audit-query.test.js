@@ -151,6 +151,39 @@ describe("read-only Runtime audit queries", () => {
     });
   });
 
+  test("rejects obsolete abandoned Runtime evidence terminal status", async (t) => {
+    const fixture = await createAuditFixture(
+      t,
+      "obsolete-terminal",
+      UsageRuntime,
+    );
+    await fixture.service.executeChangeSet({
+      idempotency_key: "execute",
+      change_set_id: "change",
+    });
+    const state = await fixture.service.readChangeSet("change");
+    const planningRunId = state.run_references.find(
+      (reference) => reference.operation === "planning",
+    ).run_id;
+    const planningRun = await fixture.service.runStore.read(planningRunId);
+    const evidencePath = path.join(
+      fixture.controlRoot,
+      "evidence",
+      `${planningRun.runtime_evidence.evidence_id}.json`,
+    );
+    const corrupted = JSON.parse(await readFile(evidencePath, "utf8"));
+    corrupted.payload.terminal.status = "abandoned";
+    await writeFile(evidencePath, `${JSON.stringify(corrupted)}\n`, "utf8");
+
+    await assert.rejects(
+      createQuery(
+        fixture.service,
+        "2026-08-03T10:00:00.000Z",
+      ).getRunAudit(planningRunId),
+      { code: "AUDIT_SOURCE_IDENTITY_MISMATCH" },
+    );
+  });
+
   test("attributes Verification Runtime cost separately while retaining one total", async (t) => {
     const fixture = await createAuditFixture(
       t,

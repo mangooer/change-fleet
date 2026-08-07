@@ -24,10 +24,6 @@ const LIFECYCLE_ROUTES = Object.freeze([
     "changeset.repository_harness_selection.revise",
   ),
   route(["changeset", "plan", "confirm"], "changeset.plan.confirm"),
-  route(
-    ["changeset", "candidate", "recover-legacy"],
-    "changeset.candidate.recover_legacy",
-  ),
   route(["changeset", "bundle", "decide"], "changeset.bundle.decide"),
   route(["changeset", "delivery", "publish"], "changeset.delivery.publish"),
   route(["changeset", "delivery", "refresh"], "changeset.delivery.refresh"),

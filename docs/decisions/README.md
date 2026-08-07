@@ -22,7 +22,7 @@ projection.
 | [0014](0014-shared-application-commands-and-unified-local-cli.md) | Shared application commands and unified experimental local CLI | Accepted |
 | [0015](0015-exact-github-pull-request-delivery.md) | Exact GitHub pull-request delivery and human-controlled integration | Accepted |
 | [0016](0016-local-review-and-delivery-console.md) | Foreground local review and delivery console | Accepted |
-| [0017](0017-post-provider-candidate-finalization-and-recovery.md) | Post-Provider Candidate finalization and recovery | Accepted |
+| [0017](0017-post-provider-candidate-finalization-and-recovery.md) | Post-Provider Candidate finalization and recovery | Accepted; operation-specific recovery state revised by 0025, legacy recovery surface removed by WI-0022 |
 | [0018](0018-explicit-changeset-closure.md) | Explicit human closure of an unfinished ChangeSet | Accepted |
 | [0019](0019-durable-codex-runtime-home-and-pre-candidate-retry.md) | Blocked and empty-result handling with clean exact-base retry | Accepted; Provider Home mechanism revised by 0020 |
 | [0020](0020-provider-environment-ownership-boundary.md) | Provider environment ownership outside ChangeFleet | Accepted |

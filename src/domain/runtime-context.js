@@ -6,7 +6,6 @@ export const CONTROL_CONTRACT_VERSION = 5;
 export const CONTEXT_PROJECTION_VERSION = 11;
 const RUNTIME_EXCLUDED_DECISION_TYPES = new Set([
   "bundle_review",
-  "legacy_candidate_recovery",
   "changeset_closure",
   "provider_retry",
 ]);

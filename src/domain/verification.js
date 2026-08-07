@@ -74,13 +74,9 @@ export function normalizeVerificationPolicy(input = {}) {
   };
 }
 
-export function normalizeVerificationExpectation(input = undefined) {
-  // 缺失值只用于读取旧 Plan；新 Runtime Schema 要求显式给出预期与理由。
-  const expectation = input ?? {
-    mode: "deterministic",
-    rationale: "Legacy Plan keeps deterministic validation behavior.",
-    escalation_triggers: ["scope_divergence"],
-  };
+export function normalizeVerificationExpectation(input) {
+  // 每个当前 Plan 必须显式说明验证深度，存储升级不会替调用者制造默认语义。
+  const expectation = input;
   invariant(
     isPlainObject(expectation),
     "INVALID_VERIFICATION_EXPECTATION",
