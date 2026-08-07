@@ -190,9 +190,40 @@ function assertSchema(record, label) {
     `${label} schema version ${record.schema_version} is not supported`,
   );
   if (label.startsWith("ChangeSet ")) {
+    assertChangeSetRecord(record, label);
     assertChangeSetLifecycle(record);
-    for (const workUnit of record.work_units ?? []) {
+    for (const workUnit of record.work_units) {
       assertWorkUnitLifecycle(workUnit);
     }
+  }
+}
+
+const CHANGE_SET_ARRAY_FIELDS = Object.freeze([
+  "repository_selection_change_requests",
+  "plans",
+  "planning_message_references",
+  "work_units",
+  "run_references",
+  "candidate_checkpoints",
+  "verification_admissions",
+  "verification_reviews",
+  "bundle_review_assessments",
+  "validation_attempts",
+  "candidates",
+  "bundles",
+  "delivery_requests",
+  "decisions",
+  "feedback_records",
+  "gates",
+  "blockers",
+]);
+
+function assertChangeSetRecord(record, label) {
+  for (const field of CHANGE_SET_ARRAY_FIELDS) {
+    invariant(
+      Array.isArray(record[field]),
+      "INVALID_CONTROL_RECORD",
+      `${label} must contain the ${field} array`,
+    );
   }
 }

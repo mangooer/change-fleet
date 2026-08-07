@@ -18,6 +18,9 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 - Branch-local [WI-0023](work-items/WI-0023-shared-run-record-and-workspace-helpers.md) is `done`
   but unlanded; it shares Run record, Run reference, secondary-failure, and detached-worktree
   helpers without changing persisted shapes.
+- Branch-local [WI-0024](work-items/WI-0024-recovery-skeleton-and-store-array-assertions.md) is
+  `done` but unlanded; it generalizes the five recovery reconciles into one skeleton and requires
+  current-schema ChangeSet arrays at the store boundary.
 - Agent Runtimes own semantic work. ChangeFleet owns cross-repository authorization, revisions,
   scheduling, exact Git and Bundle subjects, evidence, recovery, and human gates.
 

@@ -60,6 +60,30 @@ test("control store rejects an obsolete ChangeSet on read", async (t) => {
   });
 });
 
+test("control store rejects a current-schema ChangeSet missing required arrays", async (t) => {
+  const root = await createFixtureRoot(
+    t,
+    "changefleet-incomplete-changeset-",
+  );
+  const store = new ControlStore(root);
+  await store.initialize();
+  const changeSetRoot = path.join(root, "changesets", "change-incomplete");
+  await mkdir(changeSetRoot, { recursive: true });
+  await writeFile(
+    path.join(changeSetRoot, "state.json"),
+    JSON.stringify({
+      schema_version: CONTROL_SCHEMA_VERSION,
+      change_set_id: "change-incomplete",
+      phase: "planning",
+      terminal_outcome: null,
+    }),
+  );
+
+  await assert.rejects(store.readChangeSet("change-incomplete"), {
+    code: "INVALID_CONTROL_RECORD",
+  });
+});
+
 test("run store initialization never mutates an obsolete private Run", async (t) => {
   const root = await createFixtureRoot(t, "changefleet-obsolete-run-");
   const runRoot = path.join(root, "runs", "run-old");
