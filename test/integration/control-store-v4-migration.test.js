@@ -58,7 +58,10 @@ test("control store migrates private v4 catalog and ChangeSets to the current sc
   assert.equal(state.work_units[0].phase, "execution");
   assert.equal(state.work_units[0].disposition, "current");
   assert.equal(catalog.projects.project.verification_policy.minimum_mode, "basic");
+  assert.equal(catalog.projects.project.supervision_policy.default_mode, "manual");
   assert.equal(state.verification_policy.max_attempt_timeout_ms, 600_000);
+  assert.equal(state.supervision_policy.default_mode, "manual");
+  assert.equal(state.supervision_control.plan_revision, null);
   assert.deepEqual(state.feedback_records, []);
   assert.equal(state.current_feedback_id, null);
   assert.deepEqual(state.gates, []);
@@ -71,6 +74,59 @@ test("control store migrates private v4 catalog and ChangeSets to the current sc
     await readFile(path.join(root, "catalog.json"), "utf8"),
   );
   assert.equal(persistedCatalog.schema_version, CONTROL_SCHEMA_VERSION);
+});
+
+test("control store migrates every v10 Plan to manual supervision without dispatch authority", async (t) => {
+  const root = await createFixtureRoot(t, "changefleet-control-v10-supervision-");
+  const changeSetRoot = path.join(root, "changesets", "change-1");
+  await mkdir(changeSetRoot, { recursive: true });
+  await writeFile(
+    path.join(root, "catalog.json"),
+    JSON.stringify({
+      schema_version: 10,
+      projects: {
+        project: { project_id: "project", repositories: [] },
+      },
+      idempotency: {},
+    }),
+  );
+  await writeFile(
+    path.join(changeSetRoot, "state.json"),
+    JSON.stringify({
+      schema_version: 10,
+      change_set_id: "change-1",
+      phase: "working",
+      terminal_outcome: null,
+      current_plan_revision: 1,
+      plans: [
+        {
+          revision: 1,
+          status: "confirmed",
+          confirmed_at: "2026-08-06T00:00:00.000Z",
+        },
+      ],
+      work_units: [
+        {
+          work_unit_id: "unit-1",
+          plan_revision: 1,
+          phase: "execution",
+          disposition: "current",
+        },
+      ],
+      migration_records: [],
+      updated_at: "2026-08-06T00:00:00.000Z",
+    }),
+  );
+
+  const store = new ControlStore(root);
+  await store.initialize();
+  const state = await store.readChangeSet("change-1");
+  assert.equal(state.plans[0].supervision.mode, "manual");
+  assert.equal(state.supervision_control.plan_revision, null);
+  assert.equal(
+    state.migration_records.at(-1).migration_id,
+    "control-schema-v10-to-v11",
+  );
 });
 
 test("control store retires unconfirmed v5 Plan records without allocating new authority", async (t) => {

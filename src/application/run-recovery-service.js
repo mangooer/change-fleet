@@ -47,6 +47,9 @@ export class RunRecoveryService {
     if (operations.has("execution")) {
       await this.reconcileExecution(changeSetId);
     }
+    if (operations.has("supervision")) {
+      await this.reconcileSupervision(changeSetId);
+    }
   }
 
   async reconcilePlanning(changeSetId, project) {
@@ -213,6 +216,37 @@ export class RunRecoveryService {
       current.updated_at = this.now();
     });
     assertNoAmbiguousRecovery(results, "Verification");
+  }
+
+  async reconcileSupervision(changeSetId) {
+    const state = await this.controlStore.readChangeSet(changeSetId);
+    const references = state.run_references.filter(
+      (reference) =>
+        reference.operation === "supervision" && reference.status === "running",
+    );
+    if (references.length === 0) return;
+    const results = [];
+    for (const reference of references) {
+      const run = await this.runStore.read(reference.run_id);
+      if (!recoverableRunningRun(run)) {
+        results.push(ambiguousResult(run.run_id));
+        continue;
+      }
+      // Supervisor 不持有仓库工作区或外部写资源，恢复只需结算同一个通用 Run。
+      await this.interruptRecoveredRun(run, null);
+      results.push(recoveryResult(run.run_id, null));
+    }
+    await this.controlStore.transactChangeSet(changeSetId, (current) => {
+      for (const result of results) {
+        setReferenceStatus(current.run_references, result.run_id, result.status);
+      }
+      if (current.supervision_control) {
+        current.supervision_control.last_stop_reason = "controller_restart";
+        current.supervision_control.updated_at = this.now();
+      }
+      current.updated_at = this.now();
+    });
+    assertNoAmbiguousRecovery(results, "Supervision");
   }
 
   async interruptRecoveredRun(run, cleanupError) {

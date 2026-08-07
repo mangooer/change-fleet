@@ -16,7 +16,7 @@ import {
 const RUN_REAL_PROVIDER =
   process.env.CHANGEFLEET_RUN_REAL_CODEX === "1";
 const EXPECTED_FEATURE = "codex real provider implementation\n";
-const INITIAL_FEATURE = "codex real provider draft\n";
+const EXPECTED_MARKER = "supervisor feedback applied\n";
 
 test(
   "real Codex SDK discovers one frozen ignored Repository Harness overlay",
@@ -79,6 +79,13 @@ test(
           max_attempt_timeout_ms: 600_000,
           escalation_triggers: ["scope_divergence"],
         },
+        supervision_policy: {
+          default_mode: "manual",
+          max_execution_attempts_per_work_unit: 3,
+          max_verification_attempts_per_work_unit: 6,
+          max_feedback_cycles_per_work_unit: 2,
+          max_elapsed_ms: 600_000,
+        },
         repositories: [
           {
             repository_id: "api",
@@ -102,11 +109,11 @@ test(
       project_id: "project",
       intent: {
         objective:
-          "Exercise same-Plan feedback handling: initial execution writes a staged draft, then verification feedback drives the final feature value.",
+          "Exercise same-Plan autonomous Feedback: implement the feature first, then let one verifier-requested exact check drive a bounded finalization marker.",
         acceptance_criteria: [
-          "The initial execution checkpoint contains exactly the staged draft value.",
-          "Initial independent verification returns one required feedback change.",
-          "The feedback-triggered execution replaces the draft with the final value.",
+          "The initial execution checkpoint contains the exact final feature value and no finalization marker.",
+          "A verifier-requested exact marker check fails and a read-only Supervisor selects bounded implementation Feedback.",
+          "The feedback-triggered execution adds the exact finalization marker without changing the feature value.",
           "The exact repository and combined checks pass.",
         ],
       },
@@ -135,25 +142,17 @@ test(
     assert.equal(planned.message.plan_content.work_units[0].base_sha, selectedBase);
     assert.match(
       planned.message.plan_content.work_units[0].task,
-      /initial execution only/u,
+      /initial execution/u,
     );
-    await service.confirmPlanMessage({
-      idempotency_key: "confirm",
-      change_set_id: "real-change",
-      message_id: planned.message.message_id,
-      content_digest: planned.message.content_digest,
-    });
-    let execution;
+    let confirmation;
     try {
-      const feedback = await service.executeChangeSet({
-        idempotency_key: "execute-initial",
+      confirmation = await service.confirmPlanMessage({
+        idempotency_key: "confirm",
         change_set_id: "real-change",
+        message_id: planned.message.message_id,
+        content_digest: planned.message.content_digest,
       });
-      assert.equal(feedback.status, "feedback_required");
-      execution = await service.executeChangeSet({
-        idempotency_key: "execute-feedback",
-        change_set_id: "real-change",
-      });
+      assert.equal(confirmation.supervision.status, "review_ready");
     } catch (error) {
       // 真实 Provider 失败时输出有界命令审计和文件名，但不输出推理或凭据。
       const failedState = await service.readChangeSet("real-change");
@@ -220,6 +219,13 @@ test(
       ),
       EXPECTED_FEATURE,
     );
+    assert.equal(
+      await readFile(
+        path.join(workUnit.workspace.workspace_path, "finalized.txt"),
+        "utf8",
+      ),
+      EXPECTED_MARKER,
+    );
     await assert.rejects(
       readFile(
         path.join(
@@ -229,19 +235,27 @@ test(
       ),
       { code: "ENOENT" },
     );
-    assert.equal(execution.bundle_revision, 1);
+    assert.equal(confirmation.supervision.bundle.revision, 1);
     assert.equal(state.phase, "review");
     assert.deepEqual(
       state.run_references.map((reference) => reference.operation),
-      ["planning", "execution", "verification", "execution", "verification"],
+      [
+        "planning",
+        "execution",
+        "verification",
+        "supervision",
+        "execution",
+        "verification",
+      ],
     );
     assert.deepEqual(
       state.run_references.map((reference) => reference.trigger),
-      ["initial", "initial", "initial", "feedback", "feedback"],
+      ["initial", "initial", "initial", "initial", "feedback", "initial"],
     );
     assert.equal(state.verification_reviews.length, 2);
-    assert.equal(state.verification_reviews[0].verdict, "changes_required");
-    assert.equal(state.verification_reviews[1].review_scope, "feedback");
+    assert.equal(state.verification_reviews[0].verdict, "pass");
+    assert.equal(state.verification_reviews[0].check_status, "failed");
+    assert.equal(state.verification_reviews[1].review_scope, "initial");
     assert.equal(state.verification_reviews[1].verdict, "pass");
     assert.equal(
       workUnit.run_references.filter(
@@ -270,11 +284,15 @@ test(
         evidence.payload.usage_observations[0].total_tokens > 0,
       );
       assert.equal(evidence.payload.monetary_cost, null);
-      assert.equal(
-        evidence.payload.repository_harness_selection.repositories[0]
-          .mode,
-        "exact_base_plus_overlay",
-      );
+      if (evidence.payload.operation === "supervision") {
+        assert.equal(evidence.payload.repository_harness_selection, null);
+      } else {
+        assert.equal(
+          evidence.payload.repository_harness_selection.repositories[0]
+            .mode,
+          "exact_base_plus_overlay",
+        );
+      }
       const usage = evidence.payload.usage_observations[0];
       runAudits.push({
         run_id: reference.run_id,
@@ -298,7 +316,7 @@ test(
       changeAudit.payload.usage.observed_total_tokens,
       runAudits.reduce((total, run) => total + run.total_tokens, 0),
     );
-    assert.equal(changeAudit.payload.usage.observed_run_count, 5);
+    assert.equal(changeAudit.payload.usage.observed_run_count, 6);
     assert.equal(changeAudit.payload.usage.unknown_run_count, 0);
     assert.equal(
       changeAudit.payload.timing.provider_duration_sum.observed_sum,
@@ -327,34 +345,46 @@ test(
 
 function realProviderHarness() {
   const repositoryCheck =
-    `const fs=require('node:fs');const v=fs.readFileSync('feature.txt','utf8');if(!${JSON.stringify([INITIAL_FEATURE, EXPECTED_FEATURE])}.includes(v))process.exit(2)`;
+    `const fs=require('node:fs');if(fs.readFileSync('feature.txt','utf8')!==${JSON.stringify(EXPECTED_FEATURE)})process.exit(2);if(fs.existsSync('finalized.txt')&&fs.readFileSync('finalized.txt','utf8')!==${JSON.stringify(EXPECTED_MARKER)})process.exit(3)`;
   const combinedCheck =
-    "const fs=require('node:fs');const m=JSON.parse(fs.readFileSync(process.env.CHANGEFLEET_VALIDATION_MANIFEST,'utf8'));if(m.candidates.length!==1)process.exit(2);const p=m.candidates[0].workspace_path+'/feature.txt';if(fs.readFileSync(p,'utf8')!=='codex real provider implementation\\n')process.exit(3)";
+    "const fs=require('node:fs');const m=JSON.parse(fs.readFileSync(process.env.CHANGEFLEET_VALIDATION_MANIFEST,'utf8'));if(m.candidates.length!==1)process.exit(2);const w=m.candidates[0].workspace_path;if(fs.readFileSync(w+'/feature.txt','utf8')!=='codex real provider implementation\\n')process.exit(3);if(fs.readFileSync(w+'/finalized.txt','utf8')!=='supervisor feedback applied\\n')process.exit(4)";
+  const requestedCheck = {
+    command_id: "verification-final-feature-check",
+    executable: "node",
+    argv: [
+      "-e",
+      `const fs=require('node:fs');if(!fs.existsSync('finalized.txt')||fs.readFileSync('finalized.txt','utf8')!==${JSON.stringify(EXPECTED_MARKER)})process.exit(2)`,
+    ],
+    coverage_rationale: "Requires the exact finalization marker on the Candidate",
+    timeout_ms: 10_000,
+  };
   return [
     "# Real Provider Acceptance Harness",
     "",
     "This repository has one required change:",
     "",
     "- Create `feature.txt` with exactly `codex real provider implementation` followed by one newline.",
+    "- During a later feedback-triggered execution, create `finalized.txt` with exactly `supervisor feedback applied` followed by one newline.",
     "- Do not modify any other file.",
     "",
     "For planning, return exactly one WorkUnit with:",
     "",
     "- `work_unit_id`: `api-unit`",
     "- `repository_id`: `api`",
-    "- `task`: `For the initial execution only, create feature.txt with exactly codex real provider draft followed by one newline; do not write the final value until a later execution receives verification feedback.`",
+    "- `task`: `Create feature.txt with exactly codex real provider implementation followed by one newline. During the initial execution do not create finalized.txt; only a later execution receiving exact validation Feedback may add that marker.`",
     "- no dependencies",
     `- repository check executable \`node\`, argv \`${JSON.stringify(["-e", repositoryCheck])}\`, timeout 10000`,
     `- combined check executable \`node\`, argv \`${JSON.stringify(["-e", combinedCheck])}\`, timeout 10000`,
+    "- supervision mode `autonomous_until_review` with execution attempt limit 3, verification attempt limit 6, Feedback cycle limit 2, and elapsed time limit 600000 milliseconds",
     "- empty risks and unverified boundaries",
     "",
-    "During initial execution without feedback, you MUST use the available filesystem editing tool to write exactly `codex real provider draft` followed by one newline. This staged value is required to exercise feedback handling. Writing the final value during initial execution violates the confirmed task.",
+    "During initial execution without feedback, use the available filesystem editing tool to write exactly `codex real provider implementation` followed by one newline. Do not create `finalized.txt` in this Run; that file is reserved for a later feedback-triggered execution.",
     "After editing, run the exact repository check yourself and return completion only when it exits with code 0.",
     "Leave Git commits to ChangeFleet.",
     "",
-    "During initial verification, inspect the exact base-to-Candidate diff. When `feature.txt` contains `codex real provider draft`, return `changes_required` with exactly one correctness finding requiring the accepted final text, and no notes, human decision, or requested checks.",
-    "During execution with feedback, assess that finding as `adopt`, replace the draft with exactly `codex real provider implementation` followed by one newline, run the repository check, and return `implementation_completed`.",
-    "During verification with feedback lineage, if `feature.txt` is the only changed path and has the exact final content, return a triage `pass` with no findings, notes, human decision, or requested checks.",
+    `During initial verification, when \`feature.txt\` has the exact implementation and \`finalized.txt\` is absent, return triage \`pass\` with no findings, notes, or human decision and exactly this conditional requested check: \`${JSON.stringify(requestedCheck)}\`. The controller-owned failure of that check is the intended exact evidence for Supervisor routing.`,
+    "During execution with feedback, assess the failed exact marker check as `adopt`, preserve `feature.txt`, create `finalized.txt` with exactly `supervisor feedback applied` followed by one newline, run the repository check, and return `implementation_completed`.",
+    "During verification with feedback lineage, if `feature.txt` and `finalized.txt` have the exact accepted contents and no other tracked path changed, return a triage `pass` with no findings, notes, human decision, or requested checks.",
     "",
   ].join("\n");
 }

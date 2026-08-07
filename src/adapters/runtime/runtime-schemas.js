@@ -43,6 +43,28 @@ const VERIFICATION_EXPECTATION_SCHEMA = Object.freeze({
   additionalProperties: false,
 });
 
+const PLAN_SUPERVISION_SCHEMA = Object.freeze({
+  type: "object",
+  properties: {
+    mode: {
+      type: "string",
+      enum: ["manual", "autonomous_until_review"],
+    },
+    execution_attempt_limit_per_work_unit: { type: "integer", minimum: 1 },
+    verification_attempt_limit_per_work_unit: { type: "integer", minimum: 1 },
+    feedback_cycle_limit_per_work_unit: { type: "integer", minimum: 1 },
+    elapsed_time_limit_ms: { type: "integer", minimum: 1 },
+  },
+  required: [
+    "mode",
+    "execution_attempt_limit_per_work_unit",
+    "verification_attempt_limit_per_work_unit",
+    "feedback_cycle_limit_per_work_unit",
+    "elapsed_time_limit_ms",
+  ],
+  additionalProperties: false,
+});
+
 const REVISION_FEEDBACK_ASSESSMENT_SCHEMA = Object.freeze({
   type: "object",
   properties: {
@@ -86,6 +108,7 @@ const PLAN_SCHEMA = Object.freeze({
     },
     combined_check: COMMAND_SCHEMA,
     verification_expectation: VERIFICATION_EXPECTATION_SCHEMA,
+    supervision: PLAN_SUPERVISION_SCHEMA,
     risks: STRING_ARRAY_SCHEMA,
     unverified_boundaries: STRING_ARRAY_SCHEMA,
   },
@@ -95,6 +118,7 @@ const PLAN_SCHEMA = Object.freeze({
     "work_units",
     "combined_check",
     "verification_expectation",
+    "supervision",
     "risks",
     "unverified_boundaries",
   ],
@@ -294,6 +318,31 @@ export const VERIFICATION_OUTCOME_SCHEMA = Object.freeze({
   additionalProperties: false,
 });
 
+export const SUPERVISION_OUTCOME_SCHEMA = Object.freeze({
+  type: "object",
+  properties: {
+    type: { type: "string", enum: ["supervisor_decision_proposal"] },
+    action_id: { type: "string" },
+    projection_digest: { type: "string" },
+    rationale: { type: "string" },
+    expected_result: { type: "string" },
+    evidence_reference_ids: {
+      type: "array",
+      items: { type: "string" },
+      maxItems: 16,
+    },
+  },
+  required: [
+    "type",
+    "action_id",
+    "projection_digest",
+    "rationale",
+    "expected_result",
+    "evidence_reference_ids",
+  ],
+  additionalProperties: false,
+});
+
 export function schemaForOperation(operation) {
   // 未知操作必须在调用 Provider 前失败，不能退回无结构文本。
   if (operation === "planning") return PLANNING_OUTCOME_SCHEMA;
@@ -301,6 +350,7 @@ export function schemaForOperation(operation) {
     return EXECUTION_OUTCOME_SCHEMA;
   }
   if (operation === "verification") return VERIFICATION_OUTCOME_SCHEMA;
+  if (operation === "supervision") return SUPERVISION_OUTCOME_SCHEMA;
   throw new Error(`Unsupported Runtime operation ${operation}`);
 }
 
@@ -345,6 +395,17 @@ export function assertStructuredOutcome(operation, outcome) {
         typeof outcome.human_decision === "object" &&
         !Array.isArray(outcome.human_decision))) &&
     Array.isArray(outcome.requested_checks)
+  ) {
+    return outcome;
+  }
+  if (
+    operation === "supervision" &&
+    outcome.type === "supervisor_decision_proposal" &&
+    typeof outcome.action_id === "string" &&
+    typeof outcome.projection_digest === "string" &&
+    typeof outcome.rationale === "string" &&
+    typeof outcome.expected_result === "string" &&
+    Array.isArray(outcome.evidence_reference_ids)
   ) {
     return outcome;
   }

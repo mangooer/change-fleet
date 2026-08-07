@@ -64,6 +64,13 @@ describe("Codex SDK Runtime protocol", () => {
           rationale: "The selected behavioral checks cover the change.",
           escalation_triggers: ["scope_divergence"],
         },
+        supervision: {
+          mode: "manual",
+          execution_attempt_limit_per_work_unit: 3,
+          verification_attempt_limit_per_work_unit: 3,
+          feedback_cycle_limit_per_work_unit: 2,
+          elapsed_time_limit_ms: 1_800_000,
+        },
         },
       },
       request: null,
@@ -279,6 +286,46 @@ describe("Codex SDK Runtime protocol", () => {
     assert.match(prompts[0], /assess every finding exactly once/u);
   });
 
+  test("runs semantic supervision in a non-Repository read-only thread", async () => {
+    const threadOptions = [];
+    const turnOptions = [];
+    const prompts = [];
+    const finalResponse = JSON.stringify({
+      type: "supervisor_decision_proposal",
+      action_id: "supervision-action-1",
+      projection_digest: "a".repeat(64),
+      rationale: "The exact validation failure is implementation Feedback.",
+      expected_result: "The WorkUnit assesses and repairs the bounded finding.",
+      evidence_reference_ids: ["validation-1"],
+    });
+    const runtime = new CodexSdkRuntime({
+      ...RUNTIME_OPTIONS,
+      codexFactory() {
+        return {
+          startThread(options) {
+            threadOptions.push(options);
+            return {
+              async runStreamed(prompt, options_) {
+                prompts.push(prompt);
+                turnOptions.push(options_);
+                return { events: providerEvents(finalResponse) };
+              },
+            };
+          },
+        };
+      },
+    });
+
+    const result = await runtime.invoke(supervisionInvocation(process.cwd()));
+
+    assert.equal(result.outcome.type, "supervisor_decision_proposal");
+    assert.equal(threadOptions[0].sandboxMode, "read-only");
+    assert.equal(threadOptions[0].skipGitRepoCheck, true);
+    assert.equal(turnOptions[0].outputSchema.additionalProperties, false);
+    assert.match(prompts[0], /Choose exactly one action_id/u);
+    assert.match(prompts[0], /may not invent, modify, combine, or execute/u);
+  });
+
   test("preserves terminal failure evidence without accepting text output", async () => {
     const runtime = new CodexSdkRuntime({
       ...RUNTIME_OPTIONS,
@@ -487,6 +534,39 @@ function feedbackExecutionInvocation(repositoryPath) {
       paths: [repositoryPath],
     },
     workspace: { workspace_path: repositoryPath },
+    signal: null,
+  };
+}
+
+function supervisionInvocation(runtimePath) {
+  return {
+    operation: "supervision",
+    agent_profile: {
+      ...PROFILE,
+      profile_id: "codex-supervisor",
+      permissions: "operation_scoped",
+      network_access: false,
+    },
+    control_contract: {
+      schema_version: 4,
+      operation: "supervision",
+      change_set_id: "change-1",
+      authorized_repositories: ["api"],
+    },
+    context_projection: {
+      schema_version: 1,
+      operation: "supervision",
+      projection_digest: "a".repeat(64),
+      offered_actions: [
+        { action_id: "supervision-action-1", type: "submit_feedback" },
+      ],
+    },
+    capabilities: {
+      mode: "read_only",
+      paths: [runtimePath],
+      typed_operations_only: true,
+    },
+    workspace: null,
     signal: null,
   };
 }

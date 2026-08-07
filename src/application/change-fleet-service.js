@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { mkdir } from "node:fs/promises";
 import path from "node:path";
 
 import { sha256 } from "../domain/canonical-json.js";
@@ -72,6 +73,13 @@ import {
   setWorkUnitPhase,
   supersedeWorkUnit,
 } from "../domain/lifecycle.js";
+import {
+  actionRequiresSupervisor,
+  deriveSupervisionActionSet,
+  deriveSupervisionProgress,
+  normalizeSupervisorDecisionProposal,
+  normalizeSupervisionPolicy,
+} from "../domain/supervision.js";
 
 const MAX_CONTEXT_HARNESS_RESOURCES = 32;
 // 应用服务是确定性编排入口：语义工作交给 Runtime，权限、状态和证据在此裁决。
@@ -83,6 +91,8 @@ export class ChangeFleetService {
     agentProfile,
     verificationRuntime = runtime,
     verificationAgentProfile = agentProfile,
+    supervisionRuntime = runtime,
+    supervisionAgentProfile = null,
     clock = () => new Date(),
     idFactory = (prefix) => `${prefix}-${randomUUID()}`,
     deliveryGitAdapter = new DeliveryGitAdapter(),
@@ -97,6 +107,10 @@ export class ChangeFleetService {
     this.verificationRuntime = verificationRuntime;
     this.verificationAgentProfile = normalizeAgentProfile(
       verificationAgentProfile,
+    );
+    this.supervisionRuntime = supervisionRuntime;
+    this.supervisionAgentProfile = normalizeAgentProfile(
+      supervisionAgentProfile ?? readOnlySupervisorProfile(agentProfile),
     );
     this.clock = clock;
     this.idFactory = idFactory;
@@ -202,6 +216,9 @@ export class ChangeFleetService {
       verification_policy: normalizeVerificationPolicy(
         project.verification_policy,
       ),
+      supervision_policy: normalizeSupervisionPolicy(
+        project.supervision_policy,
+      ),
       repositories,
       registered_at: this.now(),
     };
@@ -217,6 +234,9 @@ export class ChangeFleetService {
     };
     if (project.verification_policy !== undefined) {
       fingerprintInput.verification_policy = normalizedProject.verification_policy;
+    }
+    if (project.supervision_policy !== undefined) {
+      fingerprintInput.supervision_policy = normalizedProject.supervision_policy;
     }
 
     return this.controlStore.transactCatalog((catalog) =>
@@ -394,6 +414,7 @@ export class ChangeFleetService {
       change_set_id,
       project_id,
       verification_policy: structuredClone(project.verification_policy),
+      supervision_policy: structuredClone(project.supervision_policy),
       phase: "planning",
       terminal_outcome: null,
       intents: [normalizedIntent],
@@ -424,6 +445,13 @@ export class ChangeFleetService {
       current_feedback_id: null,
       gates: [],
       blockers: [],
+      supervision_control: {
+        plan_revision: null,
+        authorized_at: null,
+        hold: null,
+        last_stop_reason: null,
+        updated_at: now,
+      },
       migration_records: [],
       commands: {
         [idempotency_key]: {
@@ -702,6 +730,34 @@ export class ChangeFleetService {
             "INVALID_GATE_DECISION",
             "Gate is not open or the selected option is not exact",
           );
+          if (gate.kind === "supervision_decision") {
+            const resolvedAt = this.now();
+            gate.status = "resolved";
+            gate.selected_option = option;
+            gate.resolved_by = actor;
+            gate.resolved_at = resolvedAt;
+            if (option === "resume") {
+              state.supervision_control.hold = null;
+              state.supervision_control.last_stop_reason = null;
+            }
+            state.supervision_control.updated_at = resolvedAt;
+            state.decisions.push({
+              decision_id: this.idFactory("decision"),
+              type: "supervision_gate_resolution",
+              gate_id,
+              option,
+              actor,
+              decided_at: resolvedAt,
+            });
+            state.updated_at = resolvedAt;
+            return {
+              change_set_id,
+              gate_id,
+              feedback_id: null,
+              status: "resolved",
+              selected_option: option,
+            };
+          }
           const workUnit = unitsForCurrentPlan(state).find(
             (unit) => unit.work_unit_id === gate.work_unit_id,
           );
@@ -1317,6 +1373,7 @@ export class ChangeFleetService {
                 item.feedback_id === initialState.current_feedback_id,
             ) ?? null,
       verificationPolicy: initialState.verification_policy,
+      supervisionPolicy: initialState.supervision_policy,
     });
     const invocation = {
       operation: "planning",
@@ -1650,7 +1707,11 @@ export class ChangeFleetService {
       "confirmPlanMessage",
       input,
     );
-    if (existing?.status === "completed") return structuredClone(existing.result);
+    if (existing?.status === "completed") {
+      return this.maybeAutoStartAfterConfirmation(
+        structuredClone(existing.result),
+      );
+    }
     const reference = initialState.planning_message_references.find(
       (item) => item.message_id === message_id,
     );
@@ -1678,7 +1739,7 @@ export class ChangeFleetService {
     );
 
     // 确认在一个聚合事务中分配 revision、创建 WorkUnit 并开放执行。
-    return this.controlStore.transactChangeSet(change_set_id, (state) =>
+    const confirmation = await this.controlStore.transactChangeSet(change_set_id, (state) =>
       applyIdempotentCommand({
         record: state,
         idempotencyKey: idempotency_key,
@@ -1749,6 +1810,13 @@ export class ChangeFleetService {
             actor,
             decided_at: this.now(),
           });
+          state.supervision_control = {
+            plan_revision: planRevision,
+            authorized_at: this.now(),
+            hold: null,
+            last_stop_reason: null,
+            updated_at: this.now(),
+          };
           setChangeSetPhase(state, "working");
           state.updated_at = this.now();
           return {
@@ -1760,6 +1828,665 @@ export class ChangeFleetService {
         },
       }),
     );
+    return this.maybeAutoStartAfterConfirmation(confirmation);
+  }
+
+  async maybeAutoStartAfterConfirmation(confirmation) {
+    if (confirmation.plan.supervision.mode !== "autonomous_until_review") {
+      return confirmation;
+    }
+    const supervision = await this.runAutonomousSupervision(
+      confirmation.change_set_id,
+    );
+    return { ...confirmation, supervision };
+  }
+
+  async startSupervision({ idempotency_key, change_set_id, actor = "human" }) {
+    normalizeId("idempotency_key", idempotency_key);
+    normalizeId("change_set_id", change_set_id);
+    normalizeId("actor", actor);
+    await this.controlStore.transactChangeSet(change_set_id, (state) =>
+      applyIdempotentCommand({
+        record: state,
+        idempotencyKey: idempotency_key,
+        command: "startSupervision",
+        input: { change_set_id, actor },
+        perform: () => {
+          assertAutonomousPlanCurrent(state);
+          invariant(
+            state.supervision_control?.hold === null,
+            "SUPERVISION_HELD",
+            "Supervision is held and must be resumed explicitly",
+          );
+          state.supervision_control.last_stop_reason = null;
+          state.supervision_control.updated_at = this.now();
+          state.updated_at = this.now();
+          return {
+            change_set_id,
+            plan_revision: state.current_plan_revision,
+            status: "started",
+          };
+        },
+      }),
+    );
+    return this.runAutonomousSupervision(change_set_id);
+  }
+
+  async pauseSupervision({
+    idempotency_key,
+    change_set_id,
+    actor = "human",
+    reason = "operator_hold",
+  }) {
+    normalizeId("idempotency_key", idempotency_key);
+    normalizeId("change_set_id", change_set_id);
+    normalizeId("actor", actor);
+    invariant(
+      typeof reason === "string" && reason.trim().length > 0,
+      "INVALID_SUPERVISION_HOLD",
+      "A supervision hold requires one reason",
+    );
+    return this.controlStore.transactChangeSet(change_set_id, (state) =>
+      applyIdempotentCommand({
+        record: state,
+        idempotencyKey: idempotency_key,
+        command: "pauseSupervision",
+        input: { change_set_id, actor, reason: reason.trim() },
+        perform: () => {
+          assertAutonomousPlanCurrent(state);
+          const heldAt = this.now();
+          state.supervision_control.hold = {
+            hold_id: this.idFactory("hold"),
+            reason: reason.trim(),
+            actor,
+            held_at: heldAt,
+          };
+          state.supervision_control.last_stop_reason = "operator_hold";
+          state.supervision_control.updated_at = heldAt;
+          state.updated_at = heldAt;
+          return {
+            change_set_id,
+            status: "paused",
+            hold: structuredClone(state.supervision_control.hold),
+          };
+        },
+      }),
+    );
+  }
+
+  async resumeSupervision({ idempotency_key, change_set_id, actor = "human" }) {
+    normalizeId("idempotency_key", idempotency_key);
+    normalizeId("change_set_id", change_set_id);
+    normalizeId("actor", actor);
+    await this.controlStore.transactChangeSet(change_set_id, (state) =>
+      applyIdempotentCommand({
+        record: state,
+        idempotencyKey: idempotency_key,
+        command: "resumeSupervision",
+        input: { change_set_id, actor },
+        perform: () => {
+          assertAutonomousPlanCurrent(state);
+          const resumedAt = this.now();
+          state.supervision_control.hold = null;
+          state.supervision_control.last_stop_reason = null;
+          state.supervision_control.updated_at = resumedAt;
+          state.updated_at = resumedAt;
+          return { change_set_id, status: "resumed", resumed_at: resumedAt };
+        },
+      }),
+    );
+    return this.runAutonomousSupervision(change_set_id);
+  }
+
+  async readSupervisionProgress({ change_set_id }) {
+    normalizeId("change_set_id", change_set_id);
+    const state = await this.controlStore.readChangeSet(change_set_id);
+    const actionSet = deriveSupervisionActionSet(state, { now: this.now() });
+    return {
+      change_set_id,
+      phase: state.phase,
+      activity: actionSet.actions[0]?.type ?? "stop",
+      last_stop_reason:
+        state.supervision_control?.last_stop_reason ??
+        actionSet.actions[0]?.details?.reason ??
+        null,
+      progress: actionSet.progress,
+      offered_actions: actionSet.actions.map(projectSupervisionAction),
+    };
+  }
+
+  async runAutonomousSupervision(changeSetId) {
+    const catalog = await this.controlStore.readCatalog();
+    const initial = await this.controlStore.readChangeSet(changeSetId);
+    assertAutonomousPlanCurrent(initial);
+    await this.reconcileInterruptedRuns(changeSetId, {
+      project: requireProject(catalog, initial.project_id),
+    });
+
+    let previousFailure = null;
+    for (let step = 0; step < 256; step += 1) {
+      const state = await this.controlStore.readChangeSet(changeSetId);
+      const actionSet = deriveSupervisionActionSet(state, { now: this.now() });
+      let selectedAction;
+      let supervisorRunId = null;
+      if (actionRequiresSupervisor(actionSet)) {
+        const decision = await this.invokeSupervisorDecision(
+          state,
+          actionSet,
+        );
+        selectedAction = decision.action;
+        supervisorRunId = decision.run_id;
+      } else {
+        [selectedAction] = actionSet.actions;
+      }
+      invariant(
+        selectedAction,
+        "SUPERVISION_NO_AUTHORIZED_ACTION",
+        "Supervision policy produced no authorized action",
+      );
+      if (["stop", "pause"].includes(selectedAction.type)) {
+        const reason = selectedAction.details.reason;
+        await this.recordSupervisionStop(changeSetId, reason);
+        return this.supervisionResult(changeSetId, reason);
+      }
+
+      try {
+        await this.executeSupervisionAction(changeSetId, selectedAction);
+        previousFailure = null;
+        if (supervisorRunId) {
+          await this.recordSupervisorDisposition(supervisorRunId, {
+            disposition: "executed",
+            actionId: selectedAction.action_id,
+          });
+        }
+      } catch (error) {
+        if (supervisorRunId) {
+          await this.recordSupervisorDisposition(supervisorRunId, {
+            disposition: "rejected",
+            actionId: selectedAction.action_id,
+            errorCode: error.code ?? "UNEXPECTED_ERROR",
+          }).catch(() => {});
+        }
+        if (error.code === "CONTROLLER_INTERRUPTED") throw error;
+        // 人工中断是明确停止信号；不能把它自动解释成一次可重试 Provider 故障。
+        if (error.code === "RUNTIME_INTERRUPTED") {
+          await this.recordSupervisionStop(
+            changeSetId,
+            "operator_interrupted",
+          );
+          return this.supervisionResult(
+            changeSetId,
+            "operator_interrupted",
+          );
+        }
+        const afterFailure = await this.controlStore.readChangeSet(changeSetId);
+        const next = deriveSupervisionActionSet(afterFailure, { now: this.now() });
+        const failureIdentity = `${selectedAction.action_id}:${error.code ?? "UNEXPECTED_ERROR"}`;
+        if (
+          previousFailure === failureIdentity ||
+          next.actions.some(
+            (action) =>
+              action.action_id === selectedAction.action_id &&
+              !["stop", "pause", "open_gate"].includes(action.type),
+          )
+        ) {
+          const reason = `action_failed:${error.code ?? "UNEXPECTED_ERROR"}`;
+          await this.recordSupervisionStop(changeSetId, reason);
+          return this.supervisionResult(changeSetId, reason);
+        }
+        previousFailure = failureIdentity;
+      }
+    }
+    await this.recordSupervisionStop(
+      changeSetId,
+      "controller_dispatch_limit_reached",
+    );
+    return this.supervisionResult(
+      changeSetId,
+      "controller_dispatch_limit_reached",
+    );
+  }
+
+  async executeSupervisionAction(changeSetId, offeredAction) {
+    const schedulerLock = await this.controlStore.acquireSchedulerLock(
+      this.instanceId,
+    );
+    try {
+      const current = await this.controlStore.readChangeSet(changeSetId);
+      const currentSet = deriveSupervisionActionSet(current, { now: this.now() });
+      const action = currentSet.actions.find(
+        (candidate) => candidate.action_id === offeredAction.action_id,
+      );
+      invariant(
+        action &&
+          action.type === offeredAction.type &&
+          action.budget_identity === offeredAction.budget_identity,
+        "STALE_SUPERVISION_ACTION",
+        "Supervision action is no longer authorized by the current snapshot",
+      );
+      const workUnitId = action.subject.work_unit_id ?? null;
+      if (action.type === "dispatch_execution") {
+        const unit = unitsForCurrentPlan(current).find(
+          (candidate) => candidate.work_unit_id === workUnitId,
+        );
+        return this.executeWorkUnit(changeSetId, workUnitId, {
+          feedbackSourceId: unit.pending_feedback_id,
+        });
+      }
+      if (
+        action.type === "advance_work_unit_validation" ||
+        action.type === "retry_validation"
+      ) {
+        return this.resumeWorkUnitValidation(changeSetId, workUnitId);
+      }
+      if (action.type === "retry_execution") {
+        await this.prepareRetryableExecutions(
+          changeSetId,
+          action.idempotency_key,
+          "supervisor",
+        );
+        return { status: "retry_scheduled", work_unit_id: workUnitId };
+      }
+      if (action.type === "submit_feedback") {
+        return this.recordSupervisionFeedback(changeSetId, action);
+      }
+      if (action.type === "validate_and_assemble_bundle") {
+        return this.finalizeBundleForSupervision(changeSetId);
+      }
+      if (action.type === "open_gate") {
+        return this.openSupervisionGate(changeSetId, action);
+      }
+      throw new ChangeFleetError(
+        "UNSUPPORTED_SUPERVISION_ACTION",
+        `Supervision action ${action.type} has no executor`,
+      );
+    } finally {
+      await schedulerLock.release();
+    }
+  }
+
+  async invokeSupervisorDecision(state, actionSet) {
+    const plan = currentPlan(state);
+    const repositorySelection = currentRepositorySelection(state);
+    const repositoryHarnessSelection =
+      currentRepositoryHarnessSelection(state);
+    const attempt =
+      state.run_references.filter(
+        (reference) => reference.operation === "supervision",
+      ).length + 1;
+    const runId = this.idFactory("run");
+    const workspacePath = path.join(
+      this.workspaceRoot,
+      ".changefleet-supervision",
+      state.change_set_id,
+    );
+    await mkdir(workspacePath, { recursive: true });
+    const controlContract = createControlContract({
+      operation: "supervision",
+      changeSetId: state.change_set_id,
+      planRevision: plan.revision,
+      repositorySelectionRevision: repositorySelection.revision,
+      repositoryHarnessSelectionRevision: repositoryHarnessSelection.revision,
+      authorizedRepositories: repositorySelection.repositories.map(
+        (repository) => repository.repository_id,
+      ),
+      allowedOutcomes: ["supervisor_decision_proposal"],
+      humanGates: ["bounded_supervision_route"],
+    });
+    const contextProjection = createSupervisionProjection(
+      state,
+      plan,
+      repositorySelection,
+      repositoryHarnessSelection,
+      actionSet,
+      workspacePath,
+    );
+    const invocation = {
+      operation: "supervision",
+      agent_profile: this.supervisionAgentProfile,
+      control_contract: controlContract,
+      context_projection: contextProjection,
+      capabilities: contextProjection.capability,
+      workspace: null,
+      signal: null,
+    };
+    const contextEvidence = assessInitialContext({
+      controlContract,
+      contextProjection,
+      agentProfile: this.supervisionAgentProfile,
+      runtimeMeasurement: await measureInitialContext(
+        this.supervisionRuntime,
+        invocation,
+      ),
+    });
+    const createdAt = this.now();
+    await this.runStore.create({
+      schema_version: 1,
+      run_id: runId,
+      change_set_id: state.change_set_id,
+      work_unit_id: null,
+      operation: "supervision",
+      trigger: attempt === 1 ? "initial" : "retry",
+      continuation_of_run_id:
+        state.run_references
+          .filter((reference) => reference.operation === "supervision")
+          .at(-1)?.run_id ?? null,
+      attempt,
+      status: "running",
+      agent_profile: this.supervisionAgentProfile,
+      repository_harness_selection: null,
+      repository_harness_observation: null,
+      context_evidence: contextEvidence,
+      context_projection_identity: {
+        schema_version: contextProjection.schema_version,
+        digest: sha256(contextProjection),
+      },
+      runtime_evidence: null,
+      created_at: createdAt,
+      completed_at: null,
+      outcome: null,
+    });
+    await this.controlStore.transactChangeSet(state.change_set_id, (current) => {
+      invariant(
+        current.current_plan_revision === plan.revision,
+        "STALE_SUPERVISION_ACTION",
+        "Plan changed before Supervisor dispatch",
+      );
+      current.run_references.push({
+        run_id: runId,
+        operation: "supervision",
+        trigger: attempt === 1 ? "initial" : "retry",
+        plan_revision: plan.revision,
+        work_unit_id: null,
+        attempt,
+        offered_action_ids: actionSet.actions.map((action) => action.action_id),
+        status: "running",
+      });
+      current.updated_at = this.now();
+    });
+
+    let providerEvidence = null;
+    let observedProposal = null;
+    let proposalArtifact = null;
+    try {
+      const result = await this.runCoordinator.invoke(
+        this.supervisionRuntime,
+        runId,
+        invocation,
+      );
+      providerEvidence = result.provider_evidence;
+      observedProposal = result.outcome;
+      const proposal = normalizeSupervisorDecisionProposal(result.outcome, {
+        offeredActions: actionSet.actions,
+        projectionDigest: actionSet.projection_digest,
+      });
+      await this.runStore.appendEvent(runId, {
+        event_id: this.idFactory("event"),
+        type: "runtime.outcome",
+        at: this.now(),
+        payload: proposal,
+      });
+      proposalArtifact = await this.runStore.writeJsonArtifact(
+        runId,
+        "supervisor-proposal",
+        proposal,
+      );
+      const completedAt = this.now();
+      await this.recordRuntimeEvidence({
+        runId,
+        invocation,
+        providerEvidence,
+        terminal: {
+          status: "completed",
+          outcome_type: proposal.type,
+          error_code: null,
+          completed_at: completedAt,
+        },
+      });
+      await this.runStore.update(runId, (run) => {
+        run.status = "completed";
+        run.completed_at = completedAt;
+        run.outcome = {
+          type: proposal.type,
+          selected_action_id: proposal.action_id,
+          offered_action_ids: actionSet.actions.map((action) => action.action_id),
+          proposal_artifact: proposalArtifact,
+          disposition: "pending_revalidation",
+          disposition_error_code: null,
+        };
+      });
+      await this.markRunReference(state.change_set_id, runId, "completed");
+      return {
+        run_id: runId,
+        action: actionSet.actions.find(
+          (action) => action.action_id === proposal.action_id,
+        ),
+      };
+    } catch (error) {
+      // 该错误表示控制器已消失；保留 running Run，交给下一实例统一结算，避免伪造一次 Provider 失败。
+      if (error.code === "CONTROLLER_INTERRUPTED") throw error;
+      if (observedProposal && proposalArtifact === null) {
+        // 无效建议也保留有界审计信封；不能把未经验证的完整模型输出写入聚合状态。
+        proposalArtifact = await this.runStore.writeJsonArtifact(
+          runId,
+          "rejected-supervisor-proposal",
+          boundedRejectedSupervisorProposal(observedProposal),
+        ).catch(() => null);
+      }
+      providerEvidence = error.runtime_evidence ?? providerEvidence;
+      const completedAt = this.now();
+      await this.recordRuntimeEvidence({
+        runId,
+        invocation,
+        providerEvidence,
+        terminal: {
+          status: runTerminalStatusForError(error),
+          outcome_type: "failed",
+          error_code: error.code ?? "INVALID_SUPERVISOR_PROPOSAL",
+          completed_at: completedAt,
+        },
+      }).catch(() => {});
+      await this.failRun(runId, error).catch(() => {});
+      if (proposalArtifact) {
+        await this.runStore.update(runId, (run) => {
+          run.outcome.proposal_artifact = proposalArtifact;
+          run.outcome.disposition = "rejected";
+          run.outcome.disposition_error_code =
+            error.code ?? "INVALID_SUPERVISOR_PROPOSAL";
+        }).catch(() => {});
+      }
+      await this.markRunReference(
+        state.change_set_id,
+        runId,
+        runTerminalStatusForError(error),
+      ).catch(() => {});
+      throw error;
+    }
+  }
+
+  async recordSupervisorDisposition(
+    runId,
+    { disposition, actionId, errorCode = null },
+  ) {
+    await this.runStore.update(runId, (run) => {
+      run.outcome.disposition = disposition;
+      run.outcome.disposition_error_code = errorCode;
+      invariant(
+        run.outcome.selected_action_id === actionId,
+        "SUPERVISOR_ACTION_NOT_OFFERED",
+        "Supervisor disposition action does not match its proposal",
+      );
+    });
+  }
+
+  async recordSupervisionFeedback(changeSetId, action) {
+    return this.controlStore.transactChangeSet(changeSetId, (state) => {
+      const unit = unitsForCurrentPlan(state).find(
+        (candidate) =>
+          candidate.work_unit_id === action.subject.work_unit_id,
+      );
+      invariant(
+        unit?.phase === "verification" &&
+          unit.candidate === null &&
+          unit.candidate_checkpoint_id === action.subject.checkpoint_id &&
+          unit.last_error?.validation_attempt_id ===
+            action.subject.validation_attempt_id,
+        "STALE_SUPERVISION_ACTION",
+        "Validation Feedback subject changed before it was recorded",
+      );
+      const feedback = this.feedbackService.record(state, {
+        source: "validation",
+        target: {
+          change_set_id: changeSetId,
+          plan_revision: state.current_plan_revision,
+          work_unit_id: unit.work_unit_id,
+          checkpoint_id: unit.candidate_checkpoint_id,
+          validation_attempt_id: action.subject.validation_attempt_id,
+        },
+        content: normalizeRevisionFeedback(action.details.feedback),
+        createdAt: this.now(),
+      });
+      setWorkUnitPhase(unit, "execution");
+      unit.pending_feedback_id = feedback.feedback_id;
+      unit.last_error = null;
+      resolveValidationBlockers(state, {
+        workUnitId: unit.work_unit_id,
+        resolvedAt: this.now(),
+      });
+      state.updated_at = this.now();
+      return {
+        status: "feedback_recorded",
+        feedback_id: feedback.feedback_id,
+        work_unit_id: unit.work_unit_id,
+      };
+    });
+  }
+
+  async openSupervisionGate(changeSetId, action) {
+    return this.controlStore.transactChangeSet(changeSetId, (state) => {
+      const existing = state.gates.find(
+        (gate) => gate.supervision_action_id === action.action_id,
+      );
+      if (existing) return structuredClone(existing);
+      const createdAt = this.now();
+      const gate = {
+        gate_id: this.idFactory("gate"),
+        kind: "supervision_decision",
+        status: "open",
+        work_unit_id: action.subject.work_unit_id ?? null,
+        verification_review_id: null,
+        supervision_action_id: action.action_id,
+        request: {
+          question: `Autonomous progress stopped: ${action.details.reason}.`,
+          options: ["resume", "keep_paused"],
+        },
+        created_at: createdAt,
+      };
+      state.gates.push(gate);
+      state.supervision_control.hold = {
+        hold_id: this.idFactory("hold"),
+        reason: action.details.reason,
+        actor: "supervisor",
+        held_at: createdAt,
+      };
+      state.supervision_control.last_stop_reason = "gate_open";
+      state.supervision_control.updated_at = createdAt;
+      state.updated_at = createdAt;
+      return structuredClone(gate);
+    });
+  }
+
+  async finalizeBundleForSupervision(changeSetId) {
+    const beforeValidation = await this.controlStore.readChangeSet(changeSetId);
+    const plan = currentPlan(beforeValidation);
+    const project = requireProject(
+      await this.controlStore.readCatalog(),
+      beforeValidation.project_id,
+    );
+    const repositories = Object.fromEntries(
+      project.repositories.map((repository) => [
+        repository.repository_id,
+        repository,
+      ]),
+    );
+    const candidates = unitsForCurrentPlan(beforeValidation).map(
+      (unit) => unit.candidate,
+    );
+    invariant(
+      candidates.length > 0 && candidates.every(Boolean),
+      "CANDIDATE_BUNDLE_NOT_READY",
+      "Every current WorkUnit requires one exact Candidate",
+    );
+    const subject = createValidationSubject(
+      beforeValidation,
+      plan,
+      candidates,
+    );
+    const combinedEvidence = await this.validateCombinedCandidates({
+      changeSetId,
+      subject,
+      candidates,
+      repositories,
+      command: plan.combined_check,
+      projectPolicy: beforeValidation.verification_policy,
+      budgetRequest: null,
+    });
+    const stateForBundle = await this.controlStore.readChangeSet(changeSetId);
+    const bundle = await this.bundleAssembler.assemble({
+      changeSet: stateForBundle,
+      plan,
+      candidates,
+      combinedEvidence,
+    });
+    return this.controlStore.transactChangeSet(changeSetId, (state) => {
+      invariant(
+        state.current_plan_revision === plan.revision &&
+          state.phase === "working" &&
+          unitsForCurrentPlan(state).every((unit) => unit.phase === "complete"),
+        "STALE_SUPERVISION_ACTION",
+        "Bundle subject changed before assembly completed",
+      );
+      state.bundles.push(bundle);
+      this.feedbackService.clear(state);
+      resolveValidationBlockers(state, {
+        validationSubjectHash: subject.validation_subject_hash,
+        resolvedAt: this.now(),
+      });
+      resolveFailedExecutionCommandBlockers(state, this.now());
+      setChangeSetPhase(state, "review");
+      state.updated_at = this.now();
+      return {
+        change_set_id: changeSetId,
+        bundle_revision: bundle.revision,
+        bundle_hash: bundle.bundle_hash,
+        bundle_id: bundle.bundle_id,
+      };
+    });
+  }
+
+  async recordSupervisionStop(changeSetId, reason) {
+    await this.controlStore.transactChangeSet(changeSetId, (state) => {
+      if (!state.supervision_control) return;
+      state.supervision_control.last_stop_reason = reason;
+      state.supervision_control.updated_at = this.now();
+      state.updated_at = this.now();
+    });
+  }
+
+  async supervisionResult(changeSetId, reason) {
+    const state = await this.controlStore.readChangeSet(changeSetId);
+    return {
+      change_set_id: changeSetId,
+      plan_revision: state.current_plan_revision,
+      phase: state.phase,
+      status: reason === "bundle_review_ready" ? "review_ready" : "stopped",
+      stop_reason: reason,
+      bundle:
+        state.phase === "review"
+          ? structuredClone(state.bundles.at(-1) ?? null)
+          : null,
+      progress: deriveSupervisionProgress(state, { now: this.now() }),
+    };
   }
 
   async executeChangeSet({
@@ -2339,8 +3066,8 @@ export class ChangeFleetService {
     return this.runRecoveryService.reconcile(changeSetId, { project });
   }
 
-  async prepareRetryableExecutions(changeSetId, commandId) {
-    // 新 execute 命令是唯一人工触发点；只有无真实 Candidate 的干净 base 工作区才会再次调用 Provider。
+  async prepareRetryableExecutions(changeSetId, commandId, actor = "human") {
+    // 人工继续或已授权 Supervisor 都只能重试无真实 Candidate 的干净 base 工作区。
     const state = await this.controlStore.readChangeSet(changeSetId);
     const retryable = retryableExecutionUnits(state);
     if (retryable.length === 0) return;
@@ -2443,7 +3170,7 @@ export class ChangeFleetService {
           retired_candidate_checkpoint_id: reason.checkpoint_id,
           reason_code: reason.reason_code,
           command_id: commandId,
-          actor: "human",
+          actor,
           decided_at: this.now(),
         };
         current.decisions.push(decision);
@@ -3821,6 +4548,7 @@ export class ChangeFleetService {
           code: "VERIFICATION_CHECK_FAILED",
           message: checkResult.failedError.message,
           verification_review_id: review.review_id,
+          validation_attempt_id: checkResult.failedAttemptId,
         };
         current.blockers.push({
           code: "VERIFICATION_CHECK_FAILED",
@@ -3893,6 +4621,7 @@ export class ChangeFleetService {
   }) {
     const attemptIds = [];
     let failedError = null;
+    let failedAttemptId = null;
     let missingEvidence = false;
     for (const command of commands) {
       const before = await this.controlStore.readChangeSet(changeSetId);
@@ -3967,6 +4696,7 @@ export class ChangeFleetService {
       }
       if (commandError) {
         failedError ??= commandError;
+        failedAttemptId ??= attempt?.validation_attempt_id ?? null;
         missingEvidence ||= attempt === null;
         if (
           [
@@ -3981,7 +4711,7 @@ export class ChangeFleetService {
         }
       }
     }
-    return { attemptIds, failedError, missingEvidence };
+    return { attemptIds, failedError, failedAttemptId, missingEvidence };
   }
 
   async ensureRepositoryValidationPassed({
@@ -4430,10 +5160,199 @@ export class ChangeFleetService {
   }
 }
 
+function readOnlySupervisorProfile(agentProfile) {
+  return {
+    ...structuredClone(agentProfile),
+    profile_id: `${agentProfile.profile_id}-supervisor`.slice(0, 128),
+    permissions: "operation_scoped",
+    network_access: false,
+    skills: [],
+  };
+}
+
+function assertAutonomousPlanCurrent(state) {
+  assertChangeSetMutable(state);
+  const plan = currentPlan(state);
+  invariant(
+    plan?.status === "confirmed" &&
+      plan.supervision?.mode === "autonomous_until_review" &&
+      state.supervision_control?.plan_revision === plan.revision,
+    "AUTONOMOUS_PLAN_CONFIRMATION_REQUIRED",
+    "Current confirmed Plan does not authorize autonomous supervision",
+  );
+  return plan;
+}
+
+function projectSupervisionAction(action) {
+  return {
+    action_id: action.action_id,
+    type: action.type,
+    plan_revision: action.plan_revision,
+    repository_selection_revision: action.repository_selection_revision,
+    repository_harness_selection_revision:
+      action.repository_harness_selection_revision,
+    subject: structuredClone(action.subject),
+    preconditions: [...action.preconditions],
+    budget_identity: action.budget_identity,
+    idempotency_key: action.idempotency_key,
+    details: structuredClone(action.details),
+  };
+}
+
+function createSupervisionProjection(
+  state,
+  plan,
+  repositorySelection,
+  repositoryHarnessSelection,
+  actionSet,
+  workspacePath,
+) {
+  // Supervisor 只看当前控制快照和有界失败摘要；日志、diff、transcript、成本总量均留在审计面。
+  return {
+    schema_version: 1,
+    operation: "supervision",
+    change_set_id: state.change_set_id,
+    projection_digest: actionSet.projection_digest,
+    confirmed_intent: {
+      revision: state.current_intent_revision,
+      objective: state.intents.find(
+        (intent) => intent.revision === state.current_intent_revision,
+      )?.objective,
+    },
+    plan: {
+      revision: plan.revision,
+      status: plan.status,
+      supervision: structuredClone(plan.supervision),
+      verification_expectation: structuredClone(
+        plan.verification_expectation,
+      ),
+      risks: [...plan.risks],
+      unverified_boundaries: [...plan.unverified_boundaries],
+      work_units: plan.work_units.map((unit) => ({
+        work_unit_id: unit.work_unit_id,
+        repository_id: unit.repository_id,
+        task: unit.task,
+        dependencies: [...unit.dependencies],
+        repository_check: {
+          command_id: unit.repository_check.command_id,
+          coverage_rationale: unit.repository_check.coverage_rationale,
+        },
+      })),
+      combined_check: {
+        command_id: plan.combined_check.command_id,
+        coverage_rationale: plan.combined_check.coverage_rationale,
+      },
+    },
+    repository_selection: {
+      revision: repositorySelection.revision,
+      repositories: repositorySelection.repositories.map((repository) => ({
+        repository_id: repository.repository_id,
+        target_ref: repository.target_ref,
+        resolved_base_sha: repository.resolved_base_sha,
+      })),
+    },
+    repository_harness_selection: {
+      revision: repositoryHarnessSelection.revision,
+      repositories: repositoryHarnessSelection.repositories.map(
+        (repository) => ({
+          repository_id: repository.repository_id,
+          resolved_base_sha: repository.resolved_base_sha,
+          mode: repository.mode,
+        }),
+      ),
+    },
+    work_units: unitsForCurrentPlan(state).map((unit) => ({
+      work_unit_id: unit.work_unit_id,
+      repository_id: unit.repository_id,
+      phase: unit.phase,
+      candidate_checkpoint_id: unit.candidate_checkpoint_id,
+      candidate_id: unit.candidate?.candidate_id ?? null,
+      pending_feedback_id: unit.pending_feedback_id,
+      last_error: structuredClone(unit.last_error),
+    })),
+    relevant_evidence: [
+      ...(state.validation_attempts ?? [])
+        .filter((attempt) => attempt.status === "failed")
+        .slice(-8)
+        .map((attempt) => ({
+          kind: attempt.kind,
+          validation_attempt_id: attempt.validation_attempt_id,
+          subject_id: attempt.subject_id,
+          error_code: attempt.error_code ?? null,
+          evidence_id: attempt.evidence?.evidence_id ?? null,
+        })),
+      ...state.run_references
+        .filter((reference) =>
+          ["failed", "interrupted", "cancelled"].includes(reference.status),
+        )
+        .slice(-8)
+        .map((reference) => ({
+          kind: "run",
+          run_id: reference.run_id,
+          operation: reference.operation,
+          work_unit_id: reference.work_unit_id ?? null,
+          status: reference.status,
+        })),
+    ],
+    open_feedback: (state.feedback_records ?? [])
+      .filter((feedback) =>
+        unitsForCurrentPlan(state).some(
+          (unit) => unit.pending_feedback_id === feedback.feedback_id,
+        ),
+      )
+      .map((feedback) => ({
+        feedback_id: feedback.feedback_id,
+        source: feedback.source,
+        target: structuredClone(feedback.target),
+        summary: feedback.content.summary,
+      })),
+    open_gates: (state.gates ?? [])
+      .filter((gate) => gate.status === "open")
+      .map((gate) => ({
+        gate_id: gate.gate_id,
+        kind: gate.kind,
+        work_unit_id: gate.work_unit_id ?? null,
+      })),
+    hold: structuredClone(state.supervision_control?.hold ?? null),
+    remaining_budget: structuredClone(actionSet.progress),
+    offered_actions: actionSet.actions.map(projectSupervisionAction),
+    capability: {
+      mode: "read_only",
+      paths: [workspacePath],
+      typed_operations_only: true,
+    },
+  };
+}
+
 function runTerminalStatusForError(error) {
   if (error?.code === "RUNTIME_CANCELLED") return "cancelled";
   if (error?.code === "RUNTIME_INTERRUPTED") return "interrupted";
   return "failed";
+}
+
+function boundedRejectedSupervisorProposal(input) {
+  const boundedText = (value, maxBytes = 2 * 1_024) => {
+    if (typeof value !== "string") return null;
+    const encoded = Buffer.from(value, "utf8");
+    if (encoded.length <= maxBytes) return value;
+    return encoded
+      .subarray(0, maxBytes)
+      .toString("utf8")
+      .replace(/\uFFFD$/u, "");
+  };
+  return {
+    schema_version: 1,
+    type: boundedText(input?.type, 128),
+    action_id: boundedText(input?.action_id, 256),
+    projection_digest: boundedText(input?.projection_digest, 128),
+    rationale: boundedText(input?.rationale),
+    expected_result: boundedText(input?.expected_result),
+    evidence_reference_ids: Array.isArray(input?.evidence_reference_ids)
+      ? input.evidence_reference_ids
+          .slice(0, 16)
+          .map((reference) => boundedText(reference, 256))
+      : [],
+  };
 }
 
 const RETRYABLE_PRE_CANDIDATE_CODES = new Set([

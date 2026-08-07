@@ -15,8 +15,9 @@ reviewable `CandidateBundle` representing one exact cross-repository outcome.
 ## Current Status
 
 This repository contains the spec-first project Harness and the private implementation through
-landed WI-0013, plus the current WI-0009 branch implementation of the bounded local review and
-delivery console. The package is not released and exposes no stable public CLI or HTTP contract.
+landed WI-0019. WI-0020's first Plan-confirmed autonomous route to exact Bundle review is accepted
+and complete on its branch but not yet landed. The package is not released and exposes no stable
+public CLI or HTTP contract.
 
 The first accepted vertical slice, tracked by
 [`WI-0001`](docs/work-items/WI-0001-local-two-repository-vertical-slice.md), is:
@@ -197,6 +198,10 @@ node ./bin/changefleet.js changeset feedback submit --config changefleet.json --
 node ./bin/changefleet.js changeset gate resolve --config changefleet.json --request gate.json
 node ./bin/changefleet.js changeset candidate recover-legacy --config changefleet.json --request recovery.json
 node ./bin/changefleet.js changeset execute --config changefleet.json --request execute.json
+node ./bin/changefleet.js changeset supervision start --config changefleet.json --request supervision-start.json
+node ./bin/changefleet.js changeset supervision pause --config changefleet.json --request supervision-pause.json
+node ./bin/changefleet.js changeset supervision resume --config changefleet.json --request supervision-resume.json
+node ./bin/changefleet.js changeset supervision show <change_set_id> --config changefleet.json
 node ./bin/changefleet.js changeset bundle decide --config changefleet.json --request decision.json
 node ./bin/changefleet.js changeset delivery publish --config changefleet.json --request publish.json
 node ./bin/changefleet.js changeset delivery refresh --config changefleet.json --request refresh.json
@@ -211,6 +216,14 @@ confirm` accepts `idempotency_key`, `change_set_id`, `message_id`, `content_dige
 only that exact approval creates the first or next confirmed Plan revision. The local console reads
 the same linked message artifact and delegates its approval button to the same application
 operation.
+
+A confirmed Plan records `manual` or `autonomous_until_review` supervision plus bounded execution,
+verification, Feedback, and elapsed-time limits. In autonomous mode, exact forced actions run
+without a Supervisor model call. A read-only Supervisor Run is used only when several bounded
+semantic routes remain; it must select one offered exact action. Start, pause, resume, and progress
+commands use the same application operations as the local console. Autonomous authority stops at
+Bundle review, an open Gate or hold, stale authority, exhausted budget, or a terminal ChangeSet; it
+never accepts or delivers the Bundle.
 
 A `request_revision` Bundle decision also requires `feedback.summary` and 1-20 bounded
 `feedback.findings`, each with a stable `finding_id` and concise `text`. Only that current bounded

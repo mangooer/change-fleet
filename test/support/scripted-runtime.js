@@ -26,9 +26,13 @@ export class ScriptedRuntime {
     },
     interruptRepository = null,
     failRepository = null,
+    failCode = "SCRIPTED_EXECUTION_FAILURE",
     executionOutcome = null,
     verificationOutcome = null,
     verificationOutcomes = null,
+    supervisionOutcome = null,
+    supervisionOutcomes = null,
+    supervisionActionType = null,
     feedbackExecutionOutcome = null,
     feedbackFileContent = null,
   }) {
@@ -36,12 +40,17 @@ export class ScriptedRuntime {
     this.contextMeasurement = contextMeasurement;
     this.interruptRepository = interruptRepository;
     this.failRepository = failRepository;
+    this.failCode = failCode;
     this.executionOutcome = executionOutcome;
     this.verificationOutcome = verificationOutcome;
     this.verificationOutcomes = verificationOutcomes;
+    this.supervisionOutcome = supervisionOutcome;
+    this.supervisionOutcomes = supervisionOutcomes;
+    this.supervisionActionType = supervisionActionType;
     this.feedbackExecutionOutcome = feedbackExecutionOutcome;
     this.feedbackFileContent = feedbackFileContent;
     this.verificationInvocationCount = 0;
+    this.supervisionInvocationCount = 0;
     this.interrupted = false;
     this.invocations = [];
   }
@@ -96,6 +105,31 @@ export class ScriptedRuntime {
         provider_evidence: testProviderEvidence(),
       };
     }
+    if (invocation.operation === "supervision") {
+      const sequencedOutcome = Array.isArray(this.supervisionOutcomes)
+        ? this.supervisionOutcomes[this.supervisionInvocationCount]
+        : null;
+      this.supervisionInvocationCount += 1;
+      const offered = invocation.context_projection.offered_actions;
+      const preferred =
+        offered.find((action) => action.type === this.supervisionActionType) ??
+        offered.find((action) => action.type === "submit_feedback") ??
+        offered[0];
+      return {
+        outcome: structuredClone(
+          sequencedOutcome ?? this.supervisionOutcome ?? {
+            type: "supervisor_decision_proposal",
+            action_id: preferred.action_id,
+            projection_digest:
+              invocation.context_projection.projection_digest,
+            rationale: "The deterministic fixture selected the first bounded action.",
+            expected_result: "The selected action advances or safely stops the route.",
+            evidence_reference_ids: [],
+          },
+        ),
+        provider_evidence: testProviderEvidence(),
+      };
+    }
     const repositoryId =
       invocation.context_projection.work_unit.repository_id;
     if (
@@ -110,7 +144,7 @@ export class ScriptedRuntime {
     }
     if (repositoryId === this.failRepository) {
       throw new ChangeFleetError(
-        "SCRIPTED_EXECUTION_FAILURE",
+        this.failCode,
         `Scripted execution failed for ${repositoryId}`,
       );
     }
@@ -249,6 +283,13 @@ export function createTwoRepositoryPlan(combinedCheckScript) {
       rationale: "The selected behavioral checks cover the planned change.",
       escalation_triggers: ["scope_divergence"],
     },
+    supervision: {
+      mode: "manual",
+      execution_attempt_limit_per_work_unit: 3,
+      verification_attempt_limit_per_work_unit: 3,
+      feedback_cycle_limit_per_work_unit: 2,
+      elapsed_time_limit_ms: 1_800_000,
+    },
   };
 }
 
@@ -277,6 +318,13 @@ export function createOneRepositoryPlan(combinedCheckScript) {
       mode: "deterministic",
       rationale: "The selected behavioral checks cover the planned change.",
       escalation_triggers: ["scope_divergence"],
+    },
+    supervision: {
+      mode: "manual",
+      execution_attempt_limit_per_work_unit: 3,
+      verification_attempt_limit_per_work_unit: 3,
+      feedback_cycle_limit_per_work_unit: 2,
+      elapsed_time_limit_ms: 1_800_000,
     },
   };
 }

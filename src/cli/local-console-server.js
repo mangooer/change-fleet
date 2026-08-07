@@ -20,6 +20,7 @@ const GET_ROUTES = Object.freeze([
   /^\/api\/local\/v0\/changesets\/[A-Za-z0-9._-]+$/u,
   /^\/api\/local\/v0\/changesets\/[A-Za-z0-9._-]+\/audit$/u,
   /^\/api\/local\/v0\/changesets\/[A-Za-z0-9._-]+\/delivery$/u,
+  /^\/api\/local\/v0\/changesets\/[A-Za-z0-9._-]+\/supervision$/u,
 ]);
 const POST_ROUTES = Object.freeze([
   /^\/api\/local\/v0\/changesets\/[A-Za-z0-9._-]+\/plan-confirmation$/u,
@@ -30,6 +31,7 @@ const POST_ROUTES = Object.freeze([
   /^\/api\/local\/v0\/changesets\/[A-Za-z0-9._-]+\/gates\/[A-Za-z0-9._-]+\/resolve$/u,
   /^\/api\/local\/v0\/changesets\/[A-Za-z0-9._-]+\/delivery\/publish$/u,
   /^\/api\/local\/v0\/changesets\/[A-Za-z0-9._-]+\/delivery\/refresh$/u,
+  /^\/api\/local\/v0\/changesets\/[A-Za-z0-9._-]+\/supervision\/(?:start|pause|resume)$/u,
 ]);
 
 // 本地 HTTP 适配层只公开精确白名单路由，并集中处理 loopback、Host/Origin/session/CSRF、大小限制、安全头与优雅关闭。
@@ -183,7 +185,7 @@ async function handleGetApi({
     return;
   }
   const match = url.pathname.match(
-    /^\/api\/local\/v0\/changesets\/(?<changeSetId>[A-Za-z0-9._-]+)(?:\/(?<tail>audit|delivery))?$/u,
+    /^\/api\/local\/v0\/changesets\/(?<changeSetId>[A-Za-z0-9._-]+)(?:\/(?<tail>audit|delivery|supervision))?$/u,
   );
   invariant(match?.groups, "CHANGE_SET_NOT_FOUND", "Route not found");
   const changeSetId = match.groups.changeSetId;
@@ -194,6 +196,16 @@ async function handleGetApi({
   }
   if (match.groups.tail === "audit") {
     sendJson(response, 200, await queryService.readAuditView(changeSetId));
+    return;
+  }
+  if (match.groups.tail === "supervision") {
+    sendJson(
+      response,
+      200,
+      await operatorApplication.execute("changeset.supervision.progress", {
+        change_set_id: changeSetId,
+      }),
+    );
     return;
   }
   sendJson(
@@ -244,7 +256,7 @@ async function handlePostApi({
     return;
   }
   const match = url.pathname.match(
-    /^\/api\/local\/v0\/changesets\/(?<changeSetId>[A-Za-z0-9._-]+)\/(?<tail>plan-confirmation|bundle-decisions|feedback|execute|delivery\/publish|delivery\/refresh)$/u,
+    /^\/api\/local\/v0\/changesets\/(?<changeSetId>[A-Za-z0-9._-]+)\/(?<tail>plan-confirmation|bundle-decisions|feedback|execute|delivery\/publish|delivery\/refresh|supervision\/(?:start|pause|resume))$/u,
   );
   invariant(match?.groups, "CHANGE_SET_NOT_FOUND", "Route not found");
   const changeSetId = match.groups.changeSetId;
@@ -294,6 +306,22 @@ async function handlePostApi({
         ...body,
         change_set_id: changeSetId,
       }),
+    );
+    return;
+  }
+  if (match.groups.tail.startsWith("supervision/")) {
+    const operation = match.groups.tail.slice("supervision/".length);
+    const body = normalizeSupervisionBody(
+      await readJsonBody(request),
+      operation,
+    );
+    sendJson(
+      response,
+      200,
+      await operatorApplication.execute(
+        `changeset.supervision.${operation}`,
+        { ...body, change_set_id: changeSetId },
+      ),
     );
     return;
   }
@@ -428,6 +456,21 @@ function normalizeInterruptBody(body) {
     idempotency_key: requireNonEmptyString(body.idempotency_key, "idempotency_key"),
     actor: requireNonEmptyString(body.actor, "actor"),
   };
+}
+
+function normalizeSupervisionBody(body, operation) {
+  const fields = operation === "pause"
+    ? ["idempotency_key", "actor", "reason"]
+    : ["idempotency_key", "actor"];
+  requireExactFields(body, fields);
+  const normalized = {
+    idempotency_key: requireNonEmptyString(body.idempotency_key, "idempotency_key"),
+    actor: requireNonEmptyString(body.actor, "actor"),
+  };
+  if (operation === "pause") {
+    normalized.reason = requireNonEmptyString(body.reason, "reason");
+  }
+  return normalized;
 }
 
 function normalizeGateResolutionBody(body) {

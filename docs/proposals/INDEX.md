@@ -1,6 +1,6 @@
 # Repository Design Proposal Index
 
-Updated: 2026-08-06
+Updated: 2026-08-07
 
 These proposals govern development of the ChangeFleet repository itself. They are repository
 Harness artifacts, not ChangeFleet Runtime outputs and not artifacts written into registered user
@@ -34,6 +34,7 @@ preserve chronological reasoning and are not current truth merely because they e
 | [0021](0021-conversation-first-planning-and-stage-scoped-feedback.md) | Conversation-first planning and stage-scoped feedback | `accepted` | Recorded by Decision 0023; retains Decision 0022 assessment while moving it to the handling stage | [WI-0015](../work-items/WI-0015-conversation-first-planning-and-stage-scoped-feedback.md), `done` |
 | [0022](0022-risk-adaptive-candidate-verification.md) | Risk-adaptive Candidate verification | `accepted` | Recorded by Decision 0024; Candidate-bound fast path, optional independent Verification Runtime, exact check selection, and attempt-scoped budgets revise Decision 0017 in part | [WI-0016](../work-items/WI-0016-deterministic-verification-admission-and-attempt-budgets.md), `done`; [WI-0017](../work-items/WI-0017-read-only-verification-runtime.md), `done`; [WI-0018](../work-items/WI-0018-same-plan-correction-and-focused-re-review.md), `done` |
 | [0023](0023-unified-stage-and-run-lifecycle.md) | Unified stage and Run lifecycle | `accepted` | Recorded by Decision 0025; replaces operation-specific aggregate states and revises Decision 0024's fixed correction and focused-review lifecycle while preserving exact verification evidence | [WI-0019](../work-items/WI-0019-unified-stage-and-run-lifecycle.md), `done` |
+| [0024](0024-policy-governed-agentic-supervision.md) | Policy-governed Agentic supervision | `accepted` | Recorded by Decision 0026; deterministic action authority surrounds bounded semantic Supervisor choices without adding aggregate phases | [WI-0020](../work-items/WI-0020-plan-confirmed-agentic-supervision-vertical-slice.md), `done` |
 
 ## Status Rules
 

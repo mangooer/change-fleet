@@ -17,6 +17,7 @@ Agent work into authorized, recoverable, exact, and human-reviewable change tran
 Agent Runtime owns how code work is performed.
 ChangeFleet owns which repositories may participate, which exact result exists,
 which evidence belongs to it, how partial work continues, and what a human accepted.
+A Supervisor Agent may choose only among exact actions offered by the deterministic kernel.
 ```
 
 ## Logical Layers
@@ -28,7 +29,7 @@ Application adapters
 
 Application operations
   typed commands and queries
-  authorization, idempotency, exact message approval, human gates, durable results
+  authorization, idempotency, exact message approval, action envelopes, human gates, durable results
 
 Change Control
   ChangeIntent and ChangePlan revisions
@@ -104,6 +105,7 @@ Owns current aggregate state and references to immutable evidence:
 - active or superseded CandidateBundle revision;
 - bounded current GitHub delivery requests and latest evidence references;
 - human decisions;
+- Plan-bound supervision authorization and exact Supervisor-decision references;
 - recovery markers.
 
 It should not embed complete logs, diffs, or large Agent output.
@@ -116,6 +118,7 @@ Owns immutable or append-only operational evidence:
 - structured events;
 - large output artifacts;
 - Agent outcomes;
+- Supervisor action proposals, kernel dispositions, and usage;
 - repository Candidate evidence;
 - validation results;
 - review reports.
@@ -127,9 +130,9 @@ presentation activity. They do not invoke Providers, Git, checks, or delivery.
 
 `RunCoordinator` owns only live local Provider invocation and operator interruption.
 `RunRecoveryService` is the single persisted-running-Run reconciler; planning, writable execution,
-and read-only verification supply bounded resource adapters rather than separate recovery state
-machines. `FeedbackService` records immutable exact Feedback and its current pointer without
-deciding semantic truth.
+read-only verification, and read-only supervision supply bounded resource adapters rather than
+separate recovery state machines. `FeedbackService` records immutable exact Feedback and its
+current pointer without deciding semantic truth.
 
 `RepositoryValidator` and `CombinedValidator` own deterministic command execution and immutable
 evidence for exact subjects. `BundleAssembler` freezes and writes an exact CandidateBundle without
@@ -174,9 +177,32 @@ It returns typed proposals:
 
 Core validates identity and policy, not whether the semantic plan is clever.
 
+### Policy-Governed Agentic Supervisor
+
+The Supervisor is an Agent Runtime purpose around, not inside, the deterministic authority kernel.
+The application layer derives an exact action catalog from the current confirmed Plan, revisions,
+WorkUnits, Runs, Evidence, Feedback, Gates, holds, and remaining budget.
+
+- A forced action executes without a model call.
+- If bounded semantic alternatives remain, one read-only `supervision` Run receives only the compact
+  current projection and offered action envelopes.
+- Its structured proposal may select one offered action or request a human Gate.
+- The application operation revalidates the entire envelope before mutation and records acceptance,
+  rejection, execution, usage, and stop reason.
+
+The Supervisor cannot read or write the Control Store directly, mutate repository workspaces, grant
+scope, raise ceilings, satisfy checks, accept a Bundle, or authorize delivery. Repository commands
+remain behind evidence-producing validation operations. Project policy supplies ceilings; the exact
+confirmed Plan records `manual | autonomous_until_review` and its effective bounded limits.
+
+Normal failed checks and material review findings may become Feedback and continue through the same
+Plan. The loop stops at Bundle review, a Gate, Plan invalidation, unbounded semantic routing,
+exhausted budget, operator hold, abandonment, or terminal completion. None of these conditions adds
+a supervision-specific aggregate phase.
+
 ### RunContextAssembler
 
-Builds a disposable current projection for one planning, execution, verification, or recovery operation
+Builds a disposable current projection for one planning, execution, verification, supervision, or recovery operation
 from durable ChangeSet and Run state. It includes:
 
 - exact operation, ChangeSet, plan, WorkUnit, repository, base, and workspace identity;
@@ -189,6 +215,8 @@ from durable ChangeSet and Run state. It includes:
   evidence references;
 - for a later verification Run, optional prior-finding assessments, old and new exact subjects, and
   actual changed delta;
+- for a supervision Run, the exact offered action ids, relevant bounded evidence, remaining budget,
+  and no repository-write capability;
 - required evidence and progressive resource references;
 - initial context-budget components and classification.
 

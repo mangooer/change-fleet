@@ -133,6 +133,7 @@ function projectListEntry(state) {
     blockers: summarizeBlockers(state.blockers ?? []),
     work_units: projectCurrentWorkUnits(state),
     gates: projectOpenGates(state),
+    supervision: projectSupervision(state),
     bundle: currentBundleSummary(state),
     delivery: {
       phase: delivery.phase,
@@ -177,6 +178,7 @@ function projectExactChangeSet(state, project, planningMessage) {
     blockers: summarizeBlockers(state.blockers ?? []),
     work_units: projectCurrentWorkUnits(state),
     gates: projectOpenGates(state),
+    supervision: projectSupervision(state),
     repositories: (currentSelection?.repositories ?? []).map((selection) =>
       projectRepository(selection, project),
     ),
@@ -201,6 +203,7 @@ function projectExactChangeSet(state, project, planningMessage) {
             verification_expectation: structuredClone(
               currentPlan.verification_expectation,
             ),
+            supervision: structuredClone(currentPlan.supervision),
             work_units: currentPlan.work_units.map((unit) => ({
               work_unit_id: unit.work_unit_id,
               repository_id: unit.repository_id,
@@ -301,6 +304,7 @@ function projectPlanContent(plan) {
     risks: [...plan.risks],
     unverified_boundaries: [...plan.unverified_boundaries],
     verification_expectation: structuredClone(plan.verification_expectation),
+    supervision: structuredClone(plan.supervision),
     work_units: plan.work_units.map((unit) => ({
       work_unit_id: unit.work_unit_id,
       repository_id: unit.repository_id,
@@ -454,6 +458,20 @@ function projectOpenGates(state) {
       options: [...(gate.request?.options ?? [])],
       created_at: gate.created_at,
     }));
+}
+
+function projectSupervision(state) {
+  const plan =
+    state.plans.find(
+      (candidate) => candidate.revision === state.current_plan_revision,
+    ) ?? null;
+  return {
+    mode: plan?.supervision?.mode ?? "manual",
+    plan_revision: plan?.revision ?? null,
+    held: Boolean(state.supervision_control?.hold),
+    hold: structuredClone(state.supervision_control?.hold ?? null),
+    last_stop_reason: state.supervision_control?.last_stop_reason ?? null,
+  };
 }
 
 function normalizeListQuery(query) {

@@ -60,6 +60,12 @@ Agent capabilities change:
 - human gates, recovery, partial failure, delivery, and compensation state;
 - one immutable `CandidateBundle` for cross-repository review.
 
+A ChangeFleet Supervisor Agent is still an Agent Runtime, not control authority. It receives a
+compact current projection and an exact offered action set. The deterministic kernel owns whether
+an action is authorized and performs every mutation; obvious forced actions do not require another
+model call. Detailed Supervisor reasoning and cost remain linked audit evidence outside ordinary
+Runtime context.
+
 Owned worktrees isolate task development state; they are not host security sandboxes. The selected
 Runtime profile and operator own process permissions, while ChangeFleet accepts only exact assigned
 workspace Git subjects.

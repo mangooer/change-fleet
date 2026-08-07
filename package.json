@@ -11,7 +11,7 @@
   },
   "scripts": {
     "test": "node --test \"test/unit/**/*.test.js\"",
-    "test:integration": "node --test \"test/integration/**/*.test.js\"",
+    "test:integration": "node --test --test-concurrency=4 \"test/integration/**/*.test.js\"",
     "test:acceptance": "node --test --test-concurrency=1 \"test/acceptance/**/*.test.js\"",
     "test:provider:codex": "node --test --test-concurrency=1 \"test/provider/**/*.test.js\"",
     "test:ui": "node scripts/run-ui-tests.mjs",

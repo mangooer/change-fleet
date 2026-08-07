@@ -29,7 +29,7 @@ questions. It describes what and why, not the complete implementation method.
 ## ChangePlan
 
 A versioned, code-informed proposal describing affected repositories, WorkUnits, dependencies,
-validation, delivery, and risks.
+validation, supervision authorization, delivery, and risks.
 
 ## ChangeSet
 
@@ -113,14 +113,21 @@ and publishes one exact Candidate.
 
 ## Run
 
-One bounded Agent Runtime invocation for `planning`, `execution`, or `verification`, with trigger,
-continuation lineage, common terminal status, events, outcome, usage, and evidence. Deterministic
-validation commands are ValidationAttempts rather than Runs.
+One bounded Agent Runtime invocation for `planning`, `execution`, `verification`, or `supervision`,
+with trigger, continuation lineage, common terminal status, events, outcome, usage, and evidence.
+Deterministic validation commands are ValidationAttempts rather than Runs.
 
 ## Run Context Projection
 
-A rebuildable current view generated for one planning, execution, verification, or recovery operation. It
-contains the relevant current plan slice and references durable history rather than replaying it.
+A rebuildable current view generated for one planning, execution, verification, supervision, or
+recovery operation. It contains the relevant current plan slice and references durable history
+rather than replaying it.
+
+## Supervisor
+
+A read-only Agent Runtime purpose that selects one exact action offered by ChangeFleet when several
+bounded semantic routes remain. Its proposal is not authority; the deterministic kernel revalidates
+and performs the selected action.
 
 ## Scope Expansion
 

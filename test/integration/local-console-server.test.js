@@ -27,6 +27,57 @@ import {
 } from "../support/scripted-runtime.js";
 
 describe("local console server", () => {
+  test("delegates supervision start, pause, and resume through the shared operation boundary", async () => {
+    const calls = [];
+    const server = await startLocalConsoleServer({
+      queryService: {
+        listChangeSets: async () => ({ items: [] }),
+        readChangeSetView: async () => ({}),
+        readAuditView: async () => ({}),
+      },
+      operatorApplication: {
+        execute: async (operation, request) => {
+          calls.push({ operation, request });
+          return { status: operation.split(".").at(-1) };
+        },
+      },
+    });
+    try {
+      const bootstrap = extractBootstrap(await fetchText(server, "/"));
+      const headers = {
+        "X-ChangeFleet-Session": bootstrap.session_nonce,
+        "X-ChangeFleet-CSRF": bootstrap.csrf_nonce,
+        Origin: `http://${server.host}:${server.port}`,
+        "Content-Type": "application/json; charset=utf-8",
+      };
+      for (const operation of ["start", "pause", "resume"]) {
+        const body = {
+          idempotency_key: `${operation}-1`,
+          actor: "human",
+          ...(operation === "pause" ? { reason: "operator_hold" } : {}),
+        };
+        const response = await fetchJson(
+          server,
+          `/api/local/v0/changesets/change/supervision/${operation}`,
+          { method: "POST", headers, body: JSON.stringify(body) },
+        );
+        assert.equal(response.status, operation);
+      }
+      assert.deepEqual(
+        calls.map((call) => call.operation),
+        [
+          "changeset.supervision.start",
+          "changeset.supervision.pause",
+          "changeset.supervision.resume",
+        ],
+      );
+      assert.equal(calls[1].request.change_set_id, "change");
+      assert.equal(calls[1].request.reason, "operator_hold");
+    } finally {
+      await server.close();
+    }
+  });
+
   test("renders and confirms the current exact planning message through the shared operation", async (t) => {
     const fixture = await createReviewFixture(t);
     await fixture.service.createChangeSet({
@@ -77,6 +128,13 @@ describe("local console server", () => {
         (await fixture.service.readChangeSet("plan-only")).phase,
         "working",
       );
+      const supervision = await fetchJson(
+        server,
+        "/api/local/v0/changesets/plan-only/supervision",
+        { headers },
+      );
+      assert.equal(supervision.progress.mode, "manual");
+      assert.equal(supervision.offered_actions[0].type, "stop");
       const feedback = await fetchJson(
         server,
         "/api/local/v0/changesets/plan-only/feedback",

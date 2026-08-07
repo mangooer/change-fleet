@@ -54,6 +54,7 @@ export function createContextProjection({
   historyReferences = [],
   planningConversation = null,
   verificationPolicy = null,
+  supervisionPolicy = null,
   verification = null,
   feedback = null,
 }) {
@@ -65,6 +66,8 @@ export function createContextProjection({
     current_plan: plan,
     verification_policy:
       verificationPolicy === null ? null : structuredClone(verificationPolicy),
+    supervision_policy:
+      supervisionPolicy === null ? null : structuredClone(supervisionPolicy),
     // 只投影当前选择，不把已废弃 revision 历史灌入 Agent 上下文。
     repository_selection: repositorySelection,
     repository_harness_selection: repositoryHarnessSelection,

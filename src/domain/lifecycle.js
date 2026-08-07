@@ -29,6 +29,7 @@ export const AGENT_RUN_OPERATIONS = Object.freeze([
   "planning",
   "execution",
   "verification",
+  "supervision",
 ]);
 
 export const AGENT_RUN_STATUSES = Object.freeze([

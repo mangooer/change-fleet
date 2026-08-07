@@ -181,8 +181,16 @@ function renderDetail() {
     </div>
     <section class="section">
       <div class="actions">
-        <button id="continue-change-set" type="button" ${state.exact.phase === "working" ? "" : "disabled"}>Start or Continue Eligible Work</button>
+        ${
+          state.exact.supervision.mode === "autonomous_until_review"
+            ? `
+              <button id="${state.exact.supervision.held ? "resume-supervision" : "start-supervision"}" type="button" ${state.exact.phase === "working" ? "" : "disabled"}>${state.exact.supervision.held ? "Resume Autonomous Work" : "Run Autonomously To Review"}</button>
+              <button id="pause-supervision" class="secondary" type="button" ${state.exact.phase === "working" && !state.exact.supervision.held ? "" : "disabled"}>Pause After Current Action</button>
+            `
+            : `<button id="continue-change-set" type="button" ${state.exact.phase === "working" ? "" : "disabled"}>Start or Continue Eligible Work</button>`
+        }
       </div>
+      <div class="muted">Supervision ${escapeHtml(state.exact.supervision.mode)}; last stop ${escapeHtml(state.exact.supervision.last_stop_reason ?? "none")}.</div>
     </section>
     <section class="section stack">
       <div class="row">
@@ -387,6 +395,15 @@ function renderDetail() {
   document
     .querySelector("#continue-change-set")
     ?.addEventListener("click", () => void continueChangeSet());
+  document
+    .querySelector("#start-supervision")
+    ?.addEventListener("click", () => void mutateSupervision("start"));
+  document
+    .querySelector("#resume-supervision")
+    ?.addEventListener("click", () => void mutateSupervision("resume"));
+  document
+    .querySelector("#pause-supervision")
+    ?.addEventListener("click", () => void mutateSupervision("pause"));
   for (const button of document.querySelectorAll(".submit-feedback")) {
     button.addEventListener("click", () =>
       void submitFeedback(
@@ -418,6 +435,23 @@ async function continueChangeSet() {
         idempotency_key: attemptId,
         verification_admission_mode: null,
         validation_attempt_budgets: [],
+      },
+    );
+    attemptStore.delete(attemptKey);
+  });
+}
+
+async function mutateSupervision(operation) {
+  if (!state.exact || state.exact.phase !== "working") return;
+  const attemptKey = `supervision:${operation}:${state.exact.change_set_id}:${state.exact.updated_at}`;
+  const attemptId = ensureAttempt(attemptKey);
+  await runMutation(`${operation} supervision`, async () => {
+    await apiPost(
+      `/api/local/v0/changesets/${encodeURIComponent(state.exact.change_set_id)}/supervision/${operation}`,
+      {
+        idempotency_key: attemptId,
+        actor: "human",
+        ...(operation === "pause" ? { reason: "operator_hold" } : {}),
       },
     );
     attemptStore.delete(attemptKey);

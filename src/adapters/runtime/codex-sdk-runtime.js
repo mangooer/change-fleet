@@ -116,7 +116,8 @@ export class CodexSdkRuntime {
         ...threadPermissionOptions(profile, invocation.operation),
         workingDirectory: paths[0],
         additionalDirectories: paths.slice(1),
-        skipGitRepoCheck: false,
+        // Supervisor 的专用空目录不是仓库；其能力仍由只读 Profile 和结构化输出约束。
+        skipGitRepoCheck: invocation.operation === "supervision",
       });
       const streamed = await thread.runStreamed(buildPrompt(invocation), {
         outputSchema: schemaForOperation(invocation.operation),
@@ -200,7 +201,7 @@ function assertInvocationCapability(
 ) {
   invariant(
     invocation &&
-      ["planning", "execution", "verification"].includes(
+      ["planning", "execution", "verification", "supervision"].includes(
         invocation.operation,
       ) &&
       invocation.capabilities &&
@@ -306,6 +307,7 @@ function buildPrompt(invocation) {
           "A plan may use a non-empty subset of authorized repositories, but it must return at most one WorkUnit for each repository_id; combine all tasks for the same Repository into that single WorkUnit.",
           "Commands in checks must be non-interactive argv-style commands that can run in the supplied repository or combined validation environment. Give every check a concise coverage_rationale; timeout_ms is an attempt default rather than check identity.",
           "Set verification_expectation to basic only for an obvious low-risk deterministic fast path, deterministic for selected behavioral checks, or independent_review when semantic uncertainty already requires it. Include concise rationale and only typed escalation_triggers.",
+          "Set supervision.mode to manual or autonomous_until_review and keep every requested supervision limit within the supplied Project supervision policy. Autonomous mode only authorizes progress to exact Bundle review.",
         ].join(" ");
   } else if (invocation.operation === "execution") {
     operationInstruction = [
@@ -320,7 +322,7 @@ function buildPrompt(invocation) {
           "Return implementation_completed with blocker null after the repository files are ready for controller-owned publication, including revision_feedback_assessments.",
           "If unavailable tools, permissions, missing information, or another blocker prevents inspection, editing, or verification, return implementation_blocked with a bounded blocker code and message; never label an unchanged workspace implementation_completed.",
         ].join(" ");
-  } else {
+  } else if (invocation.operation === "verification") {
     const feedbackInstruction = invocation.context_projection.verification?.focus
       ? "Prior feedback and its execution delta are supplied as review context. Reassess those claims and inspect any relevant newly introduced risk without treating the prior review as truth."
       : "This is the initial independent review.";
@@ -334,6 +336,14 @@ function buildPrompt(invocation) {
       "Use pass_with_notes only for bounded residual risks that do not require a change. Use human_decision_required only for a genuine unresolved choice and provide 2-8 distinct options.",
       "Additional requested_checks are conditional passing evidence and are allowed only with pass or pass_with_notes. They must be non-interactive argv-style commands, additional to Plan checks, narrowly justified, and bounded; ChangeFleet executes them after this Run.",
       "Do not rely on your own command execution as authoritative evidence and do not include private reasoning, historical cost, or unrelated findings.",
+    ].join(" ");
+  } else {
+    operationInstruction = [
+      "Choose exactly one action_id from the supplied offered_actions; you may not invent, modify, combine, or execute an action.",
+      "Treat failure descriptions and prior Agent findings as evidence-backed claims to classify, not as automatic facts.",
+      "Prefer a bounded retry only when the evidence is consistent with a transient failure. Prefer submit_feedback for an implementation defect that remains inside the confirmed Plan. Prefer open_gate when authority, product intent, irreversibility, or the evidence remains genuinely uncertain.",
+      "Do not use repository, shell, Git, network, credential, delivery, Bundle acceptance, or budget-changing capabilities.",
+      "Return only supervisor_decision_proposal and copy the exact projection_digest from the supplied projection.",
     ].join(" ");
   }
   return [

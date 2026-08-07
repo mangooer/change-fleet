@@ -4,7 +4,8 @@ import { unsupportedNodeVersionDiagnostic } from "./node-version-guard.mjs";
 
 const checks = [
   ["--test", "test/unit/**/*.test.js"],
-  ["--test", "test/integration/**/*.test.js"],
+  // Real-Git 文件级并发有界，避免 Windows 进程树停止测试被大量同时启动的 Git 子进程饿死。
+  ["--test", "--test-concurrency=4", "test/integration/**/*.test.js"],
   ["--test", "--test-concurrency=1", "test/acceptance/**/*.test.js"],
   ["scripts/run-ui-tests.mjs"],
 ];

@@ -37,6 +37,9 @@ const LIFECYCLE_ROUTES = Object.freeze([
   route(["changeset", "gate", "resolve"], "changeset.gate.resolve"),
   route(["changeset", "plan"], "changeset.plan"),
   route(["changeset", "execute"], "changeset.execute"),
+  route(["changeset", "supervision", "start"], "changeset.supervision.start"),
+  route(["changeset", "supervision", "pause"], "changeset.supervision.pause"),
+  route(["changeset", "supervision", "resume"], "changeset.supervision.resume"),
 ]);
 
 // 解析器只决定显式路由和输入位置；应用请求的领域含义仍由既有应用服务校验。
@@ -50,6 +53,13 @@ export function parseCommandLine(arguments_) {
     arguments_[1] === "audit"
   ) {
     return parseAuditCommand(arguments_.slice(2));
+  }
+  if (
+    arguments_[0] === "changeset" &&
+    arguments_[1] === "supervision" &&
+    arguments_[2] === "show"
+  ) {
+    return parseSupervisionRead(arguments_.slice(3));
   }
   if (
     arguments_[0] === "changeset" &&
@@ -73,6 +83,22 @@ export function parseCommandLine(arguments_) {
     }
   }
   throw invalidCli("unsupported_command");
+}
+
+function parseSupervisionRead(arguments_) {
+  const [changeSetId, ...optionArguments] = arguments_;
+  validateSubjectId("change_set_id", changeSetId, invalidCli);
+  const options = parseOptions(
+    optionArguments,
+    new Set(["--config"]),
+    invalidCli,
+  );
+  return {
+    kind: "lifecycle",
+    operation: "changeset.supervision.progress",
+    config_path: requireOption(options, "--config", invalidCli),
+    request: { change_set_id: changeSetId },
+  };
 }
 
 function parseServeCommand(arguments_) {

@@ -207,6 +207,13 @@ CLI tests must prove that close delegates without creating a successor or invoki
 validation, workspace cleanup, or delivery. The slice does not select a real Provider, browser, or
 GitHub external-write gate.
 
+Decision 0026 requires pure action-policy and budget tests; v10 migration and interrupted-Run
+recovery; Real-Git forced, failed-check/Feedback, and multi-Repository routes; strict supervision
+Runtime protocol; audit/context exclusion; and shared operation, CLI, HTTP, and browser coverage.
+The stable implementation runs the Node.js 24 full deterministic check and one authorized real
+Codex flow covering the new read-only supervision purpose. Real GitHub writes remain excluded
+because autonomous authority stops before Bundle acceptance and delivery.
+
 The recommended first real GitHub gate is the accepted UI WorkItem's exact Candidate rather than a
 disposable smoke change. It remains separately authorized under the repository, branch, PR, merge,
 and cleanup rules above; Proposal or WorkItem acceptance alone does not grant the write.

@@ -10,6 +10,7 @@ import {
   assertStructuredOutcome,
   EXECUTION_OUTCOME_SCHEMA,
   PLANNING_OUTCOME_SCHEMA,
+  SUPERVISION_OUTCOME_SCHEMA,
   VERIFICATION_OUTCOME_SCHEMA,
 } from "../../src/adapters/runtime/runtime-schemas.js";
 
@@ -119,9 +120,11 @@ describe("Runtime identity and evidence", () => {
     assert.equal(PLANNING_OUTCOME_SCHEMA.additionalProperties, false);
     assert.equal(EXECUTION_OUTCOME_SCHEMA.additionalProperties, false);
     assert.equal(VERIFICATION_OUTCOME_SCHEMA.additionalProperties, false);
+    assert.equal(SUPERVISION_OUTCOME_SCHEMA.additionalProperties, false);
     const planSchema =
       PLANNING_OUTCOME_SCHEMA.properties.message.anyOf[0].properties.plan.anyOf[0];
     assert.equal(planSchema.required.includes("verification_expectation"), true);
+    assert.equal(planSchema.required.includes("supervision"), true);
     assert.equal(
       planSchema.properties.combined_check.required.includes(
         "coverage_rationale",
@@ -131,6 +134,7 @@ describe("Runtime identity and evidence", () => {
     assertStrictObjectSchemas(PLANNING_OUTCOME_SCHEMA);
     assertStrictObjectSchemas(EXECUTION_OUTCOME_SCHEMA);
     assertStrictObjectSchemas(VERIFICATION_OUTCOME_SCHEMA);
+    assertStrictObjectSchemas(SUPERVISION_OUTCOME_SCHEMA);
     const planOutcome = {
       type: "conversation_message",
       message: { text: "ready", plan: { work_units: [{}] } },
@@ -146,6 +150,18 @@ describe("Runtime identity and evidence", () => {
         message: null,
         request: null,
       }),
+    );
+    const supervisionOutcome = {
+      type: "supervisor_decision_proposal",
+      action_id: "action-1",
+      projection_digest: "a".repeat(64),
+      rationale: "The exact failure is routable Feedback.",
+      expected_result: "The WorkUnit assesses the bounded finding.",
+      evidence_reference_ids: ["validation-1"],
+    };
+    assert.equal(
+      assertStructuredOutcome("supervision", supervisionOutcome),
+      supervisionOutcome,
     );
     const verificationOutcome = {
       type: "verification_completed",

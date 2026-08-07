@@ -45,12 +45,14 @@ Given a confirmed change intent and an explicitly registered Project, ChangeFlee
 2. discuss a code-informed plan and version it only when an exact Agent message is approved;
 3. route low-risk plans automatically and high-risk or expanded scope to human confirmation;
 4. execute repository-scoped WorkUnits in isolated Git workspaces;
-5. preserve plan revisions and abandoned attempts without duplicating the ChangeSet;
-6. publish exact repository Candidates;
-7. bind repository and combined validation evidence to those Candidates;
-8. present one exact CandidateBundle for review;
-9. retain durable recovery and audit evidence;
-10. publish accepted exact Candidates through human-merged GitHub pull requests and reconcile exact
+5. when the confirmed Plan authorizes it, autonomously advance ordinary execution, validation,
+   optional verification, and Feedback repair to exact Bundle review;
+6. preserve plan revisions and abandoned attempts without duplicating the ChangeSet;
+7. publish exact repository Candidates;
+8. bind repository and combined validation evidence to those Candidates;
+9. present one exact CandidateBundle for review;
+10. retain durable recovery and audit evidence;
+11. publish accepted exact Candidates through human-merged GitHub pull requests and reconcile exact
     external results without claiming universal atomic merge or rollback.
 
 The primary product subject is the ChangeSet. A Run, Agent session, WorkUnit, Candidate, PR, or
@@ -68,6 +70,8 @@ branch is evidence or execution detail within that subject.
 - Review one exact CandidateBundle with a complete validation matrix.
 - Publish accepted exact Candidates through explicit GitHub PR delivery and preserve partial merge.
 - Preserve state across Runtime or controller restart.
+- Reduce ordinary operator continuation through Plan-bound autonomous supervision without granting
+  an Agent control authority.
 - Make uncertainty, missing checks, partial failure, and stale Candidates visible.
 - Keep repository-specific intelligence in repository-native Harness and Agent Runtimes.
 
@@ -94,13 +98,14 @@ The initial product does not:
 | Plane | Owns | Does not own |
 | --- | --- | --- |
 | Project repositories | source, repository Harness, skills, build configuration, Git history | ChangeSet lifecycle or cross-repository decisions |
-| ChangeFleet control plane | catalog, ChangeIntent, plan revisions, WorkUnits, scheduling, exact subjects, evidence, human commands | semantic code understanding or provider reasoning |
-| Agent Runtime | reasoning, native context, code discovery, subagents, tools, implementation, check selection | repository authorization, canonical lifecycle, acceptance |
+| ChangeFleet control plane | catalog, ChangeIntent, plan revisions, WorkUnits, authorized action envelopes, scheduling, exact subjects, evidence, human commands | semantic code understanding or provider reasoning |
+| Agent Runtime | reasoning, native context, code discovery, subagents, tools, implementation, check selection, bounded Supervisor action proposals | repository authorization, canonical lifecycle, evidence acceptance, budget ceilings, delivery acceptance |
 | Delivery systems | PR state, CI state, merge controls, deployment state | ChangeFleet intent or private Agent reasoning |
 | Human operator | scope approval, unresolved product decisions, final review, risky delivery authorization | low-level execution bookkeeping |
 
-An Agent may propose a scope, plan, check, or delivery action. It may not silently turn that proposal
-into expanded repository authority or final human acceptance.
+An Agent may propose a scope, plan, check, Supervisor action, or delivery action. It may not silently
+turn that proposal into expanded repository authority, accepted evidence, raised budget, or final
+human acceptance. ChangeFleet revalidates and performs every control mutation.
 
 CLI, future API or App Server, future UI, and future tracker adapters share typed application
 operation semantics rather than lifecycle implementations or presentation code. They preserve the
@@ -285,6 +290,8 @@ a previously confirmed execution contract is deliberately replaced.
 - expected file, API, schema, or behavior boundaries;
 - repository and combined validation;
 - a preliminary Candidate verification expectation, rationale, and typed escalation triggers;
+- effective `manual | autonomous_until_review` supervision authorization and bounded limits within
+  Project ceilings;
 - delivery order;
 - discard, revert, rollout, or compensation expectations;
 - unresolved risks and required decisions.
@@ -309,6 +316,7 @@ A ChangeSet is the aggregate root for one confirmed intent. It owns:
 - CandidateBundle revisions;
 - validation evidence;
 - scope decisions;
+- bounded autonomous-supervision authorization and exact decision-envelope references;
 - human review and delivery decisions.
 
 Its persisted business phase is limited to:
@@ -343,16 +351,21 @@ WorkUnits unless they correspond to independently controlled repository executio
 
 ### Run, Feedback, Gate, And Blocker
 
-Every Agent invocation is one `planning | execution | verification` Run with status
+Every Agent invocation is one `planning | execution | verification | supervision` Run with status
 `queued | running | completed | failed | interrupted | cancelled`. A new attempt records
 `initial | feedback | retry | recovery` trigger and optional continuation lineage. Terminal Run
 facts are immutable and do not imply success of the owning phase.
 
-Feedback is immutable bounded input from a human, planning, validation, verification, review, or
-delivery source. The handling Agent assesses each finding as `adopt | adapt | decline`; Core checks
-exact subjects and authority but does not certify the feedback as true. Human questions are open
-Gates; semantic or environmental impediments are Blockers. Neither creates another lifecycle
-state. Normal views derive `ready | running | waiting | blocked | complete` activity.
+`supervision` is ChangeSet-scoped and read-only. The deterministic kernel supplies exact currently
+authorized action envelopes. A Supervisor Agent may select an offered action or request a Gate;
+the kernel revalidates current subjects, authority, preconditions, and budget before performing any
+mutation. A forced next action requires no Supervisor model call.
+
+Feedback is immutable bounded input from a human, planning, validation, verification, supervision,
+review, or delivery source. The handling Agent assesses each finding as `adopt | adapt | decline`;
+Core checks exact subjects and authority but does not certify the feedback as true. Human questions
+are open Gates; semantic or environmental impediments are Blockers. Neither creates another
+lifecycle state. Normal views derive `ready | running | waiting | blocked | complete` activity.
 
 ### Candidate
 
@@ -516,6 +529,11 @@ when it includes:
 An Agent's confidence score may inform a decision but is not the only gate. Deterministic risk
 triggers and standing human policy own authorization.
 
+A Project may default supervision to manual or autonomous, but the confirmed Plan records the
+effective mode and limits. `autonomous_until_review` is authority to continue ordinary work only
+under the same exact Plan and selections; it never authorizes scope expansion, Bundle acceptance,
+external publication, merge, deployment, or an irreversible action.
+
 ## 8. Execution And Replanning
 
 A WorkUnit executes only after its repository, target ref, base SHA, and plan revision are frozen.
@@ -530,6 +548,17 @@ During execution:
 - existing useful changes may be reused when their exact identity remains valid;
 - abandoned attempts remain immutable history;
 - a blocker pauses the ChangeSet without manufacturing terminal failure.
+
+When the current Plan authorizes autonomous supervision, a deterministic policy derives the exact
+currently legal action envelopes. Forced actions execute directly. If legitimate semantic choices
+remain, a read-only Supervisor Run receives only the compact current projection, relevant Evidence,
+remaining budget, and offered action ids. Its proposal is advisory until ChangeFleet revalidates and
+performs it. Ordinary failed checks and actionable review findings may become Feedback and continue
+through execution and verification without another operator command.
+
+Autonomous supervision stops at exact Bundle review, an authority or Plan change, unresolved human
+judgment, an unbounded semantic route, exhausted budget, operator hold, abandonment, or terminal
+outcome. It does not create a supervision phase or operation-specific waiting and failure states.
 
 The persistent lifecycle is deliberately small:
 
@@ -705,6 +734,10 @@ attempt. It preserves operation, Agent Profile and context-projection identity, 
 observable effective Runtime settings, Provider locators and versions, start and finish time,
 duration, terminal outcome, and raw evidence references.
 
+For a supervision Run, evidence also identifies the offered action ids, selected proposal, input
+projection digest, deterministic kernel disposition, and final executed action or rejection. Full
+reasoning remains a linked artifact rather than aggregate state or default Agent context.
+
 Provider usage is stored as zero or more `UsageObservation` records at the finest scope the
 supported interface exposes:
 
@@ -820,7 +853,7 @@ The adapter:
 - supplies the Control Contract, current Run Context Projection, exact-base repository Harness, and
   only explicitly selected Runtime Skills;
 - maps the Agent Profile to provider-native model, reasoning, environment, and capability settings;
-- requires strict structured planning, execution, and verification outcomes;
+- requires strict structured planning, execution, verification, and supervision-decision outcomes;
 - records bounded normalized events and Runtime invocation evidence;
 - keeps Provider output subject to current-revision, authorization, exact-subject, and human-gate
   validation;
@@ -923,12 +956,13 @@ verification was interrupted after repository validation passed, recovery abando
 Run and disposable workspace, reuses the exact passing check evidence, and starts one fresh
 verification Run.
 
-One generic Run reconciler handles planning, execution, and verification attempts. A persisted
-`running` Run that is not provably live becomes `interrupted` with recovery evidence. Planning
-workspaces, writable execution workspaces, and disposable verification workspaces have bounded
-operation-specific preflight and cleanup adapters, but retain the same owning phase. A fresh
-same-phase Run may continue only after exact authority and workspace identity are proven. Completed
-checkpoints and passing checks are reused and completed Runtime invocations are never repeated.
+One generic Run reconciler handles planning, execution, verification, and supervision attempts. A
+persisted `running` Run that is not provably live becomes `interrupted` with recovery evidence.
+Planning workspaces, writable execution workspaces, disposable verification workspaces, and
+read-only supervision projections have bounded operation-specific preflight and cleanup adapters,
+but retain the same owning phase. A fresh same-purpose Run may continue only after exact authority
+and resource identity are proven. Completed checkpoints and passing checks are reused and completed
+Runtime invocations are never repeated.
 
 For private records created before this checkpoint contract, one explicit human-gated recovery
 operation may bind an exact completed Run and owned clean workspace to an exact base and candidate

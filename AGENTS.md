@@ -1,7 +1,7 @@
 # ChangeFleet Agent Instructions
 
-ChangeFleet is a spec-first control plane for coordinated, auditable Git changes. Keep its
-deterministic kernel small as Agent Runtime capabilities grow.
+ChangeFleet is a spec-first control plane for coordinated, auditable Git changes. Keep its kernel
+small as Agent Runtimes improve.
 
 ## Start With Current Authority
 
@@ -23,8 +23,8 @@ Authority is divided deliberately:
 - Development WorkItems: confirmed implementation demand and concise evidence;
 - Git and linked artifacts: exact implementation and operational history.
 
-Design Proposals and Development WorkItems are Harness artifacts, not Runtime output. Runtime uses
-ChangeSet, ChangePlanRevision, WorkUnit, Run, and CandidateBundle records.
+Design Proposals and WorkItems are repository Harness, not Runtime output. Runtime uses ChangeSet,
+ChangePlanRevision, WorkUnit, Run, and CandidateBundle records.
 
 See `docs/harness.md` for the loading map, size guardrails, and maintenance rules.
 
@@ -32,13 +32,13 @@ See `docs/harness.md` for the loading map, size guardrails, and maintenance rule
 
 - ChangeFleet is a change control plane, not a hosted Agent frontend or generic multi-agent
   framework.
-- Agent Runtimes own semantic work, internal subagents, skills, tools, code changes, native context,
-  compaction, and task-specific checks.
-- ChangeFleet owns confirmed intent, repository authority, revisions, scheduling, workspace
-  identity, exact Git subjects, evidence, human gates, and recovery.
+- Agent Runtimes own reasoning, subagents, skills, code changes, context, task checks.
+- ChangeFleet owns intent, repository authority, scheduling, exact workspace/Git identity, evidence,
+  gates, and recovery.
 - One business change is a `ChangeSet`; repository execution uses `WorkUnit`; review binds to one
   exact `CandidateBundle`.
-- Agent proposals never grant repository access, confirm a plan, or accept a Bundle by themselves.
+- Agents only propose kernel-offered actions; they never grant access, confirm Plans, accept
+  evidence or delivery, or raise budgets. ChangeFleet revalidates and executes.
 - Replanning keeps one ChangeSet and its history. Human feedback is review input, not fact; each
   revised Plan records the Agent's assessment before confirmation.
 - Evidence belongs to exact base and candidate SHAs. A changed SHA creates new evidence identity.

@@ -11,12 +11,17 @@ import {
   assertChangeSetLifecycle,
   assertWorkUnitLifecycle,
 } from "../../domain/lifecycle.js";
+import {
+  normalizePlanSupervision,
+  normalizeSupervisionPolicy,
+} from "../../domain/supervision.js";
 import { readJsonFile, writeJsonFileAtomic } from "./atomic-json-file.js";
 import { DirectoryLock } from "./directory-lock.js";
 
-// v10 把阶段、运行状态和反馈事实正交化；旧名称只允许出现在本文件的单向迁移边界。
-export const CONTROL_SCHEMA_VERSION = 10;
-const PREVIOUS_CONTROL_SCHEMA_VERSION = 9;
+// v11 固化 Plan 自动授权；既有 Plan 一律迁移为 manual，不能因升级静默运行。
+export const CONTROL_SCHEMA_VERSION = 11;
+const PREVIOUS_CONTROL_SCHEMA_VERSION = 10;
+const V9_CONTROL_SCHEMA_VERSION = 9;
 const V8_CONTROL_SCHEMA_VERSION = 8;
 const V7_CONTROL_SCHEMA_VERSION = 7;
 const V6_CONTROL_SCHEMA_VERSION = 6;
@@ -51,40 +56,53 @@ export class ControlStore {
           idempotency: {},
         });
       } else if (existing.schema_version === PREVIOUS_CONTROL_SCHEMA_VERSION) {
-        await writeJsonFileAtomic(this.catalogPath, migrateCatalogV9(existing));
+        await writeJsonFileAtomic(this.catalogPath, migrateCatalogV10(existing));
+      } else if (existing.schema_version === V9_CONTROL_SCHEMA_VERSION) {
+        await writeJsonFileAtomic(
+          this.catalogPath,
+          migrateCatalogV10(migrateCatalogV9(existing)),
+        );
       } else if (existing.schema_version === V8_CONTROL_SCHEMA_VERSION) {
         await writeJsonFileAtomic(
           this.catalogPath,
-          migrateCatalogV9(migrateCatalogV8(existing)),
+          migrateCatalogV10(migrateCatalogV9(migrateCatalogV8(existing))),
         );
       } else if (existing.schema_version === V7_CONTROL_SCHEMA_VERSION) {
         await writeJsonFileAtomic(
           this.catalogPath,
-          migrateCatalogV9(migrateCatalogV8(migrateCatalogV7(existing))),
+          migrateCatalogV10(
+            migrateCatalogV9(migrateCatalogV8(migrateCatalogV7(existing))),
+          ),
         );
       } else if (existing.schema_version === V6_CONTROL_SCHEMA_VERSION) {
         await writeJsonFileAtomic(
           this.catalogPath,
-          migrateCatalogV9(
-            migrateCatalogV8(migrateCatalogV7(migrateCatalogV6(existing))),
+          migrateCatalogV10(
+            migrateCatalogV9(
+              migrateCatalogV8(migrateCatalogV7(migrateCatalogV6(existing))),
+            ),
           ),
         );
       } else if (existing.schema_version === LEGACY_CONTROL_SCHEMA_VERSION) {
         await writeJsonFileAtomic(
           this.catalogPath,
-          migrateCatalogV9(
-            migrateCatalogV8(
-              migrateCatalogV7(migrateCatalogV6(migrateCatalogV5(existing))),
+          migrateCatalogV10(
+            migrateCatalogV9(
+              migrateCatalogV8(
+                migrateCatalogV7(migrateCatalogV6(migrateCatalogV5(existing))),
+              ),
             ),
           ),
         );
       } else if (existing.schema_version === OLDEST_CONTROL_SCHEMA_VERSION) {
         await writeJsonFileAtomic(
           this.catalogPath,
-          migrateCatalogV9(
-            migrateCatalogV8(
-              migrateCatalogV7(
-                migrateCatalogV6(migrateCatalogV5(migrateCatalogV4(existing))),
+          migrateCatalogV10(
+            migrateCatalogV9(
+              migrateCatalogV8(
+                migrateCatalogV7(
+                  migrateCatalogV6(migrateCatalogV5(migrateCatalogV4(existing))),
+                ),
               ),
             ),
           ),
@@ -246,35 +264,48 @@ export class ControlStore {
         const existing = await readJsonFile(filePath, { allowMissing: true });
         if (!existing) continue;
         if (existing.schema_version === PREVIOUS_CONTROL_SCHEMA_VERSION) {
-          await writeJsonFileAtomic(filePath, migrateChangeSetV9(existing));
+          await writeJsonFileAtomic(filePath, migrateChangeSetV10(existing));
+        } else if (existing.schema_version === V9_CONTROL_SCHEMA_VERSION) {
+          await writeJsonFileAtomic(
+            filePath,
+            migrateChangeSetV10(migrateChangeSetV9(existing)),
+          );
         } else if (existing.schema_version === V8_CONTROL_SCHEMA_VERSION) {
           await writeJsonFileAtomic(
             filePath,
-            migrateChangeSetV9(migrateChangeSetV8(existing)),
+            migrateChangeSetV10(
+              migrateChangeSetV9(migrateChangeSetV8(existing)),
+            ),
           );
         } else if (existing.schema_version === V7_CONTROL_SCHEMA_VERSION) {
           await writeJsonFileAtomic(
             filePath,
-            migrateChangeSetV9(
-              migrateChangeSetV8(migrateChangeSetV7(existing)),
+            migrateChangeSetV10(
+              migrateChangeSetV9(
+                migrateChangeSetV8(migrateChangeSetV7(existing)),
+              ),
             ),
           );
         } else if (existing.schema_version === V6_CONTROL_SCHEMA_VERSION) {
           await writeJsonFileAtomic(
             filePath,
-            migrateChangeSetV9(
-              migrateChangeSetV8(
-                migrateChangeSetV7(migrateChangeSetV6(existing)),
+            migrateChangeSetV10(
+              migrateChangeSetV9(
+                migrateChangeSetV8(
+                  migrateChangeSetV7(migrateChangeSetV6(existing)),
+                ),
               ),
             ),
           );
         } else if (existing.schema_version === LEGACY_CONTROL_SCHEMA_VERSION) {
           await writeJsonFileAtomic(
             filePath,
-            migrateChangeSetV9(
-              migrateChangeSetV8(
-                migrateChangeSetV7(
-                  migrateChangeSetV6(migrateChangeSetV5(existing)),
+            migrateChangeSetV10(
+              migrateChangeSetV9(
+                migrateChangeSetV8(
+                  migrateChangeSetV7(
+                    migrateChangeSetV6(migrateChangeSetV5(existing)),
+                  ),
                 ),
               ),
             ),
@@ -282,11 +313,13 @@ export class ControlStore {
         } else if (existing.schema_version === OLDEST_CONTROL_SCHEMA_VERSION) {
           await writeJsonFileAtomic(
             filePath,
-            migrateChangeSetV9(
-              migrateChangeSetV8(
-                migrateChangeSetV7(
-                  migrateChangeSetV6(
-                    migrateChangeSetV5(migrateChangeSetV4(existing)),
+            migrateChangeSetV10(
+              migrateChangeSetV9(
+                migrateChangeSetV8(
+                  migrateChangeSetV7(
+                    migrateChangeSetV6(
+                      migrateChangeSetV5(migrateChangeSetV4(existing)),
+                    ),
                   ),
                 ),
               ),
@@ -347,12 +380,23 @@ function migrateCatalogV7(record) {
 
 function migrateCatalogV8(record) {
   const migrated = structuredClone(record);
-  migrated.schema_version = PREVIOUS_CONTROL_SCHEMA_VERSION;
+  migrated.schema_version = V9_CONTROL_SCHEMA_VERSION;
   return migrated;
 }
 
 function migrateCatalogV9(record) {
   const migrated = structuredClone(record);
+  migrated.schema_version = PREVIOUS_CONTROL_SCHEMA_VERSION;
+  return migrated;
+}
+
+function migrateCatalogV10(record) {
+  const migrated = structuredClone(record);
+  for (const project of Object.values(migrated.projects ?? {})) {
+    project.supervision_policy = normalizeSupervisionPolicy(
+      project.supervision_policy,
+    );
+  }
   migrated.schema_version = CONTROL_SCHEMA_VERSION;
   return migrated;
 }
@@ -466,7 +510,7 @@ function migrateChangeSetV8(record) {
     review.source_review_id ??= null;
     review.correction_run_id ??= null;
   }
-  migrated.schema_version = PREVIOUS_CONTROL_SCHEMA_VERSION;
+  migrated.schema_version = V9_CONTROL_SCHEMA_VERSION;
   return migrated;
 }
 
@@ -582,6 +626,36 @@ function migrateChangeSetV9(record) {
     review.feedback_run_id = review.correction_run_id ?? null;
     delete review.correction_run_id;
   }
+  migrated.schema_version = PREVIOUS_CONTROL_SCHEMA_VERSION;
+  return migrated;
+}
+
+function migrateChangeSetV10(record) {
+  const migrated = structuredClone(record);
+  const policy = normalizeSupervisionPolicy(migrated.supervision_policy);
+  migrated.supervision_policy = policy;
+  for (const plan of migrated.plans ?? []) {
+    // 迁移输入故意覆盖 mode，确保任何历史 Plan 都不会静默获得自动运行权限。
+    plan.supervision = normalizePlanSupervision(
+      { ...(plan.supervision ?? {}), mode: "manual" },
+      policy,
+    );
+  }
+  migrated.supervision_control ??= {
+    plan_revision: null,
+    authorized_at: null,
+    hold: null,
+    last_stop_reason: null,
+    updated_at: migrated.updated_at,
+  };
+  migrated.migration_records ??= [];
+  migrated.migration_records.push({
+    migration_id: "control-schema-v10-to-v11",
+    from_schema_version: 10,
+    to_schema_version: 11,
+    existing_plan_mode: "manual",
+    source_digest: sha256(record),
+  });
   migrated.schema_version = CONTROL_SCHEMA_VERSION;
   return migrated;
 }

@@ -115,3 +115,18 @@ test("independent verification diagnostics preserve stable codes", () => {
     "A no-change feedback execution incorrectly reported changed paths.",
   );
 });
+
+test("autonomous supervision diagnostics preserve stable codes", () => {
+  assert.equal(
+    diagnosticMessage("SUPERVISOR_ACTION_NOT_OFFERED"),
+    "Supervisor 选择了当前未授权的动作。",
+  );
+  assert.equal(
+    diagnosticMessage("STALE_SUPERVISION_ACTION", { locale: "en" }),
+    "The autonomous supervision action is no longer the current exact subject.",
+  );
+  assert.equal(
+    diagnosticMessage("SUPERVISION_BUDGET_EXCEEDS_PROJECT_POLICY"),
+    "计划自主运行预算超过项目上限。",
+  );
+});

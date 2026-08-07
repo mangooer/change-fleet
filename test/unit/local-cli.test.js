@@ -48,6 +48,9 @@ describe("unified local CLI grammar", () => {
         "changeset.candidate.recover_legacy",
       ],
       [["changeset", "execute"], "changeset.execute"],
+      [["changeset", "supervision", "start"], "changeset.supervision.start"],
+      [["changeset", "supervision", "pause"], "changeset.supervision.pause"],
+      [["changeset", "supervision", "resume"], "changeset.supervision.resume"],
       [["changeset", "bundle", "decide"], "changeset.bundle.decide"],
       [["changeset", "delivery", "publish"], "changeset.delivery.publish"],
       [["changeset", "delivery", "refresh"], "changeset.delivery.refresh"],
@@ -72,6 +75,22 @@ describe("unified local CLI grammar", () => {
   });
 
   test("parses exact ChangeSet reads and bounded debug audit queries", () => {
+    assert.deepEqual(
+      parseCommandLine([
+        "changeset",
+        "supervision",
+        "show",
+        "change-1",
+        "--config",
+        "changefleet.json",
+      ]),
+      {
+        kind: "lifecycle",
+        operation: "changeset.supervision.progress",
+        config_path: "changefleet.json",
+        request: { change_set_id: "change-1" },
+      },
+    );
     assert.deepEqual(
       parseCommandLine([
         "serve",
