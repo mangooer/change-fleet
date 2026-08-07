@@ -46,7 +46,8 @@ Given a confirmed change intent and an explicitly registered Project, ChangeFlee
 3. route low-risk plans automatically and high-risk or expanded scope to human confirmation;
 4. execute repository-scoped WorkUnits in isolated Git workspaces;
 5. when the confirmed Plan authorizes it, autonomously advance ordinary execution, validation,
-   optional verification, and Feedback repair to exact Bundle review;
+   optional Candidate verification, Feedback repair, and required Bundle quality review to final
+   human review;
 6. preserve plan revisions and abandoned attempts without duplicating the ChangeSet;
 7. publish exact repository Candidates;
 8. bind repository and combined validation evidence to those Candidates;
@@ -67,7 +68,8 @@ branch is evidence or execution detail within that subject.
 - Allow Agent-native subagents, tools, skills, code discovery, and reasoning.
 - Freeze repository scope, target refs, base SHAs, and Candidate identity.
 - Support safe parallel WorkUnit execution and target-specific integration serialization.
-- Review one exact CandidateBundle with a complete validation matrix.
+- Review one exact CandidateBundle with a complete validation matrix and an optional independent
+  quality recommendation.
 - Publish accepted exact Candidates through explicit GitHub PR delivery and preserve partial merge.
 - Preserve state across Runtime or controller restart.
 - Reduce ordinary operator continuation through Plan-bound autonomous supervision without granting
@@ -290,6 +292,8 @@ a previously confirmed execution contract is deliberately replaced.
 - expected file, API, schema, or behavior boundaries;
 - repository and combined validation;
 - a preliminary Candidate verification expectation, rationale, and typed escalation triggers;
+- effective `none | independent` Bundle quality-review admission, Review AgentProfile, and bounded
+  attempt ceiling within Project policy;
 - effective `manual | autonomous_until_review` supervision authorization and bounded limits within
   Project ceilings;
 - delivery order;
@@ -314,6 +318,7 @@ A ChangeSet is the aggregate root for one confirmed intent. It owns:
 - bounded Candidate-bound verification reviews and exact Run references;
 - repository Candidates;
 - CandidateBundle revisions;
+- exact Bundle review admissions, assessments, and Review Run references;
 - validation evidence;
 - scope decisions;
 - bounded autonomous-supervision authorization and exact decision-envelope references;
@@ -351,8 +356,8 @@ WorkUnits unless they correspond to independently controlled repository executio
 
 ### Run, Feedback, Gate, And Blocker
 
-Every Agent invocation is one `planning | execution | verification | supervision` Run with status
-`queued | running | completed | failed | interrupted | cancelled`. A new attempt records
+Every Agent invocation is one `planning | execution | verification | supervision | review` Run with
+status `queued | running | completed | failed | interrupted | cancelled`. A new attempt records
 `initial | feedback | retry | recovery` trigger and optional continuation lineage. Terminal Run
 facts are immutable and do not imply success of the owning phase.
 
@@ -360,6 +365,10 @@ facts are immutable and do not imply success of the owning phase.
 authorized action envelopes. A Supervisor Agent may select an offered action or request a Gate;
 the kernel revalidates current subjects, authority, preconditions, and budget before performing any
 mutation. A forced next action requires no Supervisor model call.
+
+`review` is ChangeSet-scoped, semantically read-only, and bound to one exact CandidateBundle
+revision. Its assessment is evidence for final human review or bounded Feedback routing; it is not
+Bundle acceptance or mutation authority.
 
 Feedback is immutable bounded input from a human, planning, validation, verification, supervision,
 review, or delivery source. The handling Agent assesses each finding as `adopt | adapt | decline`;
@@ -437,6 +446,20 @@ It also records:
 - bundle hash and creation evidence.
 
 Human review and acceptance bind to the complete bundle manifest, not merely one repository SHA.
+
+### BundleReviewAssessment
+
+A confirmed Plan records `none | independent` Bundle quality-review admission. `none` presents the
+exact Bundle directly for human review and spends no Review Runtime cost. `independent` requires one
+current `pass | feedback | gate` assessment from the selected Review AgentProfile before the Bundle
+is presented as quality-reviewed.
+
+The assessment binds the exact Plan revision, Bundle revision and hash, every Candidate base and
+head SHA, required validation and verification evidence, and its Review Run. A changed Plan,
+Candidate, Bundle, or required evidence identity requires another assessment. `pass` is a
+recommendation only. Blocking findings may become bounded Feedback for exact authorized WorkUnits;
+advisory findings remain audit-only. Ambiguous ownership, authority expansion, invalid output,
+failure, or exhausted budget retries safely or opens a Gate.
 
 ### Deterministic Validation Invocation
 
@@ -556,9 +579,13 @@ remaining budget, and offered action ids. Its proposal is advisory until ChangeF
 performs it. Ordinary failed checks and actionable review findings may become Feedback and continue
 through execution and verification without another operator command.
 
-Autonomous supervision stops at exact Bundle review, an authority or Plan change, unresolved human
-judgment, an unbounded semantic route, exhausted budget, operator hold, abandonment, or terminal
-outcome. It does not create a supervision phase or operation-specific waiting and failure states.
+When the confirmed Plan requires independent Bundle review, deterministic supervision dispatches
+that Review Run after exact Bundle assembly without a Supervisor model call. Valid blocking
+Feedback may continue through the same-Plan repair route and produce a new Bundle revision.
+Autonomous supervision stops with the current required passage recommendation, a Gate, an authority
+or Plan change, unresolved human judgment, an unbounded semantic route, exhausted budget, operator
+hold, abandonment, or terminal outcome. It does not create a supervision or review phase or
+operation-specific waiting and failure states.
 
 The persistent lifecycle is deliberately small:
 
@@ -695,6 +722,14 @@ Review receives:
 - proposed delivery order and compensation boundaries.
 
 Review does not inherit private execute reasoning as authority.
+
+The exact confirmed Plan deterministically admits `none | independent` Bundle quality review. An
+independent Review Run receives the compact review subject above plus bounded artifact references;
+it does not invent validation commands or mutate Candidate workspaces. Its structured disposition
+is `pass | feedback | gate`. Findings bind stable ids, severity, evidence, and authorized WorkUnit
+targets where known. Passage remains a recommendation for human audit. Advisory findings do not
+force repair, and reviewer claims routed as Feedback remain subject to `adopt | adapt | decline`
+assessment by execution.
 
 A `request_revision` decision binds the exact Bundle and carries a concise bounded summary plus
 bounded actionable findings. It records Feedback and returns affected WorkUnits to execution under
@@ -853,7 +888,8 @@ The adapter:
 - supplies the Control Contract, current Run Context Projection, exact-base repository Harness, and
   only explicitly selected Runtime Skills;
 - maps the Agent Profile to provider-native model, reasoning, environment, and capability settings;
-- requires strict structured planning, execution, verification, and supervision-decision outcomes;
+- requires strict structured planning, execution, verification, supervision-decision, and Bundle-
+  review outcomes;
 - records bounded normalized events and Runtime invocation evidence;
 - keeps Provider output subject to current-revision, authorization, exact-subject, and human-gate
   validation;
@@ -956,13 +992,13 @@ verification was interrupted after repository validation passed, recovery abando
 Run and disposable workspace, reuses the exact passing check evidence, and starts one fresh
 verification Run.
 
-One generic Run reconciler handles planning, execution, verification, and supervision attempts. A
-persisted `running` Run that is not provably live becomes `interrupted` with recovery evidence.
-Planning workspaces, writable execution workspaces, disposable verification workspaces, and
-read-only supervision projections have bounded operation-specific preflight and cleanup adapters,
-but retain the same owning phase. A fresh same-purpose Run may continue only after exact authority
-and resource identity are proven. Completed checkpoints and passing checks are reused and completed
-Runtime invocations are never repeated.
+One generic Run reconciler handles planning, execution, verification, supervision, and Bundle-review
+attempts. A persisted `running` Run that is not provably live becomes `interrupted` with recovery
+evidence. Planning workspaces, writable execution workspaces, disposable Candidate verification and
+Bundle-review workspaces, and read-only supervision projections have bounded operation-specific
+preflight and cleanup adapters, but retain the same owning phase. A fresh same-purpose Run may
+continue only after exact authority and resource identity are proven. Completed checkpoints and
+passing checks are reused and completed Runtime invocations are never repeated.
 
 For private records created before this checkpoint contract, one explicit human-gated recovery
 operation may bind an exact completed Run and owned clean workspace to an exact base and candidate

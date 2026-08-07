@@ -34,7 +34,12 @@ export class RunRecoveryService {
     if (operations.size === 0) return;
 
     let currentProject = project;
-    if ((operations.has("planning") || operations.has("verification")) && !currentProject) {
+    if (
+      (operations.has("planning") ||
+        operations.has("verification") ||
+        operations.has("review")) &&
+      !currentProject
+    ) {
       const catalog = await this.controlStore.readCatalog();
       currentProject = requireProject(catalog, state.project_id);
     }
@@ -43,6 +48,9 @@ export class RunRecoveryService {
     }
     if (operations.has("verification")) {
       await this.reconcileVerification(changeSetId, currentProject);
+    }
+    if (operations.has("review")) {
+      await this.reconcileReview(changeSetId, currentProject);
     }
     if (operations.has("execution")) {
       await this.reconcileExecution(changeSetId);
@@ -247,6 +255,70 @@ export class RunRecoveryService {
       current.updated_at = this.now();
     });
     assertNoAmbiguousRecovery(results, "Supervision");
+  }
+
+  async reconcileReview(changeSetId, project) {
+    const state = await this.controlStore.readChangeSet(changeSetId);
+    const references = state.run_references.filter(
+      (reference) =>
+        reference.operation === "review" && reference.status === "running",
+    );
+    if (references.length === 0) return;
+    const harnessSelection = currentHarnessSelection(state);
+    const results = [];
+    for (const reference of references) {
+      const run = await this.runStore.read(reference.run_id);
+      if (!recoverableRunningRun(run)) {
+        results.push(ambiguousResult(run.run_id));
+        continue;
+      }
+      let cleanupError = null;
+      for (const workspace of [...(run.review_workspaces ?? [])].reverse()) {
+        try {
+          const repository = requireRepository(project, workspace.repository_id);
+          const selectedHarness = harnessSelection.repositories.find(
+            (item) => item.repository_id === workspace.repository_id,
+          );
+          const overlaySnapshot =
+            selectedHarness?.mode ===
+            HARNESS_SELECTION_MODES.EXACT_BASE_PLUS_OVERLAY
+              ? await this.harnessSnapshotStore.read(
+                  selectedHarness.artifact_reference,
+                )
+              : null;
+          await this.repositoryWorker.cleanupVerificationWorkspace({
+            repository,
+            workspace,
+            harnessSnapshot: overlaySnapshot,
+          });
+        } catch (error) {
+          cleanupError ??= error;
+        }
+      }
+      await this.interruptRecoveredRun(run, cleanupError);
+      results.push(recoveryResult(run.run_id, cleanupError));
+    }
+    await this.controlStore.transactChangeSet(changeSetId, (current) => {
+      for (const result of results) {
+        setReferenceStatus(current.run_references, result.run_id, result.status);
+        if (result.status === "failed") {
+          current.blockers.push({
+            code: result.error_code,
+            run_id: result.run_id,
+          });
+        }
+      }
+      current.current_bundle_review_assessment_id = null;
+      current.bundle_review_last_error = {
+        code:
+          results.find((result) => result.status === "failed")?.error_code ??
+          "REVIEW_RUN_INTERRUPTED_AFTER_RESTART",
+        run_id: results.at(-1)?.run_id ?? null,
+      };
+      setChangeSetPhase(current, "review");
+      current.updated_at = this.now();
+    });
+    assertNoAmbiguousRecovery(results, "Bundle review");
   }
 
   async interruptRecoveredRun(run, cleanupError) {

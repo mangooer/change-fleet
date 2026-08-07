@@ -137,6 +137,22 @@ function renderDetail() {
     return;
   }
   const bundle = state.exact.bundle;
+  const qualityReview = bundle?.quality_review ?? null;
+  const bundleReviewRequired =
+    state.exact.plan?.bundle_review?.mode === "independent";
+  const explicitBundleGate = state.exact.gates.some((gate) =>
+    ["bundle_review_decision", "bundle_review_failure"].includes(gate.kind),
+  );
+  const bundleAcceptable =
+    !bundleReviewRequired ||
+    ["pass", "gate"].includes(qualityReview?.disposition) ||
+    explicitBundleGate;
+  const canAdvance =
+    state.exact.phase === "working" ||
+    (state.exact.phase === "review" &&
+      bundleReviewRequired &&
+      qualityReview === null &&
+      !explicitBundleGate);
   const planningMessage = state.exact.planning_message;
   const delivery = state.exact.delivery;
   const publishAttempt = bundle
@@ -172,6 +188,7 @@ function renderDetail() {
               usage: state.audit.payload.usage,
               outcomes: state.audit.payload.outcomes,
               validation: state.audit.payload.validation.outcomes,
+              bundle_reviews: state.audit.payload.bundle_reviews,
             },
             null,
             2,
@@ -184,10 +201,10 @@ function renderDetail() {
         ${
           state.exact.supervision.mode === "autonomous_until_review"
             ? `
-              <button id="${state.exact.supervision.held ? "resume-supervision" : "start-supervision"}" type="button" ${state.exact.phase === "working" ? "" : "disabled"}>${state.exact.supervision.held ? "Resume Autonomous Work" : "Run Autonomously To Review"}</button>
+              <button id="${state.exact.supervision.held ? "resume-supervision" : "start-supervision"}" type="button" ${canAdvance ? "" : "disabled"}>${state.exact.supervision.held ? "Resume Autonomous Work" : "Run Autonomously To Review"}</button>
               <button id="pause-supervision" class="secondary" type="button" ${state.exact.phase === "working" && !state.exact.supervision.held ? "" : "disabled"}>Pause After Current Action</button>
             `
-            : `<button id="continue-change-set" type="button" ${state.exact.phase === "working" ? "" : "disabled"}>Start or Continue Eligible Work</button>`
+            : `<button id="continue-change-set" type="button" ${canAdvance ? "" : "disabled"}>Start or Continue Eligible Work</button>`
         }
       </div>
       <div class="muted">Supervision ${escapeHtml(state.exact.supervision.mode)}; last stop ${escapeHtml(state.exact.supervision.last_stop_reason ?? "none")}.</div>
@@ -286,9 +303,15 @@ function renderDetail() {
             <div class="summary-box">
               <p>Bundle hash <code>${escapeHtml(bundle.bundle_hash)}</code></p>
               <p>Combined validation evidence <code>${escapeHtml(bundle.combined_validation_evidence?.evidence_id ?? "missing")}</code></p>
+              <p>Quality review <span class="pill ${pillClass(qualityReview?.disposition ?? "waiting")}">${escapeHtml(qualityReview?.disposition ?? (bundleReviewRequired ? "required" : "not required"))}</span></p>
+              ${
+                qualityReview
+                  ? `<p>${escapeHtml(qualityReview.summary)}</p><pre>${escapeHtml(JSON.stringify(qualityReview.findings, null, 2))}</pre>`
+                  : ""
+              }
               <p class="muted">Confirmation binds the exact revision, hash, candidate ids, SHAs, changed paths, and available evidence references.</p>
               <div class="actions">
-                <button id="accept-bundle" type="button">Accept Bundle</button>
+                <button id="accept-bundle" type="button" ${bundleAcceptable ? "" : "disabled"}>Accept Bundle</button>
                 <button id="reject-bundle" class="danger" type="button">Reject Bundle</button>
               </div>
             </div>
@@ -425,7 +448,7 @@ function renderDetail() {
 }
 
 async function continueChangeSet() {
-  if (!state.exact || state.exact.phase !== "working") return;
+  if (!state.exact || !["working", "review"].includes(state.exact.phase)) return;
   const attemptKey = `execute:${state.exact.change_set_id}:${state.exact.updated_at}`;
   const attemptId = ensureAttempt(attemptKey);
   await runMutation("continue work", async () => {
@@ -442,7 +465,7 @@ async function continueChangeSet() {
 }
 
 async function mutateSupervision(operation) {
-  if (!state.exact || state.exact.phase !== "working") return;
+  if (!state.exact || !["working", "review"].includes(state.exact.phase)) return;
   const attemptKey = `supervision:${operation}:${state.exact.change_set_id}:${state.exact.updated_at}`;
   const attemptId = ensureAttempt(attemptKey);
   await runMutation(`${operation} supervision`, async () => {

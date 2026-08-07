@@ -33,6 +33,8 @@ export class ScriptedRuntime {
     supervisionOutcome = null,
     supervisionOutcomes = null,
     supervisionActionType = null,
+    reviewOutcome = null,
+    reviewOutcomes = null,
     feedbackExecutionOutcome = null,
     feedbackFileContent = null,
   }) {
@@ -47,10 +49,13 @@ export class ScriptedRuntime {
     this.supervisionOutcome = supervisionOutcome;
     this.supervisionOutcomes = supervisionOutcomes;
     this.supervisionActionType = supervisionActionType;
+    this.reviewOutcome = reviewOutcome;
+    this.reviewOutcomes = reviewOutcomes;
     this.feedbackExecutionOutcome = feedbackExecutionOutcome;
     this.feedbackFileContent = feedbackFileContent;
     this.verificationInvocationCount = 0;
     this.supervisionInvocationCount = 0;
+    this.reviewInvocationCount = 0;
     this.interrupted = false;
     this.invocations = [];
   }
@@ -125,6 +130,24 @@ export class ScriptedRuntime {
             rationale: "The deterministic fixture selected the first bounded action.",
             expected_result: "The selected action advances or safely stops the route.",
             evidence_reference_ids: [],
+          },
+        ),
+        provider_evidence: testProviderEvidence(),
+      };
+    }
+    if (invocation.operation === "review") {
+      const sequencedOutcome = Array.isArray(this.reviewOutcomes)
+        ? this.reviewOutcomes[this.reviewInvocationCount]
+        : null;
+      this.reviewInvocationCount += 1;
+      return {
+        outcome: structuredClone(
+          sequencedOutcome ?? this.reviewOutcome ?? {
+            type: "bundle_review_completed",
+            disposition: "pass",
+            summary: "The deterministic fixture found no Bundle-level blocking issue.",
+            findings: [],
+            human_decision: null,
           },
         ),
         provider_evidence: testProviderEvidence(),
@@ -283,6 +306,12 @@ export function createTwoRepositoryPlan(combinedCheckScript) {
       rationale: "The selected behavioral checks cover the planned change.",
       escalation_triggers: ["scope_divergence"],
     },
+    bundle_review: {
+      mode: "none",
+      agent_profile_id: null,
+      agent_profile_revision: null,
+      attempt_limit: 2,
+    },
     supervision: {
       mode: "manual",
       execution_attempt_limit_per_work_unit: 3,
@@ -318,6 +347,12 @@ export function createOneRepositoryPlan(combinedCheckScript) {
       mode: "deterministic",
       rationale: "The selected behavioral checks cover the planned change.",
       escalation_triggers: ["scope_divergence"],
+    },
+    bundle_review: {
+      mode: "none",
+      agent_profile_id: null,
+      agent_profile_revision: null,
+      attempt_limit: 2,
     },
     supervision: {
       mode: "manual",

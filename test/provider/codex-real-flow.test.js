@@ -86,6 +86,12 @@ test(
           max_feedback_cycles_per_work_unit: 2,
           max_elapsed_ms: 600_000,
         },
+        bundle_review_policy: {
+          default_mode: "independent",
+          default_agent_profile_id: "codex-real-acceptance-reviewer",
+          default_agent_profile_revision: 1,
+          max_attempts: 2,
+        },
         repositories: [
           {
             repository_id: "api",
@@ -115,6 +121,7 @@ test(
           "A verifier-requested exact marker check fails and a read-only Supervisor selects bounded implementation Feedback.",
           "The feedback-triggered execution adds the exact finalization marker without changing the feature value.",
           "The exact repository and combined checks pass.",
+          "An independent read-only Bundle review recommends passage for the exact Candidate.",
         ],
       },
     });
@@ -144,6 +151,12 @@ test(
       planned.message.plan_content.work_units[0].task,
       /initial execution/u,
     );
+    assert.deepEqual(planned.message.plan_content.bundle_review, {
+      mode: "independent",
+      agent_profile_id: "codex-real-acceptance-reviewer",
+      agent_profile_revision: 1,
+      attempt_limit: 2,
+    });
     let confirmation;
     try {
       confirmation = await service.confirmPlanMessage({
@@ -246,11 +259,20 @@ test(
         "supervision",
         "execution",
         "verification",
+        "review",
       ],
     );
     assert.deepEqual(
       state.run_references.map((reference) => reference.trigger),
-      ["initial", "initial", "initial", "initial", "feedback", "initial"],
+      [
+        "initial",
+        "initial",
+        "initial",
+        "initial",
+        "feedback",
+        "initial",
+        "initial",
+      ],
     );
     assert.equal(state.verification_reviews.length, 2);
     assert.equal(state.verification_reviews[0].verdict, "pass");
@@ -265,6 +287,8 @@ test(
       1,
     );
     assert.equal(state.candidate_checkpoints.length, 2);
+    assert.equal(state.bundle_review_assessments.length, 1);
+    assert.equal(state.bundle_review_assessments[0].disposition, "pass");
 
     const runAudits = [];
     for (const reference of state.run_references) {
@@ -316,7 +340,7 @@ test(
       changeAudit.payload.usage.observed_total_tokens,
       runAudits.reduce((total, run) => total + run.total_tokens, 0),
     );
-    assert.equal(changeAudit.payload.usage.observed_run_count, 6);
+    assert.equal(changeAudit.payload.usage.observed_run_count, 7);
     assert.equal(changeAudit.payload.usage.unknown_run_count, 0);
     assert.equal(
       changeAudit.payload.timing.provider_duration_sum.observed_sum,
@@ -376,6 +400,7 @@ function realProviderHarness() {
     `- repository check executable \`node\`, argv \`${JSON.stringify(["-e", repositoryCheck])}\`, timeout 10000`,
     `- combined check executable \`node\`, argv \`${JSON.stringify(["-e", combinedCheck])}\`, timeout 10000`,
     "- supervision mode `autonomous_until_review` with execution attempt limit 3, verification attempt limit 6, Feedback cycle limit 2, and elapsed time limit 600000 milliseconds",
+    "- Bundle review mode `independent` with AgentProfile id `codex-real-acceptance-reviewer`, AgentProfile revision 1, and attempt limit 2",
     "- empty risks and unverified boundaries",
     "",
     "During initial execution without feedback, use the available filesystem editing tool to write exactly `codex real provider implementation` followed by one newline. Do not create `finalized.txt` in this Run; that file is reserved for a later feedback-triggered execution.",
@@ -385,6 +410,7 @@ function realProviderHarness() {
     `During initial verification, when \`feature.txt\` has the exact implementation and \`finalized.txt\` is absent, return triage \`pass\` with no findings, notes, or human decision and exactly this conditional requested check: \`${JSON.stringify(requestedCheck)}\`. The controller-owned failure of that check is the intended exact evidence for Supervisor routing.`,
     "During execution with feedback, assess the failed exact marker check as `adopt`, preserve `feature.txt`, create `finalized.txt` with exactly `supervisor feedback applied` followed by one newline, run the repository check, and return `implementation_completed`.",
     "During verification with feedback lineage, if `feature.txt` and `finalized.txt` have the exact accepted contents and no other tracked path changed, return a triage `pass` with no findings, notes, human decision, or requested checks.",
+    "During Bundle review, if the exact Candidate contains only the two accepted files with their required contents and the supplied checks passed, return `bundle_review_completed` with disposition `pass`, summary `Exact Candidate satisfies the confirmed intent and evidence.`, no findings, and no human decision.",
     "",
   ].join("\n");
 }

@@ -65,6 +65,27 @@ const PLAN_SUPERVISION_SCHEMA = Object.freeze({
   additionalProperties: false,
 });
 
+const PLAN_BUNDLE_REVIEW_SCHEMA = Object.freeze({
+  type: "object",
+  properties: {
+    mode: { type: "string", enum: ["none", "independent"] },
+    agent_profile_id: {
+      anyOf: [{ type: "string" }, { type: "null" }],
+    },
+    agent_profile_revision: {
+      anyOf: [{ type: "integer", minimum: 1 }, { type: "null" }],
+    },
+    attempt_limit: { type: "integer", minimum: 1 },
+  },
+  required: [
+    "mode",
+    "agent_profile_id",
+    "agent_profile_revision",
+    "attempt_limit",
+  ],
+  additionalProperties: false,
+});
+
 const REVISION_FEEDBACK_ASSESSMENT_SCHEMA = Object.freeze({
   type: "object",
   properties: {
@@ -108,6 +129,7 @@ const PLAN_SCHEMA = Object.freeze({
     },
     combined_check: COMMAND_SCHEMA,
     verification_expectation: VERIFICATION_EXPECTATION_SCHEMA,
+    bundle_review: PLAN_BUNDLE_REVIEW_SCHEMA,
     supervision: PLAN_SUPERVISION_SCHEMA,
     risks: STRING_ARRAY_SCHEMA,
     unverified_boundaries: STRING_ARRAY_SCHEMA,
@@ -118,6 +140,7 @@ const PLAN_SCHEMA = Object.freeze({
     "work_units",
     "combined_check",
     "verification_expectation",
+    "bundle_review",
     "supervision",
     "risks",
     "unverified_boundaries",
@@ -343,6 +366,73 @@ export const SUPERVISION_OUTCOME_SCHEMA = Object.freeze({
   additionalProperties: false,
 });
 
+const BUNDLE_REVIEW_FINDING_SCHEMA = Object.freeze({
+  type: "object",
+  properties: {
+    finding_id: { type: "string" },
+    severity: { type: "string", enum: ["blocking", "advisory"] },
+    category: {
+      type: "string",
+      enum: [
+        "confirmed_intent",
+        "cross_repository",
+        "correctness",
+        "security",
+        "data",
+        "compatibility",
+        "scope",
+        "evidence",
+      ],
+    },
+    message: { type: "string" },
+    evidence_reference_ids: {
+      type: "array",
+      items: { type: "string" },
+      maxItems: 16,
+    },
+    repository_ids: STRING_ARRAY_SCHEMA,
+    work_unit_ids: STRING_ARRAY_SCHEMA,
+  },
+  required: [
+    "finding_id",
+    "severity",
+    "category",
+    "message",
+    "evidence_reference_ids",
+    "repository_ids",
+    "work_unit_ids",
+  ],
+  additionalProperties: false,
+});
+
+export const BUNDLE_REVIEW_OUTCOME_SCHEMA = Object.freeze({
+  type: "object",
+  properties: {
+    type: { type: "string", enum: ["bundle_review_completed"] },
+    disposition: {
+      type: "string",
+      enum: ["pass", "feedback", "gate"],
+    },
+    summary: { type: "string" },
+    findings: {
+      type: "array",
+      items: BUNDLE_REVIEW_FINDING_SCHEMA,
+      maxItems: 16,
+    },
+    human_decision: {
+      anyOf: [HUMAN_DECISION_SCHEMA, { type: "null" }],
+    },
+  },
+  required: [
+    "type",
+    "disposition",
+    "summary",
+    "findings",
+    "human_decision",
+  ],
+  additionalProperties: false,
+});
+
 export function schemaForOperation(operation) {
   // 未知操作必须在调用 Provider 前失败，不能退回无结构文本。
   if (operation === "planning") return PLANNING_OUTCOME_SCHEMA;
@@ -351,6 +441,7 @@ export function schemaForOperation(operation) {
   }
   if (operation === "verification") return VERIFICATION_OUTCOME_SCHEMA;
   if (operation === "supervision") return SUPERVISION_OUTCOME_SCHEMA;
+  if (operation === "review") return BUNDLE_REVIEW_OUTCOME_SCHEMA;
   throw new Error(`Unsupported Runtime operation ${operation}`);
 }
 
@@ -406,6 +497,19 @@ export function assertStructuredOutcome(operation, outcome) {
     typeof outcome.rationale === "string" &&
     typeof outcome.expected_result === "string" &&
     Array.isArray(outcome.evidence_reference_ids)
+  ) {
+    return outcome;
+  }
+  if (
+    operation === "review" &&
+    outcome.type === "bundle_review_completed" &&
+    ["pass", "feedback", "gate"].includes(outcome.disposition) &&
+    typeof outcome.summary === "string" &&
+    Array.isArray(outcome.findings) &&
+    (outcome.human_decision === null ||
+      (outcome.human_decision &&
+        typeof outcome.human_decision === "object" &&
+        !Array.isArray(outcome.human_decision)))
   ) {
     return outcome;
   }

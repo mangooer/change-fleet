@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import {
+  CONTEXT_PROJECTION_VERSION,
   assessInitialContext,
   createContextProjection,
   createControlContract,
@@ -60,7 +61,7 @@ describe("Runtime context admission", () => {
       enabled: false,
       skills: [],
     });
-    assert.equal(projection.schema_version, 10);
+    assert.equal(projection.schema_version, CONTEXT_PROJECTION_VERSION);
     assert.equal(controlContract.repository_selection_revision, 1);
     assert.equal(
       controlContract.repository_harness_selection_revision,

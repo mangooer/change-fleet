@@ -214,6 +214,13 @@ The stable implementation runs the Node.js 24 full deterministic check and one a
 Codex flow covering the new read-only supervision purpose. Real GitHub writes remain excluded
 because autonomous authority stops before Bundle acceptance and delivery.
 
+Decision 0027 requires strict admission, exact-subject assessment, structured finding and legacy-
+Plan migration tests; Real-Git one- and two-Repository passage, Feedback, Gate, mutation, stale-
+identity and restart routes; common Run recovery; audit/context exclusion; and shared local-surface
+coverage. Its stable implementation runs the Node.js 24 full deterministic check and one authorized
+real Codex flow covering the new read-only `review` purpose and one bounded same-Plan repair. Real
+GitHub writes remain excluded because Bundle acceptance and delivery identity are unchanged.
+
 The recommended first real GitHub gate is the accepted UI WorkItem's exact Candidate rather than a
 disposable smoke change. It remains separately authorized under the repository, branch, PR, merge,
 and cleanup rules above; Proposal or WorkItem acceptance alone does not grant the write.

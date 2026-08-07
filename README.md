@@ -15,9 +15,9 @@ reviewable `CandidateBundle` representing one exact cross-repository outcome.
 ## Current Status
 
 This repository contains the spec-first project Harness and the private implementation through
-landed WI-0019. WI-0020's first Plan-confirmed autonomous route to exact Bundle review is accepted
-and complete on its branch but not yet landed. The package is not released and exposes no stable
-public CLI or HTTP contract.
+landed WI-0020. WI-0021's optional exact-Bundle quality review is complete on this branch but is not
+a landed baseline until merged. The package is not released and exposes no stable public CLI or
+HTTP contract.
 
 The first accepted vertical slice, tracked by
 [`WI-0001`](docs/work-items/WI-0001-local-two-repository-vertical-slice.md), is:
@@ -220,10 +220,20 @@ operation.
 A confirmed Plan records `manual` or `autonomous_until_review` supervision plus bounded execution,
 verification, Feedback, and elapsed-time limits. In autonomous mode, exact forced actions run
 without a Supervisor model call. A read-only Supervisor Run is used only when several bounded
-semantic routes remain; it must select one offered exact action. Start, pause, resume, and progress
-commands use the same application operations as the local console. Autonomous authority stops at
-Bundle review, an open Gate or hold, stale authority, exhausted budget, or a terminal ChangeSet; it
-never accepts or delivers the Bundle.
+semantic routes remain; it must select one offered exact action. A Plan may additionally freeze
+`none | independent` Bundle review, one exact Review AgentProfile revision, and a bounded attempt
+ceiling. Required review is a forced read-only action, so it does not spend a Supervisor model call.
+Start, pause, resume, and progress commands use the same application operations as the local
+console. Autonomous authority stops with a current passage recommendation, an explicit Gate or
+hold, stale authority, exhausted budget, or a terminal ChangeSet; it never accepts or delivers the
+Bundle.
+
+An independent Bundle reviewer sees disposable read-only worktrees for the exact CandidateBundle
+and returns `pass | feedback | gate`. Passage is advisory. Blocking findings must cite authorized
+Repositories, WorkUnits, and available evidence ids before ChangeFleet can route them through the
+existing same-Plan Feedback repair path. Advisory findings remain audit-only, while Review Run
+usage, duration, retries, and assessment artifacts stay in the audit surface rather than later
+Agent context.
 
 A `request_revision` Bundle decision also requires `feedback.summary` and 1-20 bounded
 `feedback.findings`, each with a stable `finding_id` and concise `text`. Only that current bounded

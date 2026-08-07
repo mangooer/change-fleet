@@ -12,6 +12,7 @@ import {
   verificationReviewAllowsCandidate,
 } from "./verification.js";
 import { normalizePlanSupervision } from "./supervision.js";
+import { normalizePlanBundleReview } from "./bundle-review.js";
 
 // 领域模块保持纯函数：只验证输入与构造稳定身份，不读取 Git、文件或当前时间。
 const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
@@ -366,6 +367,10 @@ export function normalizePlanContent(
     }),
     verification_expectation: normalizeVerificationExpectation(
       input.verification_expectation,
+    ),
+    bundle_review: normalizePlanBundleReview(
+      input.bundle_review,
+      project.bundle_review_policy,
     ),
     supervision: normalizePlanSupervision(
       input.supervision,

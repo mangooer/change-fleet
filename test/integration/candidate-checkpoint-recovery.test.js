@@ -21,20 +21,19 @@ describe("post-Provider Candidate finalization recovery", () => {
   test("persists spawn failure and resumes the exact checkpoint without Runtime", async (t) => {
     const fixture = await createFixture(t, "resume");
     const commandName = `changefleet-late-check-${process.pid}`;
+    const binRoot = path.join(fixture.root, "bin");
+    await mkdir(binRoot);
+    const requestedExecutable = path.join(
+      binRoot,
+      process.platform === "win32" ? `${commandName}.cmd` : commandName,
+    );
     fixture.plan.work_units[0].repository_check = {
       command_id: "late-check",
-      executable: commandName,
+      executable: requestedExecutable,
       argv: [],
       coverage_rationale: "Checks the exact recovered Candidate",
       timeout_ms: 300,
     };
-    const binRoot = path.join(fixture.root, "bin");
-    await mkdir(binRoot);
-    const previousPath = process.env.PATH;
-    process.env.PATH = `${binRoot}${path.delimiter}${previousPath}`;
-    t.after(() => {
-      process.env.PATH = previousPath;
-    });
     const runtime = new ScriptedRuntime({ plan: fixture.plan });
     const service = await bootstrap(fixture, runtime);
 
@@ -69,10 +68,13 @@ describe("post-Provider Candidate finalization recovery", () => {
     const failedEvidence = await service.evidenceStore.read(
       failedAttempt.evidence.evidence_id,
     );
-    assert.equal(failedEvidence.payload.command.adapter, "direct");
+    assert.equal(
+      failedEvidence.payload.command.adapter,
+      process.platform === "win32" ? "windows_batch" : "direct",
+    );
     assert.equal(
       failedEvidence.payload.command.requested_executable,
-      commandName,
+      requestedExecutable,
     );
 
     const tamperPath = path.join(unit.workspace.workspace_path, "tampered.txt");
