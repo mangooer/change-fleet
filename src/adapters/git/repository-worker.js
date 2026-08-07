@@ -469,32 +469,19 @@ export class RepositoryWorker {
     );
     await assertCommitExists(repository.resolved_git_root, baseSha);
 
-    const workspaceStat = await statIfExists(workspacePath);
-    if (!workspaceStat) {
-      await mkdir(path.dirname(workspacePath), { recursive: true });
-      await git(repository.resolved_git_root, ["worktree", "prune"]);
-      await git(repository.resolved_git_root, [
-        "worktree",
-        "add",
-        "--detach",
-        workspacePath,
-        baseSha,
-      ]);
-    } else {
-      invariant(
-        workspaceStat.isDirectory(),
-        "WORKSPACE_PATH_CONFLICT",
-        `Workspace path is not a directory: ${workspacePath}`,
-      );
-    }
-
-    await this.assertWorkspaceOwnership(repository, workspacePath);
-    const currentHead = await resolveCommit(workspacePath, "HEAD");
-    invariant(
-      currentHead === baseSha,
-      "WORKSPACE_BASE_MISMATCH",
-      `Workspace ${workspaceId} is at ${currentHead}, expected ${baseSha}`,
-    );
+    await this.prepareDetachedWorktree({
+      repository,
+      workspacePath,
+      commitSha: baseSha,
+      label: "Workspace",
+    });
+    await this.assertWorkspaceAtCommit({
+      repository,
+      workspacePath,
+      workspaceId,
+      expectedHeadSha: baseSha,
+      label: "Workspace",
+    });
     return {
       workspace_id: workspaceId,
       workspace_path: workspacePath,
@@ -513,32 +500,19 @@ export class RepositoryWorker {
     );
     await assertCommitExists(repository.resolved_git_root, baseSha);
 
-    const workspaceStat = await statIfExists(workspacePath);
-    if (!workspaceStat) {
-      await mkdir(path.dirname(workspacePath), { recursive: true });
-      await git(repository.resolved_git_root, ["worktree", "prune"]);
-      await git(repository.resolved_git_root, [
-        "worktree",
-        "add",
-        "--detach",
-        workspacePath,
-        baseSha,
-      ]);
-    } else {
-      invariant(
-        workspaceStat.isDirectory(),
-        "WORKSPACE_PATH_CONFLICT",
-        `Planning workspace path is not a directory: ${workspacePath}`,
-      );
-    }
-
-    await this.assertWorkspaceOwnership(repository, workspacePath);
-    const currentHead = await resolveCommit(workspacePath, "HEAD");
-    invariant(
-      currentHead === baseSha,
-      "WORKSPACE_BASE_MISMATCH",
-      `Planning workspace ${workspaceId} is at ${currentHead}, expected ${baseSha}`,
-    );
+    await this.prepareDetachedWorktree({
+      repository,
+      workspacePath,
+      commitSha: baseSha,
+      label: "Planning workspace",
+    });
+    await this.assertWorkspaceAtCommit({
+      repository,
+      workspacePath,
+      workspaceId,
+      expectedHeadSha: baseSha,
+      label: "Planning workspace",
+    });
     invariant(
       (await workspaceStatus(workspacePath)).length === 0,
       "DIRTY_PLANNING_WORKSPACE",
@@ -567,24 +541,12 @@ export class RepositoryWorker {
     );
     await assertCommitExists(repository.resolved_git_root, candidateSha);
 
-    const workspaceStat = await statIfExists(workspacePath);
-    if (!workspaceStat) {
-      await mkdir(path.dirname(workspacePath), { recursive: true });
-      await git(repository.resolved_git_root, ["worktree", "prune"]);
-      await git(repository.resolved_git_root, [
-        "worktree",
-        "add",
-        "--detach",
-        workspacePath,
-        candidateSha,
-      ]);
-    } else {
-      invariant(
-        workspaceStat.isDirectory(),
-        "WORKSPACE_PATH_CONFLICT",
-        `Verification workspace path is not a directory: ${workspacePath}`,
-      );
-    }
+    await this.prepareDetachedWorktree({
+      repository,
+      workspacePath,
+      commitSha: candidateSha,
+      label: "Verification workspace",
+    });
 
     const workspace = {
       workspace_kind: "verification",
@@ -926,6 +888,43 @@ export class RepositoryWorker {
       samePath(commonGitDirectory, repository.common_git_dir),
       "FOREIGN_WORKSPACE",
       `Workspace ${workspacePath} belongs to a different Git repository`,
+    );
+  }
+
+  async prepareDetachedWorktree({ repository, workspacePath, commitSha, label }) {
+    const workspaceStat = await statIfExists(workspacePath);
+    if (!workspaceStat) {
+      await mkdir(path.dirname(workspacePath), { recursive: true });
+      await git(repository.resolved_git_root, ["worktree", "prune"]);
+      await git(repository.resolved_git_root, [
+        "worktree",
+        "add",
+        "--detach",
+        workspacePath,
+        commitSha,
+      ]);
+    } else {
+      invariant(
+        workspaceStat.isDirectory(),
+        "WORKSPACE_PATH_CONFLICT",
+        `${label} path is not a directory: ${workspacePath}`,
+      );
+    }
+  }
+
+  async assertWorkspaceAtCommit({
+    repository,
+    workspacePath,
+    workspaceId,
+    expectedHeadSha,
+    label,
+  }) {
+    await this.assertWorkspaceOwnership(repository, workspacePath);
+    const currentHead = await resolveCommit(workspacePath, "HEAD");
+    invariant(
+      currentHead === expectedHeadSha,
+      "WORKSPACE_BASE_MISMATCH",
+      `${label} ${workspaceId} is at ${currentHead}, expected ${expectedHeadSha}`,
     );
   }
 

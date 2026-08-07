@@ -2,7 +2,11 @@ import {
   assertChangeSetMutable,
   commandFingerprint,
 } from "../domain/model.js";
-import { ChangeFleetError, invariant } from "../domain/errors.js";
+import {
+  ChangeFleetError,
+  invariant,
+  preserveSecondaryFailure,
+} from "../domain/errors.js";
 import {
   createDeliveryProjection,
   createDeliveryRequest,
@@ -214,7 +218,7 @@ export class GithubDeliveryService {
         try {
           await this.preflightSubject(subject);
         } catch (error) {
-          await this.preservePrimaryFailure(
+          await preserveSecondaryFailure(
             error,
             "delivery_preflight_failure_persistence",
             () => this.recordFailure(change_set_id, subject.request, error),
@@ -234,7 +238,7 @@ export class GithubDeliveryService {
       });
     } catch (error) {
       if (error?.code !== "CONTROLLER_INTERRUPTED") {
-        await this.preservePrimaryFailure(
+        await preserveSecondaryFailure(
           error,
           "delivery_command_failure_persistence",
           () => this.failCommand(change_set_id, idempotency_key, error),
@@ -321,7 +325,7 @@ export class GithubDeliveryService {
       });
     } catch (error) {
       if (error?.code !== "CONTROLLER_INTERRUPTED") {
-        await this.preservePrimaryFailure(
+        await preserveSecondaryFailure(
           error,
           "delivery_command_failure_persistence",
           () => this.failCommand(change_set_id, idempotency_key, error),
@@ -484,7 +488,7 @@ export class GithubDeliveryService {
       });
     } catch (error) {
       if (error?.code !== "CONTROLLER_INTERRUPTED") {
-        await this.preservePrimaryFailure(
+        await preserveSecondaryFailure(
           error,
           "delivery_failure_persistence",
           () => this.recordFailure(changeSetId, request, error),
@@ -524,7 +528,7 @@ export class GithubDeliveryService {
       });
     } catch (error) {
       if (error?.code !== "CONTROLLER_INTERRUPTED") {
-        await this.preservePrimaryFailure(
+        await preserveSecondaryFailure(
           error,
           "delivery_failure_persistence",
           () => this.recordFailure(changeSetId, request, error),
@@ -696,20 +700,6 @@ export class GithubDeliveryService {
       deriveAggregateDeliveryState(state);
       state.updated_at = this.now();
     });
-  }
-
-  async preservePrimaryFailure(primaryError, stage, operation) {
-    // 交付审计写入失败不会覆盖最初的远端或 Git 错误，但会随主错误返回。
-    try {
-      await operation();
-    } catch (secondaryError) {
-      primaryError.secondary_failures ??= [];
-      primaryError.secondary_failures.push({
-        stage,
-        code: secondaryError?.code ?? "UNEXPECTED_ERROR",
-        message: secondaryError?.message ?? String(secondaryError),
-      });
-    }
   }
 
   now() {

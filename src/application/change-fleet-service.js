@@ -49,7 +49,12 @@ import {
   normalizeRepositoryHarnessSelectionRequest,
   normalizeRepositoryWorkspacePolicy,
 } from "../domain/repository-harness.js";
-import { ChangeFleetError, invariant } from "../domain/errors.js";
+import {
+  ChangeFleetError,
+  attachSecondaryFailure,
+  invariant,
+  preserveSecondaryFailure,
+} from "../domain/errors.js";
 import { ControlStore, CONTROL_SCHEMA_VERSION } from "../adapters/filesystem/control-store.js";
 import { EvidenceStore } from "../adapters/filesystem/evidence-store.js";
 import { HarnessSnapshotStore } from "../adapters/filesystem/harness-snapshot-store.js";
@@ -69,6 +74,8 @@ import { RunRecoveryService } from "./run-recovery-service.js";
 import { RepositoryValidator } from "./repository-validator.js";
 import { BundleAssembler } from "./bundle-assembler.js";
 import {
+  createAgentRunRecord,
+  createRunReference,
   currentWorkUnits,
   isCurrentWorkUnit,
   setChangeSetPhase,
@@ -1378,7 +1385,7 @@ export class ChangeFleetService {
       }
     } catch (error) {
       // 部分创建失败时，只清理已经验证归属的规划 worktree。
-      await this.preservePrimaryFailure(
+      await preserveSecondaryFailure(
         error,
         "planning_workspace_cleanup",
         () =>
@@ -1467,43 +1474,42 @@ export class ChangeFleetService {
       runtimeMeasurement: await measureInitialContext(this.runtime, invocation),
     });
     try {
-      await this.runStore.create({
-        schema_version: 1,
-        run_id: runId,
-        change_set_id,
-        work_unit_id: null,
-        operation: "planning",
-        trigger:
-          userMessage !== null || initialState.current_feedback_id !== null
-            ? "feedback"
-            : "initial",
-        continuation_of_run_id:
-          initialState.run_references
-            .filter((reference) => reference.operation === "planning")
-            .at(-1)?.run_id ?? null,
-        attempt: planningAttempt,
-        status: "running",
-        agent_profile: agentProfile,
-        repository_harness_selection: {
-          revision: repositoryHarnessSelection.revision,
-          repositories: repositoryHarnessSelection.repositories.map(
-            harnessSelectionForContext,
-          ),
-        },
-        repository_harness_observation: {
-          repositories: harnessObservations,
-        },
-        context_evidence: contextEvidence,
-        context_projection_identity: {
-          schema_version: contextProjection.schema_version,
-          digest: sha256(contextProjection),
-        },
-        planning_workspaces: planningWorkspaces,
-        runtime_evidence: null,
-        created_at: this.now(),
-        completed_at: null,
-        outcome: null,
-      });
+      await this.runStore.create(
+        createAgentRunRecord({
+          runId,
+          changeSetId: change_set_id,
+          workUnitId: null,
+          operation: "planning",
+          trigger:
+            userMessage !== null || initialState.current_feedback_id !== null
+              ? "feedback"
+              : "initial",
+          attempt: planningAttempt,
+          agentProfile,
+          continuationOfRunId:
+            initialState.run_references
+              .filter((reference) => reference.operation === "planning")
+              .at(-1)?.run_id ?? null,
+          repositoryHarnessSelection: {
+            revision: repositoryHarnessSelection.revision,
+            repositories: repositoryHarnessSelection.repositories.map(
+              harnessSelectionForContext,
+            ),
+          },
+          repositoryHarnessObservation: {
+            repositories: harnessObservations,
+          },
+          contextEvidence,
+          contextProjectionIdentity: {
+            schema_version: contextProjection.schema_version,
+            digest: sha256(contextProjection),
+          },
+          createdAt: this.now(),
+          extra: {
+            planning_workspaces: planningWorkspaces,
+          },
+        }),
+      );
       if (userMessage !== null) {
         await this.runStore.appendEvent(runId, {
           event_id: this.idFactory("event"),
@@ -1526,24 +1532,25 @@ export class ChangeFleetService {
           "STALE_REPOSITORY_HARNESS_SELECTION_REVISION",
           "Repository Harness selection changed before planning dispatch",
         );
-        state.run_references.push({
-          run_id: runId,
-          operation: "planning",
-          trigger:
-            userMessage !== null || initialState.current_feedback_id !== null
-              ? "feedback"
-              : "initial",
-          plan_revision: state.current_plan_revision,
-          repository_harness_selection_revision:
-            repositoryHarnessSelection.revision,
-          attempt: planningAttempt,
-          status: "running",
-        });
+        state.run_references.push(
+          createRunReference({
+            runId,
+            operation: "planning",
+            trigger:
+              userMessage !== null || initialState.current_feedback_id !== null
+                ? "feedback"
+                : "initial",
+            plan_revision: state.current_plan_revision,
+            repository_harness_selection_revision:
+              repositoryHarnessSelection.revision,
+            attempt: planningAttempt,
+          }),
+        );
         state.updated_at = this.now();
       });
     } catch (error) {
       // 关闭若先赢得状态事务，规划不得调用 Runtime；只回收本次尚未授权的隔离工作区。
-      await this.preservePrimaryFailure(
+      await preserveSecondaryFailure(
         error,
         "planning_workspace_cleanup",
         () =>
@@ -2062,7 +2069,7 @@ export class ChangeFleetService {
         }
       } catch (error) {
         if (supervisorRunId) {
-          await this.preservePrimaryFailure(
+          await preserveSecondaryFailure(
             error,
             "supervisor_disposition_persistence",
             () =>
@@ -2228,48 +2235,48 @@ export class ChangeFleetService {
       ),
     });
     const createdAt = this.now();
-    await this.runStore.create({
-      schema_version: 1,
-      run_id: runId,
-      change_set_id: state.change_set_id,
-      work_unit_id: null,
-      operation: "supervision",
-      trigger: attempt === 1 ? "initial" : "retry",
-      continuation_of_run_id:
-        state.run_references
-          .filter((reference) => reference.operation === "supervision")
-          .at(-1)?.run_id ?? null,
-      attempt,
-      status: "running",
-      agent_profile: this.supervisionAgentProfile,
-      repository_harness_selection: null,
-      repository_harness_observation: null,
-      context_evidence: contextEvidence,
-      context_projection_identity: {
-        schema_version: contextProjection.schema_version,
-        digest: sha256(contextProjection),
-      },
-      runtime_evidence: null,
-      created_at: createdAt,
-      completed_at: null,
-      outcome: null,
-    });
+    await this.runStore.create(
+      createAgentRunRecord({
+        runId,
+        changeSetId: state.change_set_id,
+        workUnitId: null,
+        operation: "supervision",
+        trigger: attempt === 1 ? "initial" : "retry",
+        attempt,
+        agentProfile: this.supervisionAgentProfile,
+        continuationOfRunId:
+          state.run_references
+            .filter((reference) => reference.operation === "supervision")
+            .at(-1)?.run_id ?? null,
+        repositoryHarnessSelection: null,
+        repositoryHarnessObservation: null,
+        contextEvidence,
+        contextProjectionIdentity: {
+          schema_version: contextProjection.schema_version,
+          digest: sha256(contextProjection),
+        },
+        createdAt,
+      }),
+    );
     await this.controlStore.transactChangeSet(state.change_set_id, (current) => {
       invariant(
         current.current_plan_revision === plan.revision,
         "STALE_SUPERVISION_ACTION",
         "Plan changed before Supervisor dispatch",
       );
-      current.run_references.push({
-        run_id: runId,
-        operation: "supervision",
-        trigger: attempt === 1 ? "initial" : "retry",
-        plan_revision: plan.revision,
-        work_unit_id: null,
-        attempt,
-        offered_action_ids: actionSet.actions.map((action) => action.action_id),
-        status: "running",
-      });
+      current.run_references.push(
+        createRunReference({
+          runId,
+          operation: "supervision",
+          trigger: attempt === 1 ? "initial" : "retry",
+          plan_revision: plan.revision,
+          work_unit_id: null,
+          attempt,
+          offered_action_ids: actionSet.actions.map(
+            (action) => action.action_id,
+          ),
+        }),
+      );
       current.updated_at = this.now();
     });
 
@@ -2693,48 +2700,49 @@ export class ChangeFleetService {
       signal: null,
     };
     const createdAt = this.now();
-    await this.runStore.create({
-      schema_version: 1,
-      run_id: runId,
-      change_set_id: changeSetId,
-      work_unit_id: null,
-      operation: "review",
-      trigger: attempt === 1 ? "initial" : "retry",
-      continuation_of_run_id:
-        state.run_references
-          .filter(
-            (reference) =>
-              reference.operation === "review" &&
-              reference.bundle_id === bundle.bundle_id,
-          )
-          .at(-1)?.run_id ?? null,
-      attempt,
-      status: "running",
-      agent_profile: this.reviewAgentProfile,
-      repository_harness_selection: {
-        revision: harnessSelection.revision,
-        repositories: reviewResources.map((resource) =>
-          harnessSelectionForContext(resource.selected_harness),
-        ),
-      },
-      repository_harness_observation: {
-        repositories: reviewResources.map(
-          (resource) => resource.harness_observation,
-        ),
-      },
-      review_workspaces: reviewResources.map((resource) => resource.workspace),
-      bundle_subject: {
-        bundle_id: bundle.bundle_id,
-        bundle_revision: bundle.revision,
-        bundle_hash: bundle.bundle_hash,
-      },
-      context_evidence: null,
-      context_projection_identity: null,
-      runtime_evidence: null,
-      created_at: createdAt,
-      completed_at: null,
-      outcome: null,
-    });
+    await this.runStore.create(
+      createAgentRunRecord({
+        runId,
+        changeSetId,
+        workUnitId: null,
+        operation: "review",
+        trigger: attempt === 1 ? "initial" : "retry",
+        attempt,
+        agentProfile: this.reviewAgentProfile,
+        continuationOfRunId:
+          state.run_references
+            .filter(
+              (reference) =>
+                reference.operation === "review" &&
+                reference.bundle_id === bundle.bundle_id,
+            )
+            .at(-1)?.run_id ?? null,
+        repositoryHarnessSelection: {
+          revision: harnessSelection.revision,
+          repositories: reviewResources.map((resource) =>
+            harnessSelectionForContext(resource.selected_harness),
+          ),
+        },
+        repositoryHarnessObservation: {
+          repositories: reviewResources.map(
+            (resource) => resource.harness_observation,
+          ),
+        },
+        contextEvidence: null,
+        contextProjectionIdentity: null,
+        createdAt,
+        extra: {
+          review_workspaces: reviewResources.map(
+            (resource) => resource.workspace,
+          ),
+          bundle_subject: {
+            bundle_id: bundle.bundle_id,
+            bundle_revision: bundle.revision,
+            bundle_hash: bundle.bundle_hash,
+          },
+        },
+      }),
+    );
     await this.controlStore.transactChangeSet(changeSetId, (current) => {
       const currentBundle = current.bundles.at(-1);
       invariant(
@@ -2745,18 +2753,19 @@ export class ChangeFleetService {
         "STALE_BUNDLE_REVIEW",
         "Bundle review subject changed before Runtime dispatch",
       );
-      current.run_references.push({
-        run_id: runId,
-        operation: "review",
-        trigger: attempt === 1 ? "initial" : "retry",
-        plan_revision: plan.revision,
-        work_unit_id: null,
-        bundle_id: bundle.bundle_id,
-        bundle_revision: bundle.revision,
-        bundle_hash: bundle.bundle_hash,
-        attempt,
-        status: "running",
-      });
+      current.run_references.push(
+        createRunReference({
+          runId,
+          operation: "review",
+          trigger: attempt === 1 ? "initial" : "retry",
+          plan_revision: plan.revision,
+          work_unit_id: null,
+          bundle_id: bundle.bundle_id,
+          bundle_revision: bundle.revision,
+          bundle_hash: bundle.bundle_hash,
+          attempt,
+        }),
+      );
       current.updated_at = this.now();
     });
 
@@ -3350,7 +3359,7 @@ export class ChangeFleetService {
       });
     } catch (error) {
       if (error.code !== "CONTROLLER_INTERRUPTED") {
-        await this.preservePrimaryFailure(
+        await preserveSecondaryFailure(
           error,
           "command_failure_persistence",
           () =>
@@ -3774,34 +3783,31 @@ export class ChangeFleetService {
       overlayResources: frozenOverlayHarness,
     });
     const runId = this.idFactory("run");
-    const run = {
-      schema_version: 1,
-      run_id: runId,
-      change_set_id: changeSetId,
-      work_unit_id: workUnitId,
+    const run = createAgentRunRecord({
+      runId,
+      changeSetId,
+      workUnitId,
       operation: "execution",
       trigger: isFeedbackExecution ? "feedback" : "initial",
-      feedback_source_id: feedbackRecord?.feedback_id ?? null,
-      continuation_of_run_id: executionReferences.at(-1)?.run_id ?? null,
       attempt,
-      status: "running",
-      agent_profile: plan.agent_profile,
-      repository_harness_selection: {
+      agentProfile: plan.agent_profile,
+      continuationOfRunId: executionReferences.at(-1)?.run_id ?? null,
+      repositoryHarnessSelection: {
         revision: repositoryHarnessSelection.revision,
         repositories: [
           harnessSelectionForContext(selectedHarness),
         ],
       },
-      repository_harness_observation: {
+      repositoryHarnessObservation: {
         repositories: [harnessObservation],
       },
-      context_evidence: null,
-      context_projection_identity: null,
-      runtime_evidence: null,
-      created_at: this.now(),
-      completed_at: null,
-      outcome: null,
-    };
+      contextEvidence: null,
+      contextProjectionIdentity: null,
+      createdAt: this.now(),
+      extra: {
+        feedback_source_id: feedbackRecord?.feedback_id ?? null,
+      },
+    });
     await this.runStore.create(run);
     await this.controlStore.transactChangeSet(changeSetId, (current) => {
       const currentUnit = unitsForCurrentPlan(current).find(
@@ -3819,23 +3825,25 @@ export class ChangeFleetService {
         `WorkUnit ${workUnitId} already left its dispatchable state`,
       );
       currentUnit.workspace = workspace;
-      currentUnit.run_references.push({
-        run_id: runId,
-        operation: "execution",
-        trigger: isFeedbackExecution ? "feedback" : "initial",
-        feedback_source_id: feedbackRecord?.feedback_id ?? null,
-        attempt,
-        status: "running",
-      });
-      current.run_references.push({
-        run_id: runId,
-        operation: "execution",
-        trigger: isFeedbackExecution ? "feedback" : "initial",
-        plan_revision: plan.revision,
-        work_unit_id: workUnitId,
-        feedback_source_id: feedbackRecord?.feedback_id ?? null,
-        status: "running",
-      });
+      currentUnit.run_references.push(
+        createRunReference({
+          runId,
+          operation: "execution",
+          trigger: isFeedbackExecution ? "feedback" : "initial",
+          feedback_source_id: feedbackRecord?.feedback_id ?? null,
+          attempt,
+        }),
+      );
+      current.run_references.push(
+        createRunReference({
+          runId,
+          operation: "execution",
+          trigger: isFeedbackExecution ? "feedback" : "initial",
+          plan_revision: plan.revision,
+          work_unit_id: workUnitId,
+          feedback_source_id: feedbackRecord?.feedback_id ?? null,
+        }),
+      );
       if (isFeedbackExecution) {
         resolveValidationBlockers(current, {
           workUnitId,
@@ -4538,7 +4546,7 @@ export class ChangeFleetService {
       }
     } catch (error) {
       if (workspace) {
-        await this.preservePrimaryFailure(
+        await preserveSecondaryFailure(
           error,
           "verification_workspace_cleanup",
           () =>
@@ -4559,7 +4567,7 @@ export class ChangeFleetService {
         checkpoint.candidate_sha,
       );
     } catch (error) {
-      await this.preservePrimaryFailure(
+      await preserveSecondaryFailure(
         error,
         "verification_workspace_cleanup",
         () =>
@@ -4581,36 +4589,33 @@ export class ChangeFleetService {
       exactBaseResources: exactCandidateHarness,
       overlayResources: frozenOverlayHarness,
     });
-    const run = {
-      schema_version: 1,
-      run_id: runId,
-      change_set_id: changeSetId,
-      work_unit_id: workUnitId,
+    const run = createAgentRunRecord({
+      runId,
+      changeSetId,
+      workUnitId,
       operation: "verification",
       trigger: focus === null ? "initial" : "feedback",
-      feedback_source_id: focus?.feedbackRecord.feedback_id ?? null,
-      continuation_of_run_id:
+      attempt,
+      agentProfile: this.verificationAgentProfile,
+      continuationOfRunId:
         workUnit.run_references
           .filter((reference) => reference.operation === "verification")
           .at(-1)?.run_id ?? null,
-      attempt,
-      status: "running",
-      agent_profile: this.verificationAgentProfile,
-      repository_harness_selection: {
+      repositoryHarnessSelection: {
         revision: repositoryHarnessSelection.revision,
         repositories: [harnessSelectionForContext(selectedHarness)],
       },
-      repository_harness_observation: {
+      repositoryHarnessObservation: {
         repositories: [harnessObservation],
       },
-      verification_workspace: workspace,
-      context_evidence: null,
-      context_projection_identity: null,
-      runtime_evidence: null,
-      created_at: this.now(),
-      completed_at: null,
-      outcome: null,
-    };
+      contextEvidence: null,
+      contextProjectionIdentity: null,
+      createdAt: this.now(),
+      extra: {
+        feedback_source_id: focus?.feedbackRecord.feedback_id ?? null,
+        verification_workspace: workspace,
+      },
+    });
     try {
       await this.runStore.create(run);
       await this.controlStore.transactChangeSet(changeSetId, (current) => {
@@ -4624,33 +4629,35 @@ export class ChangeFleetService {
           "CANDIDATE_CHECKPOINT_STATE_MISMATCH",
           "Verification subject changed before Runtime dispatch",
         );
-        unit.run_references.push({
-          run_id: runId,
-          operation: "verification",
-          trigger: focus === null ? "initial" : "feedback",
-          feedback_source_id: focus?.feedbackRecord.feedback_id ?? null,
-          attempt,
-          review_scope: reviewScope,
-          source_review_id: focus?.sourceReview?.review_id ?? null,
-          status: "running",
-        });
-        current.run_references.push({
-          run_id: runId,
-          operation: "verification",
-          trigger: focus === null ? "initial" : "feedback",
-          plan_revision: plan.revision,
-          work_unit_id: workUnitId,
-          verification_admission_id: admission.admission_id,
-          review_scope: reviewScope,
-          source_review_id: focus?.sourceReview?.review_id ?? null,
-          attempt,
-          status: "running",
-        });
+        unit.run_references.push(
+          createRunReference({
+            runId,
+            operation: "verification",
+            trigger: focus === null ? "initial" : "feedback",
+            feedback_source_id: focus?.feedbackRecord.feedback_id ?? null,
+            attempt,
+            review_scope: reviewScope,
+            source_review_id: focus?.sourceReview?.review_id ?? null,
+          }),
+        );
+        current.run_references.push(
+          createRunReference({
+            runId,
+            operation: "verification",
+            trigger: focus === null ? "initial" : "feedback",
+            plan_revision: plan.revision,
+            work_unit_id: workUnitId,
+            verification_admission_id: admission.admission_id,
+            review_scope: reviewScope,
+            source_review_id: focus?.sourceReview?.review_id ?? null,
+            attempt,
+          }),
+        );
         setChangeSetPhase(current, "working");
         current.updated_at = this.now();
       });
     } catch (error) {
-      await this.preservePrimaryFailure(
+      await preserveSecondaryFailure(
         error,
         "verification_workspace_cleanup",
         () =>
@@ -5412,15 +5419,6 @@ export class ChangeFleetService {
     await rm(resolvedWorkspace, { recursive: true, force: true });
   }
 
-  async preservePrimaryFailure(primaryError, stage, operation) {
-    // 清理或审计写入失败会附着到主错误，调用方仍能看到最初的业务失败原因。
-    try {
-      await operation();
-    } catch (secondaryError) {
-      attachSecondaryFailure(primaryError, stage, secondaryError);
-    }
-  }
-
   async appendRuntimeEvent(runId, event) {
     invariant(
       event &&
@@ -5954,17 +5952,6 @@ function boundedRejectedSupervisorProposal(input) {
           .map((reference) => boundedText(reference, 256))
       : [],
   };
-}
-
-function attachSecondaryFailure(primaryError, stage, secondaryError) {
-  // 次级清理或审计失败不能覆盖主错误，但必须进入 Run 的有界终态信封。
-  primaryError.secondary_failures ??= [];
-  primaryError.secondary_failures.push({
-    stage,
-    code: secondaryError?.code ?? "UNEXPECTED_ERROR",
-    message: secondaryError?.message ?? String(secondaryError),
-  });
-  return primaryError;
 }
 
 const RETRYABLE_PRE_CANDIDATE_CODES = new Set([

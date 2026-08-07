@@ -187,6 +187,63 @@ export function runReferenceIsActive(reference) {
   return ["queued", "running"].includes(reference?.status);
 }
 
+export function createRunReference({
+  runId,
+  operation,
+  trigger,
+  attempt = undefined,
+  status = "running",
+  ...extra
+}) {
+  return {
+    run_id: runId,
+    operation,
+    trigger,
+    ...(attempt === undefined ? {} : { attempt }),
+    status,
+    ...extra,
+  };
+}
+
+export function createAgentRunRecord({
+  runId,
+  changeSetId,
+  workUnitId,
+  operation,
+  trigger,
+  attempt,
+  agentProfile,
+  continuationOfRunId,
+  repositoryHarnessSelection,
+  repositoryHarnessObservation,
+  contextEvidence,
+  contextProjectionIdentity,
+  createdAt,
+  extra = {},
+}) {
+  return {
+    schema_version: 1,
+    run_id: runId,
+    change_set_id: changeSetId,
+    work_unit_id: workUnitId,
+    operation,
+    trigger,
+    continuation_of_run_id: continuationOfRunId,
+    attempt,
+    status: "running",
+    agent_profile: agentProfile,
+    repository_harness_selection: repositoryHarnessSelection,
+    repository_harness_observation: repositoryHarnessObservation,
+    context_evidence: contextEvidence,
+    context_projection_identity: contextProjectionIdentity,
+    runtime_evidence: null,
+    created_at: createdAt,
+    completed_at: null,
+    outcome: null,
+    ...extra,
+  };
+}
+
 export function assertAgentRunTransition(previous, next) {
   assertAgentRunLifecycle(next);
   invariant(

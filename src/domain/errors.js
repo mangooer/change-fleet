@@ -28,3 +28,23 @@ export function wrapError(error, code, message, details = undefined) {
   wrapped.cause = error;
   return wrapped;
 }
+
+export function attachSecondaryFailure(primaryError, stage, secondaryError) {
+  // 次级清理或审计失败不能覆盖主错误，但必须随主错误进入有界终态信封。
+  primaryError.secondary_failures ??= [];
+  primaryError.secondary_failures.push({
+    stage,
+    code: secondaryError?.code ?? "UNEXPECTED_ERROR",
+    message: secondaryError?.message ?? String(secondaryError),
+  });
+  return primaryError;
+}
+
+export async function preserveSecondaryFailure(primaryError, stage, operation) {
+  // 审计或清理写入失败不会覆盖最初的业务错误，但会随主错误返回。
+  try {
+    await operation();
+  } catch (secondaryError) {
+    attachSecondaryFailure(primaryError, stage, secondaryError);
+  }
+}
