@@ -221,6 +221,50 @@ describe("deterministic supervision authority", () => {
     assert.equal(expiredAction.type, "stop");
     assert.equal(expiredAction.details.reason, "elapsed_budget_exhausted");
   });
+
+  test("forces exact Bundle review dispatch and opens a Gate only after its frozen budget", () => {
+    const state = createState();
+    state.phase = "review";
+    state.plans[0].bundle_review = {
+      mode: "independent",
+      agent_profile_id: "reviewer",
+      agent_profile_revision: 1,
+      attempt_limit: 2,
+    };
+    state.bundles = [
+      {
+        bundle_id: "bundle-1",
+        revision: 1,
+        bundle_hash: "a".repeat(64),
+        candidates: [],
+      },
+    ];
+    state.bundle_review_assessments = [];
+    state.current_bundle_review_assessment_id = null;
+
+    let actions = deriveSupervisionActionSet(state, {
+      now: "2026-08-07T00:00:02.000Z",
+    });
+    assert.equal(actionRequiresSupervisor(actions), false);
+    assert.equal(actions.actions[0].type, "dispatch_bundle_review");
+
+    state.run_references = [1, 2].map((attempt) => ({
+      run_id: `review-${attempt}`,
+      operation: "review",
+      bundle_id: "bundle-1",
+      attempt,
+      status: "failed",
+    }));
+    actions = deriveSupervisionActionSet(state, {
+      now: "2026-08-07T00:00:03.000Z",
+    });
+    assert.equal(actions.progress.bundle_review.exhausted, true);
+    assert.equal(actions.actions[0].type, "open_gate");
+    assert.equal(
+      actions.actions[0].details.reason,
+      "bundle_review_budget_exhausted",
+    );
+  });
 });
 
 function createState() {
@@ -243,6 +287,12 @@ function createState() {
         revision: 1,
         status: "confirmed",
         confirmed_at: "2026-08-07T00:00:00.000Z",
+        bundle_review: {
+          mode: "none",
+          agent_profile_id: null,
+          agent_profile_revision: null,
+          attempt_limit: 2,
+        },
         supervision,
       },
     ],
@@ -264,6 +314,9 @@ function createState() {
     ],
     run_references: [],
     validation_attempts: [],
+    bundles: [],
+    bundle_review_assessments: [],
+    current_bundle_review_assessment_id: null,
     blockers: [],
     gates: [],
     supervision_control: {

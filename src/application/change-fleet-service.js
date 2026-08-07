@@ -80,6 +80,14 @@ import {
   normalizeSupervisorDecisionProposal,
   normalizeSupervisionPolicy,
 } from "../domain/supervision.js";
+import {
+  blockingFeedbackByWorkUnit,
+  bundleReviewAllowsHumanDecision,
+  bundleReviewAssessmentMatches,
+  createBundleReviewAssessment,
+  normalizeBundleReviewOutcome,
+  normalizeBundleReviewPolicy,
+} from "../domain/bundle-review.js";
 
 const MAX_CONTEXT_HARNESS_RESOURCES = 32;
 // 应用服务是确定性编排入口：语义工作交给 Runtime，权限、状态和证据在此裁决。
@@ -93,6 +101,8 @@ export class ChangeFleetService {
     verificationAgentProfile = agentProfile,
     supervisionRuntime = runtime,
     supervisionAgentProfile = null,
+    reviewRuntime = runtime,
+    reviewAgentProfile = null,
     clock = () => new Date(),
     idFactory = (prefix) => `${prefix}-${randomUUID()}`,
     deliveryGitAdapter = new DeliveryGitAdapter(),
@@ -111,6 +121,10 @@ export class ChangeFleetService {
     this.supervisionRuntime = supervisionRuntime;
     this.supervisionAgentProfile = normalizeAgentProfile(
       supervisionAgentProfile ?? readOnlySupervisorProfile(agentProfile),
+    );
+    this.reviewRuntime = reviewRuntime;
+    this.reviewAgentProfile = normalizeAgentProfile(
+      reviewAgentProfile ?? readOnlyReviewProfile(agentProfile),
     );
     this.clock = clock;
     this.idFactory = idFactory;
@@ -210,6 +224,18 @@ export class ChangeFleetService {
     repositories.sort((left, right) =>
       left.repository_id.localeCompare(right.repository_id),
     );
+    const bundleReviewPolicy = normalizeBundleReviewPolicy(
+      project.bundle_review_policy,
+    );
+    invariant(
+      bundleReviewPolicy.default_agent_profile_id === null ||
+        (bundleReviewPolicy.default_agent_profile_id ===
+          this.reviewAgentProfile.profile_id &&
+          bundleReviewPolicy.default_agent_profile_revision ===
+            this.reviewAgentProfile.revision),
+      "REVIEW_AGENT_PROFILE_MISMATCH",
+      "Project Bundle review policy must bind the configured Review AgentProfile",
+    );
     const normalizedProject = {
       project_id: project.project_id,
       description: optionalString(project.description),
@@ -219,6 +245,7 @@ export class ChangeFleetService {
       supervision_policy: normalizeSupervisionPolicy(
         project.supervision_policy,
       ),
+      bundle_review_policy: bundleReviewPolicy,
       repositories,
       registered_at: this.now(),
     };
@@ -237,6 +264,10 @@ export class ChangeFleetService {
     }
     if (project.supervision_policy !== undefined) {
       fingerprintInput.supervision_policy = normalizedProject.supervision_policy;
+    }
+    if (project.bundle_review_policy !== undefined) {
+      fingerprintInput.bundle_review_policy =
+        normalizedProject.bundle_review_policy;
     }
 
     return this.controlStore.transactCatalog((catalog) =>
@@ -415,6 +446,7 @@ export class ChangeFleetService {
       project_id,
       verification_policy: structuredClone(project.verification_policy),
       supervision_policy: structuredClone(project.supervision_policy),
+      bundle_review_policy: structuredClone(project.bundle_review_policy),
       phase: "planning",
       terminal_outcome: null,
       intents: [normalizedIntent],
@@ -436,6 +468,9 @@ export class ChangeFleetService {
       candidate_checkpoints: [],
       verification_admissions: [],
       verification_reviews: [],
+      bundle_review_assessments: [],
+      current_bundle_review_assessment_id: null,
+      bundle_review_last_error: null,
       validation_attempts: [],
       candidates: [],
       bundles: [],
@@ -758,6 +793,37 @@ export class ChangeFleetService {
               selected_option: option,
             };
           }
+          if (
+            ["bundle_review_decision", "bundle_review_failure"].includes(
+              gate.kind,
+            )
+          ) {
+            // Bundle Gate 只记录人类答案；它不伪造 passage recommendation 或隐式改变 Plan。
+            const resolvedAt = this.now();
+            gate.status = "resolved";
+            gate.selected_option = option;
+            gate.resolved_by = actor;
+            gate.resolved_at = resolvedAt;
+            state.decisions.push({
+              decision_id: this.idFactory("decision"),
+              type: "bundle_review_gate_resolution",
+              gate_id,
+              bundle_id: gate.bundle_id,
+              bundle_review_assessment_id:
+                gate.bundle_review_assessment_id ?? null,
+              option,
+              actor,
+              decided_at: resolvedAt,
+            });
+            state.updated_at = resolvedAt;
+            return {
+              change_set_id,
+              gate_id,
+              feedback_id: null,
+              status: "resolved",
+              selected_option: option,
+            };
+          }
           const workUnit = unitsForCurrentPlan(state).find(
             (unit) => unit.work_unit_id === gate.work_unit_id,
           );
@@ -909,6 +975,7 @@ export class ChangeFleetService {
           state.current_repository_harness_selection_revision =
             nextHarnessRevision;
           state.current_plan_revision = null;
+          state.current_bundle_review_assessment_id = null;
           state.current_approvable_plan_message_id = null;
           this.feedbackService.clear(state);
           for (const request of state.repository_selection_change_requests) {
@@ -1023,6 +1090,7 @@ export class ChangeFleetService {
           state.repository_harness_selection_revisions.push(nextSelection);
           state.current_repository_harness_selection_revision = revision;
           state.current_plan_revision = null;
+          state.current_bundle_review_assessment_id = null;
           state.current_approvable_plan_message_id = null;
           this.feedbackService.clear(state);
           state.decisions.push({
@@ -1374,6 +1442,7 @@ export class ChangeFleetService {
             ) ?? null,
       verificationPolicy: initialState.verification_policy,
       supervisionPolicy: initialState.supervision_policy,
+      bundleReviewPolicy: initialState.bundle_review_policy,
     });
     const invocation = {
       operation: "planning",
@@ -1782,6 +1851,8 @@ export class ChangeFleetService {
           });
           state.plans.push(plan);
           state.current_plan_revision = planRevision;
+          state.current_bundle_review_assessment_id = null;
+          state.bundle_review_last_error = null;
           state.work_units.push(
             ...plan.work_units.map((workUnit) => ({
               ...workUnit,
@@ -2093,6 +2164,9 @@ export class ChangeFleetService {
       if (action.type === "validate_and_assemble_bundle") {
         return this.finalizeBundleForSupervision(changeSetId);
       }
+      if (action.type === "dispatch_bundle_review") {
+        return this.reviewCurrentBundle(changeSetId);
+      }
       if (action.type === "open_gate") {
         return this.openSupervisionGate(changeSetId, action);
       }
@@ -2369,26 +2443,40 @@ export class ChangeFleetService {
       );
       if (existing) return structuredClone(existing);
       const createdAt = this.now();
+      const bundleReviewFailure =
+        action.details.reason === "bundle_review_budget_exhausted";
+      const bundle = bundleReviewFailure ? state.bundles.at(-1) ?? null : null;
       const gate = {
         gate_id: this.idFactory("gate"),
-        kind: "supervision_decision",
+        kind: bundleReviewFailure
+          ? "bundle_review_failure"
+          : "supervision_decision",
         status: "open",
+        change_set_id: changeSetId,
         work_unit_id: action.subject.work_unit_id ?? null,
         verification_review_id: null,
         supervision_action_id: action.action_id,
+        bundle_id: bundle?.bundle_id ?? null,
+        bundle_revision: bundle?.revision ?? null,
+        bundle_hash: bundle?.bundle_hash ?? null,
+        bundle_review_assessment_id: null,
         request: {
           question: `Autonomous progress stopped: ${action.details.reason}.`,
-          options: ["resume", "keep_paused"],
+          options: bundleReviewFailure
+            ? ["request_plan_revision", "close_changeset"]
+            : ["resume", "keep_paused"],
         },
         created_at: createdAt,
       };
       state.gates.push(gate);
-      state.supervision_control.hold = {
-        hold_id: this.idFactory("hold"),
-        reason: action.details.reason,
-        actor: "supervisor",
-        held_at: createdAt,
-      };
+      if (!bundleReviewFailure) {
+        state.supervision_control.hold = {
+          hold_id: this.idFactory("hold"),
+          reason: action.details.reason,
+          actor: "supervisor",
+          held_at: createdAt,
+        };
+      }
       state.supervision_control.last_stop_reason = "gate_open";
       state.supervision_control.updated_at = createdAt;
       state.updated_at = createdAt;
@@ -2447,6 +2535,8 @@ export class ChangeFleetService {
         "Bundle subject changed before assembly completed",
       );
       state.bundles.push(bundle);
+      state.current_bundle_review_assessment_id = null;
+      state.bundle_review_last_error = null;
       this.feedbackService.clear(state);
       resolveValidationBlockers(state, {
         validationSubjectHash: subject.validation_subject_hash,
@@ -2464,6 +2554,546 @@ export class ChangeFleetService {
     });
   }
 
+  async reviewCurrentBundle(changeSetId) {
+    let state = await this.controlStore.readChangeSet(changeSetId);
+    const plan = currentPlan(state);
+    const bundle = state.bundles.at(-1) ?? null;
+    invariant(
+      state.phase === "review" &&
+        plan?.status === "confirmed" &&
+        plan.bundle_review?.mode === "independent" &&
+        bundle,
+      "BUNDLE_REVIEW_REQUIRED",
+      "The current ChangeSet has no independently reviewable exact Bundle",
+    );
+    const existing = (state.bundle_review_assessments ?? []).find(
+      (assessment) =>
+        assessment.assessment_id ===
+        state.current_bundle_review_assessment_id,
+    );
+    if (bundleReviewAssessmentMatches(existing, bundle, plan)) {
+      return structuredClone(existing);
+    }
+    invariant(
+      plan.bundle_review.agent_profile_id ===
+          this.reviewAgentProfile.profile_id &&
+        plan.bundle_review.agent_profile_revision ===
+          this.reviewAgentProfile.revision,
+      "REVIEW_AGENT_PROFILE_MISMATCH",
+      "The configured Review AgentProfile does not match the confirmed Plan",
+    );
+    const attempt =
+      state.run_references.filter(
+        (reference) =>
+          reference.operation === "review" &&
+          reference.bundle_id === bundle.bundle_id,
+      ).length + 1;
+    invariant(
+      attempt <= plan.bundle_review.attempt_limit,
+      "BUNDLE_REVIEW_BUDGET_EXCEEDS_PROJECT_POLICY",
+      "Bundle review attempt limit is exhausted",
+    );
+
+    const catalog = await this.controlStore.readCatalog();
+    const project = requireProject(catalog, state.project_id);
+    const repositorySelection = currentRepositorySelection(state);
+    const harnessSelection = currentRepositoryHarnessSelection(state);
+    const runId = this.idFactory("run");
+    const reviewResources = [];
+    try {
+      for (const candidate of bundle.candidates) {
+        const repository = requireRepository(project, candidate.repository_id);
+        const selectedRepository = repositorySelection.repositories.find(
+          (item) => item.repository_id === candidate.repository_id,
+        );
+        const selectedHarness = harnessSelection.repositories.find(
+          (item) => item.repository_id === candidate.repository_id,
+        );
+        invariant(
+          selectedRepository &&
+            selectedHarness?.resolved_base_sha === candidate.base_sha,
+          "STALE_BUNDLE_REVIEW",
+          "Bundle review subject no longer matches Repository authority",
+        );
+        let workspace = await this.repositoryWorker.prepareVerificationWorkspace({
+          repository,
+          candidateSha: candidate.candidate_sha,
+          harnessBaseSha: candidate.base_sha,
+          workspaceId: `bundle-review-${runId}-${candidate.repository_id}`.slice(
+            0,
+            128,
+          ),
+        });
+        // 工作区一经创建就登记清理责任，后续 Harness 读取失败也不会泄漏临时目录。
+        const reviewResource = {
+          repository,
+          selected_repository: selectedRepository,
+          selected_harness: selectedHarness,
+          workspace,
+          overlay_snapshot: null,
+          harness_observation: null,
+          available_harness: [],
+          candidate,
+        };
+        reviewResources.push(reviewResource);
+        let overlaySnapshot = null;
+        if (
+          selectedHarness.mode ===
+          HARNESS_SELECTION_MODES.EXACT_BASE_PLUS_OVERLAY
+        ) {
+          overlaySnapshot = await this.harnessSnapshotStore.read(
+            selectedHarness.artifact_reference,
+          );
+          workspace = await this.repositoryWorker.materializeHarnessOverlay({
+            repository,
+            workspace: {
+              ...workspace,
+              harness_overlay: {
+                ...selectedHarness.artifact_reference,
+                paths: [...selectedHarness.resolved_relative_paths],
+              },
+            },
+            snapshot: overlaySnapshot,
+          });
+          reviewResource.workspace = workspace;
+          reviewResource.overlay_snapshot = overlaySnapshot;
+        }
+        const exactCandidateHarness = await this.repositoryWorker.discoverHarness(
+          repository,
+          candidate.candidate_sha,
+        );
+        const overlayResources = overlayHarnessResources(overlaySnapshot);
+        Object.assign(reviewResource, {
+          harness_observation: repositoryHarnessObservation({
+            repositoryId: repository.repository_id,
+            exactBaseResources: exactCandidateHarness,
+            overlayResources,
+          }),
+          available_harness: [...exactCandidateHarness, ...overlayResources],
+        });
+      }
+    } catch (error) {
+      await cleanupBundleReviewResources(this.repositoryWorker, reviewResources);
+      throw error;
+    }
+
+    const evidenceReferenceIds = bundleReviewEvidenceReferenceIds(
+      state,
+      bundle,
+    );
+    const contextProjection = createBundleReviewProjection({
+      state,
+      plan,
+      bundle,
+      repositorySelection,
+      harnessSelection,
+      resources: reviewResources,
+      evidenceReferenceIds,
+    });
+    const controlContract = createControlContract({
+      operation: "review",
+      changeSetId,
+      planRevision: plan.revision,
+      repositorySelectionRevision: repositorySelection.revision,
+      repositoryHarnessSelectionRevision: harnessSelection.revision,
+      authorizedRepositories: bundle.candidates.map(
+        (candidate) => candidate.repository_id,
+      ),
+      allowedOutcomes: ["bundle_review_completed"],
+      humanGates: ["bundle_quality_decision", "candidate_bundle_acceptance"],
+    });
+    const invocation = {
+      operation: "review",
+      agent_profile: this.reviewAgentProfile,
+      control_contract: controlContract,
+      context_projection: contextProjection,
+      capabilities: contextProjection.capability,
+      workspace: null,
+      signal: null,
+    };
+    const createdAt = this.now();
+    await this.runStore.create({
+      schema_version: 1,
+      run_id: runId,
+      change_set_id: changeSetId,
+      work_unit_id: null,
+      operation: "review",
+      trigger: attempt === 1 ? "initial" : "retry",
+      continuation_of_run_id:
+        state.run_references
+          .filter(
+            (reference) =>
+              reference.operation === "review" &&
+              reference.bundle_id === bundle.bundle_id,
+          )
+          .at(-1)?.run_id ?? null,
+      attempt,
+      status: "running",
+      agent_profile: this.reviewAgentProfile,
+      repository_harness_selection: {
+        revision: harnessSelection.revision,
+        repositories: reviewResources.map((resource) =>
+          harnessSelectionForContext(resource.selected_harness),
+        ),
+      },
+      repository_harness_observation: {
+        repositories: reviewResources.map(
+          (resource) => resource.harness_observation,
+        ),
+      },
+      review_workspaces: reviewResources.map((resource) => resource.workspace),
+      bundle_subject: {
+        bundle_id: bundle.bundle_id,
+        bundle_revision: bundle.revision,
+        bundle_hash: bundle.bundle_hash,
+      },
+      context_evidence: null,
+      context_projection_identity: null,
+      runtime_evidence: null,
+      created_at: createdAt,
+      completed_at: null,
+      outcome: null,
+    });
+    await this.controlStore.transactChangeSet(changeSetId, (current) => {
+      const currentBundle = current.bundles.at(-1);
+      invariant(
+        current.phase === "review" &&
+          current.current_plan_revision === plan.revision &&
+          currentBundle?.bundle_id === bundle.bundle_id &&
+          current.current_bundle_review_assessment_id === null,
+        "STALE_BUNDLE_REVIEW",
+        "Bundle review subject changed before Runtime dispatch",
+      );
+      current.run_references.push({
+        run_id: runId,
+        operation: "review",
+        trigger: attempt === 1 ? "initial" : "retry",
+        plan_revision: plan.revision,
+        work_unit_id: null,
+        bundle_id: bundle.bundle_id,
+        bundle_revision: bundle.revision,
+        bundle_hash: bundle.bundle_hash,
+        attempt,
+        status: "running",
+      });
+      current.updated_at = this.now();
+    });
+
+    let providerEvidence = null;
+    let runtimeError = null;
+    let rawOutcome = null;
+    try {
+      const contextEvidence = assessInitialContext({
+        controlContract,
+        contextProjection,
+        agentProfile: this.reviewAgentProfile,
+        runtimeMeasurement: await measureInitialContext(
+          this.reviewRuntime,
+          invocation,
+        ),
+      });
+      await this.runStore.update(runId, (run) => {
+        run.context_evidence = contextEvidence;
+        run.context_projection_identity = {
+          schema_version: contextProjection.schema_version,
+          digest: sha256(contextProjection),
+        };
+      });
+      const result = await this.runCoordinator.invoke(
+        this.reviewRuntime,
+        runId,
+        invocation,
+      );
+      providerEvidence = result.provider_evidence;
+      rawOutcome = result.outcome;
+      normalizeBundleReviewOutcome(rawOutcome, {
+        bundle,
+        plan,
+        workUnits: plan.work_units,
+        evidenceReferenceIds,
+      });
+      for (const resource of reviewResources) {
+        await this.repositoryWorker.preflightVerificationWorkspace({
+          repository: resource.repository,
+          workspace: resource.workspace,
+        });
+      }
+    } catch (error) {
+      runtimeError = error;
+      providerEvidence = error.runtime_evidence ?? providerEvidence;
+    }
+    if (runtimeError?.code === "CONTROLLER_INTERRUPTED") throw runtimeError;
+    try {
+      await cleanupBundleReviewResources(this.repositoryWorker, reviewResources);
+    } catch (error) {
+      runtimeError ??= error;
+    }
+    if (runtimeError) {
+      const completedAt = this.now();
+      await this.recordRuntimeEvidence({
+        runId,
+        invocation,
+        providerEvidence,
+        terminal: {
+          status: runTerminalStatusForError(runtimeError),
+          outcome_type: "failed",
+          error_code:
+            runtimeError.code ?? "INVALID_BUNDLE_REVIEW_OUTCOME",
+          completed_at: completedAt,
+        },
+      });
+      await this.failRun(runId, runtimeError);
+      await this.markRunReference(
+        changeSetId,
+        runId,
+        runTerminalStatusForError(runtimeError),
+      );
+      await this.controlStore.transactChangeSet(changeSetId, (current) => {
+        current.bundle_review_last_error = {
+          code: runtimeError.code ?? "INVALID_BUNDLE_REVIEW_OUTCOME",
+          run_id: runId,
+        };
+        current.updated_at = this.now();
+      });
+      throw runtimeError;
+    }
+
+    const completedAt = this.now();
+    const assessment = createBundleReviewAssessment({
+      bundle,
+      plan,
+      runId,
+      agentProfile: this.reviewAgentProfile,
+      outcome: rawOutcome,
+      createdAt: completedAt,
+      evidenceReferenceIds,
+    });
+    await this.runStore.appendEvent(runId, {
+      event_id: this.idFactory("event"),
+      type: "runtime.outcome",
+      at: completedAt,
+      payload: rawOutcome,
+    });
+    const assessmentArtifact = await this.runStore.writeJsonArtifact(
+      runId,
+      "bundle-review-assessment",
+      assessment,
+    );
+    await this.recordRuntimeEvidence({
+      runId,
+      invocation,
+      providerEvidence,
+      terminal: {
+        status: "completed",
+        outcome_type: rawOutcome.type,
+        error_code: null,
+        completed_at: completedAt,
+      },
+    });
+    await this.runStore.update(runId, (run) => {
+      run.status = "completed";
+      run.completed_at = completedAt;
+      run.outcome = {
+        type: rawOutcome.type,
+        disposition: assessment.disposition,
+        summary: assessment.summary,
+        assessment_id: assessment.assessment_id,
+        assessment_artifact: assessmentArtifact,
+      };
+    });
+    await this.controlStore.transactChangeSet(changeSetId, (current) => {
+      const currentBundle = current.bundles.at(-1);
+      invariant(
+        current.phase === "review" &&
+          current.current_plan_revision === plan.revision &&
+          currentBundle?.bundle_id === bundle.bundle_id,
+        "STALE_BUNDLE_REVIEW",
+        "Bundle review subject changed before its assessment was recorded",
+      );
+      const reference = current.run_references.find(
+        (item) => item.run_id === runId,
+      );
+      reference.status = "completed";
+      current.bundle_review_assessments.push(assessment);
+      current.current_bundle_review_assessment_id = assessment.assessment_id;
+      current.bundle_review_last_error = null;
+      if (assessment.disposition === "feedback") {
+        const grouped = blockingFeedbackByWorkUnit(assessment);
+        const currentUnits = unitsForCurrentPlan(current);
+        const exhaustedTargets = [...grouped.keys()].filter((workUnitId) => {
+          const unit = currentUnits.find(
+            (candidate) => candidate.work_unit_id === workUnitId,
+          );
+          return (
+            unit?.run_references.filter(
+              (item) =>
+                item.operation === "execution" && item.trigger === "feedback",
+            ).length >= plan.supervision.feedback_cycle_limit_per_work_unit
+          );
+        });
+        if (exhaustedTargets.length > 0) {
+          // Reviewer 不能越过已确认的返工上限；保留 finding 并把超限选择交给人类。
+          current.gates.push({
+            gate_id: this.idFactory("gate"),
+            kind: "bundle_review_decision",
+            status: "open",
+            change_set_id: changeSetId,
+            work_unit_id: null,
+            bundle_id: bundle.bundle_id,
+            bundle_revision: bundle.revision,
+            bundle_hash: bundle.bundle_hash,
+            bundle_review_assessment_id: assessment.assessment_id,
+            request: {
+              question: "Bundle review Feedback exceeds the confirmed repair ceiling.",
+              options: ["request_plan_revision", "close_changeset"],
+            },
+            created_at: completedAt,
+          });
+        } else {
+          for (const [workUnitId, findings] of grouped) {
+            const unit = unitsForCurrentPlan(current).find(
+              (candidate) => candidate.work_unit_id === workUnitId,
+            );
+            invariant(
+              unit?.phase === "complete" && unit.candidate,
+              "STALE_BUNDLE_REVIEW",
+              "Bundle review Feedback target is no longer complete",
+            );
+            const feedback = this.feedbackService.record(current, {
+              source: "review",
+              target: {
+                change_set_id: changeSetId,
+                plan_revision: plan.revision,
+                bundle_id: bundle.bundle_id,
+                bundle_revision: bundle.revision,
+                bundle_hash: bundle.bundle_hash,
+                bundle_review_assessment_id: assessment.assessment_id,
+                work_unit_id: workUnitId,
+              },
+              content: { summary: assessment.summary, findings },
+              createdAt: completedAt,
+            });
+            setWorkUnitPhase(unit, "execution");
+            unit.workspace = null;
+            unit.candidate_checkpoint_id = null;
+            unit.verification_admission_id = null;
+            unit.verification_review_id = null;
+            unit.pending_feedback_id = feedback.feedback_id;
+            unit.validation_attempt_ids = [];
+            unit.candidate = null;
+            unit.last_error = null;
+            resolveValidationBlockers(current, {
+              workUnitId,
+              resolvedAt: completedAt,
+            });
+          }
+        }
+        if (exhaustedTargets.length === 0) {
+          current.current_bundle_review_assessment_id = null;
+          setChangeSetPhase(current, "working");
+        }
+      } else if (assessment.disposition === "gate") {
+        current.gates.push({
+          gate_id: this.idFactory("gate"),
+          kind: "bundle_review_decision",
+          status: "open",
+          change_set_id: changeSetId,
+          work_unit_id: null,
+          bundle_id: bundle.bundle_id,
+          bundle_revision: bundle.revision,
+          bundle_hash: bundle.bundle_hash,
+          bundle_review_assessment_id: assessment.assessment_id,
+          request: structuredClone(assessment.human_decision),
+          created_at: completedAt,
+        });
+      }
+      current.updated_at = completedAt;
+    });
+    return structuredClone(assessment);
+  }
+
+  async reviewCurrentBundleUntilBoundary(changeSetId) {
+    // 手工执行入口也消费同一冻结预算；失败只会重试当前精确 Bundle，耗尽后显式开 Gate。
+    while (true) {
+      try {
+        const assessment = await this.reviewCurrentBundle(changeSetId);
+        const state = await this.controlStore.readChangeSet(changeSetId);
+        return {
+          assessment,
+          gate:
+            assessment.disposition === "gate"
+              ? state.gates.find(
+                  (gate) =>
+                    gate.status === "open" &&
+                    gate.bundle_review_assessment_id ===
+                      assessment.assessment_id,
+                ) ?? null
+              : null,
+        };
+      } catch (error) {
+        if (["CONTROLLER_INTERRUPTED", "RUNTIME_INTERRUPTED"].includes(error.code)) {
+          throw error;
+        }
+        const state = await this.controlStore.readChangeSet(changeSetId);
+        const plan = currentPlan(state);
+        const bundle = state.bundles.at(-1) ?? null;
+        const attempts = state.run_references.filter(
+          (reference) =>
+            reference.operation === "review" &&
+            reference.bundle_id === bundle?.bundle_id,
+        ).length;
+        if (bundle && attempts < plan.bundle_review.attempt_limit) continue;
+        return {
+          assessment: null,
+          gate: await this.openBundleReviewFailureGate(
+            changeSetId,
+            bundle,
+            error,
+          ),
+        };
+      }
+    }
+  }
+
+  async openBundleReviewFailureGate(changeSetId, bundle, error) {
+    return this.controlStore.transactChangeSet(changeSetId, (state) => {
+      const currentBundle = state.bundles.at(-1) ?? null;
+      invariant(
+        state.phase === "review" &&
+          bundle &&
+          currentBundle?.bundle_id === bundle.bundle_id,
+        "STALE_BUNDLE_REVIEW",
+        "Bundle review failure no longer binds the current exact Bundle",
+      );
+      const existing = state.gates.find(
+        (gate) =>
+          gate.status === "open" &&
+          gate.kind === "bundle_review_failure" &&
+          gate.bundle_id === bundle.bundle_id,
+      );
+      if (existing) return structuredClone(existing);
+      const gate = {
+        gate_id: this.idFactory("gate"),
+        kind: "bundle_review_failure",
+        status: "open",
+        change_set_id: changeSetId,
+        work_unit_id: null,
+        bundle_id: bundle.bundle_id,
+        bundle_revision: bundle.revision,
+        bundle_hash: bundle.bundle_hash,
+        bundle_review_assessment_id: null,
+        request: {
+          question: `Bundle review stopped: ${error.code ?? "UNEXPECTED_ERROR"}.`,
+          options: ["request_plan_revision", "close_changeset"],
+        },
+        created_at: this.now(),
+      };
+      state.gates.push(gate);
+      state.updated_at = this.now();
+      return structuredClone(gate);
+    });
+  }
+
   async recordSupervisionStop(changeSetId, reason) {
     await this.controlStore.transactChangeSet(changeSetId, (state) => {
       if (!state.supervision_control) return;
@@ -2475,16 +3105,28 @@ export class ChangeFleetService {
 
   async supervisionResult(changeSetId, reason) {
     const state = await this.controlStore.readChangeSet(changeSetId);
+    const assessment = (state.bundle_review_assessments ?? []).find(
+      (item) =>
+        item.assessment_id === state.current_bundle_review_assessment_id,
+    );
     return {
       change_set_id: changeSetId,
       plan_revision: state.current_plan_revision,
       phase: state.phase,
-      status: reason === "bundle_review_ready" ? "review_ready" : "stopped",
+      status: ["bundle_review_ready", "bundle_review_recommended"].includes(
+        reason,
+      )
+        ? "review_ready"
+        : ["gate_open", "bundle_review_gate_required"].includes(reason)
+          ? "human_input_required"
+          : "stopped",
       stop_reason: reason,
       bundle:
         state.phase === "review"
           ? structuredClone(state.bundles.at(-1) ?? null)
           : null,
+      bundle_review_assessment:
+        assessment === undefined ? null : structuredClone(assessment),
       progress: deriveSupervisionProgress(state, { now: this.now() }),
     };
   }
@@ -2547,6 +3189,41 @@ export class ChangeFleetService {
               existing.error,
             );
           }
+          const resumableBundle = state.bundles.at(-1) ?? null;
+          const resumablePlan = currentPlan(state);
+          const currentAssessment = (state.bundle_review_assessments ?? []).find(
+            (assessment) =>
+              assessment.assessment_id ===
+              state.current_bundle_review_assessment_id,
+          );
+          if (
+            state.phase === "review" &&
+            resumablePlan?.bundle_review?.mode === "independent" &&
+            resumableBundle &&
+            !bundleReviewAssessmentMatches(
+              currentAssessment,
+              resumableBundle,
+              resumablePlan,
+            ) &&
+            !(state.gates ?? []).some((gate) => gate.status === "open")
+          ) {
+            if (!existing) {
+              state.commands[idempotency_key] = {
+                command: "executeChangeSet",
+                fingerprint: commandFingerprint(
+                  "executeChangeSet",
+                  commandInput,
+                ),
+                status: "in_progress",
+                started_at: this.now(),
+              };
+            }
+            return {
+              completed: false,
+              resume_bundle_review: true,
+              bundle: structuredClone(resumableBundle),
+            };
+          }
           invariant(
             state.phase === "working",
             "PLAN_CONFIRMATION_REQUIRED",
@@ -2563,10 +3240,24 @@ export class ChangeFleetService {
               started_at: this.now(),
             };
           }
-          return { completed: false };
+          return { completed: false, resume_bundle_review: false };
         },
       );
       if (commandState.completed) return commandState.result;
+      if (commandState.resume_bundle_review) {
+        const reviewBoundary = await this.reviewCurrentBundleUntilBoundary(
+          change_set_id,
+        );
+        return this.controlStore.transactChangeSet(change_set_id, (state) => {
+          const result = createBundleExecutionResult({
+            changeSetId: change_set_id,
+            bundle: commandState.bundle,
+            reviewBoundary,
+          });
+          completeCommand(state, idempotency_key, result, this.now());
+          return structuredClone(result);
+        });
+      }
 
       await this.prepareRetryableExecutions(
         change_set_id,
@@ -2718,8 +3409,10 @@ export class ChangeFleetService {
         candidates,
         combinedEvidence,
       });
-      return this.controlStore.transactChangeSet(change_set_id, (state) => {
+      await this.controlStore.transactChangeSet(change_set_id, (state) => {
         state.bundles.push(bundle);
+        state.current_bundle_review_assessment_id = null;
+        state.bundle_review_last_error = null;
         // 反馈已由对应执行 Run 逐项评估；历史仍保留在 review Decision 与 Run evidence。
         this.feedbackService.clear(state);
         resolveValidationBlockers(state, {
@@ -2729,13 +3422,22 @@ export class ChangeFleetService {
         resolveFailedExecutionCommandBlockers(state, this.now());
         setChangeSetPhase(state, "review");
         state.updated_at = this.now();
-        completeCommand(state, idempotency_key, {
+        return null;
+      });
+      let reviewBoundary = { assessment: null, gate: null };
+      if (plan.bundle_review.mode === "independent") {
+        reviewBoundary = await this.reviewCurrentBundleUntilBoundary(
           change_set_id,
-          bundle_revision: bundle.revision,
-          bundle_hash: bundle.bundle_hash,
-          bundle_id: bundle.bundle_id,
-        }, this.now());
-        return structuredClone(state.commands[idempotency_key].result);
+        );
+      }
+      return this.controlStore.transactChangeSet(change_set_id, (state) => {
+        const result = createBundleExecutionResult({
+          changeSetId: change_set_id,
+          bundle,
+          reviewBoundary,
+        });
+        completeCommand(state, idempotency_key, result, this.now());
+        return structuredClone(result);
       });
     } catch (error) {
       if (error.code !== "CONTROLLER_INTERRUPTED") {
@@ -2986,17 +3688,50 @@ export class ChangeFleetService {
             "STALE_BUNDLE_DECISION",
             "Human decision does not bind to the current exact Bundle",
           );
+          const plan = currentPlan(state);
+          const assessment = (state.bundle_review_assessments ?? []).find(
+            (item) =>
+              item.assessment_id ===
+              state.current_bundle_review_assessment_id,
+          );
+          const explicitGate = (state.gates ?? []).find(
+            (gate) =>
+              gate.status === "open" &&
+              gate.bundle_id === bundle.bundle_id &&
+              ["bundle_review_decision", "bundle_review_failure"].includes(
+                gate.kind,
+              ),
+          );
+          if (
+            normalizedDecision === "accept" &&
+            plan.bundle_review?.mode === "independent"
+          ) {
+            invariant(
+              bundleReviewAllowsHumanDecision(assessment, bundle, plan) ||
+                explicitGate,
+              "BUNDLE_REVIEW_REQUIRED",
+              "Human acceptance requires a current Bundle review recommendation or explicit Gate",
+            );
+          }
           const record = {
             decision_id: this.idFactory("decision"),
             type: "bundle_review",
+            bundle_id: bundle.bundle_id,
             bundle_revision,
             bundle_hash,
+            bundle_review_assessment_id: assessment?.assessment_id ?? null,
             decision: normalizedDecision,
             feedback: normalizedFeedback,
             actor,
             decided_at: this.now(),
           };
           state.decisions.push(record);
+          if (explicitGate) {
+            explicitGate.status = "resolved";
+            explicitGate.selected_option = `bundle_${normalizedDecision}`;
+            explicitGate.resolved_by = actor;
+            explicitGate.resolved_at = record.decided_at;
+          }
           const feedbackRecord =
             normalizedDecision === "request_revision"
               ? this.feedbackService.record(state, {
@@ -3025,6 +3760,8 @@ export class ChangeFleetService {
               workUnit.candidate = null;
               workUnit.last_error = null;
             }
+            state.current_bundle_review_assessment_id = null;
+            state.bundle_review_last_error = null;
             setChangeSetPhase(state, "working");
           } else {
             setChangeSetPhase(
@@ -5170,6 +5907,34 @@ function readOnlySupervisorProfile(agentProfile) {
   };
 }
 
+function readOnlyReviewProfile(agentProfile) {
+  return {
+    ...structuredClone(agentProfile),
+    profile_id: `${agentProfile.profile_id}-reviewer`.slice(0, 128),
+    permissions: "operation_scoped",
+    network_access: false,
+    skills: [],
+  };
+}
+
+function createBundleExecutionResult({ changeSetId, bundle, reviewBoundary }) {
+  return {
+    change_set_id: changeSetId,
+    bundle_revision: bundle.revision,
+    bundle_hash: bundle.bundle_hash,
+    bundle_id: bundle.bundle_id,
+    status:
+      reviewBoundary.gate !== null
+        ? "human_input_required"
+        : reviewBoundary.assessment?.disposition === "feedback"
+          ? "feedback_required"
+          : "review_ready",
+    bundle_review_assessment_id:
+      reviewBoundary.assessment?.assessment_id ?? null,
+    gate_id: reviewBoundary.gate?.gate_id ?? null,
+  };
+}
+
 function assertAutonomousPlanCurrent(state) {
   assertChangeSetMutable(state);
   const plan = currentPlan(state);
@@ -5199,6 +5964,199 @@ function projectSupervisionAction(action) {
   };
 }
 
+function createBundleReviewProjection({
+  state,
+  plan,
+  bundle,
+  repositorySelection,
+  harnessSelection,
+  resources,
+  evidenceReferenceIds,
+}) {
+  // Bundle reviewer 只接收当前精确主体和质量判断所需证据；成本、旧对话和完整日志不进入上下文。
+  return {
+    schema_version: 1,
+    operation: "review",
+    change_set_id: state.change_set_id,
+    confirmed_intent: structuredClone(
+      state.intents.find(
+        (intent) => intent.revision === state.current_intent_revision,
+      ),
+    ),
+    plan: {
+      revision: plan.revision,
+      rationale: plan.rationale,
+      bundle_review: structuredClone(plan.bundle_review),
+      risks: [...plan.risks],
+      unverified_boundaries: [...plan.unverified_boundaries],
+      work_units: plan.work_units.map((unit) => ({
+        work_unit_id: unit.work_unit_id,
+        repository_id: unit.repository_id,
+        task: unit.task,
+        dependencies: [...unit.dependencies],
+        repository_check: {
+          command_id: unit.repository_check.command_id,
+          coverage_rationale: unit.repository_check.coverage_rationale,
+        },
+      })),
+      combined_check: {
+        command_id: plan.combined_check.command_id,
+        coverage_rationale: plan.combined_check.coverage_rationale,
+      },
+    },
+    bundle: {
+      bundle_id: bundle.bundle_id,
+      revision: bundle.revision,
+      bundle_hash: bundle.bundle_hash,
+      plan_revision: bundle.plan_revision,
+      candidates: structuredClone(bundle.candidates),
+      combined_validation_evidence: structuredClone(
+        bundle.combined_validation_evidence,
+      ),
+      missing_work_units: structuredClone(bundle.missing_work_units ?? []),
+      blocked_work_units: structuredClone(bundle.blocked_work_units ?? []),
+      superseded_work_units: structuredClone(
+        bundle.superseded_work_units ?? [],
+      ),
+      excluded_work_units: structuredClone(bundle.excluded_work_units ?? []),
+      unverified_risks: structuredClone(bundle.unverified_risks ?? []),
+    },
+    repositories: resources.map((resource) => {
+      const candidate = resource.candidate;
+      const storedCandidate = (state.candidates ?? []).find(
+        (item) => item.candidate_id === candidate.candidate_id,
+      );
+      const verificationReview = (state.verification_reviews ?? []).find(
+        (review) =>
+          review.review_id === storedCandidate?.verification_review_id,
+      );
+      return {
+        repository_id: candidate.repository_id,
+        branch_ref: resource.selected_repository.branch_ref,
+        target_ref: candidate.target_ref,
+        base_sha: candidate.base_sha,
+        candidate_sha: candidate.candidate_sha,
+        changed_paths: [...(storedCandidate?.changed_paths ?? [])],
+        root_path: resource.workspace.workspace_path,
+        repository_evidence: structuredClone(candidate.repository_evidence),
+        verification_review:
+          verificationReview === undefined
+            ? null
+            : {
+                review_id: verificationReview.review_id,
+                verdict: verificationReview.verdict,
+                summary: verificationReview.summary,
+                notes: structuredClone(verificationReview.notes),
+                validation_attempt_ids: [
+                  ...(verificationReview.validation_attempt_ids ?? []),
+                ],
+              },
+        harness_selection: harnessSelectionForContext(
+          resource.selected_harness,
+        ),
+        ...harnessResourcesForContext(resource.available_harness),
+      };
+    }),
+    repository_selection_revision: repositorySelection.revision,
+    repository_harness_selection_revision: harnessSelection.revision,
+    feedback_history: (state.feedback_records ?? [])
+      .filter(
+        (feedback) =>
+          feedback.target?.bundle_id === bundle.bundle_id ||
+          plan.work_units.some(
+            (unit) => unit.work_unit_id === feedback.target?.work_unit_id,
+          ),
+      )
+      .slice(-8)
+      .map((feedback) => ({
+        feedback_id: feedback.feedback_id,
+        source: feedback.source,
+        target: structuredClone(feedback.target),
+        summary: feedback.content.summary,
+        findings: structuredClone(feedback.content.findings),
+      })),
+    resolved_bundle_gates: (state.gates ?? [])
+      .filter(
+        (gate) =>
+          gate.status === "resolved" && gate.bundle_id === bundle.bundle_id,
+      )
+      .slice(-8)
+      .map((gate) => ({
+        gate_id: gate.gate_id,
+        kind: gate.kind,
+        question: gate.request.question,
+        selected_option: gate.selected_option,
+        resolved_by: gate.resolved_by,
+      })),
+    required_evidence: [
+      "exact_bundle_manifest",
+      "exact_candidate_diffs",
+      "repository_validation_evidence",
+      "combined_validation_evidence",
+      "structured_bundle_review_outcome",
+    ],
+    allowed_evidence_reference_ids: [...evidenceReferenceIds],
+    capability: {
+      mode: "read_only",
+      paths: resources.map((resource) => resource.workspace.workspace_path),
+    },
+  };
+}
+
+function bundleReviewEvidenceReferenceIds(state, bundle) {
+  const workUnitIds = new Set(
+    unitsForCurrentPlan(state).map((unit) => unit.work_unit_id),
+  );
+  const verificationReviews = (state.verification_reviews ?? []).filter(
+    (review) =>
+      bundle.candidates.some(
+        (candidate) => candidate.verification_review_id === review.review_id,
+      ),
+  );
+  const references = [
+    bundle.bundle_id,
+    bundle.combined_validation_evidence?.evidence_id,
+    ...bundle.candidates.flatMap((candidate) => [
+      candidate.candidate_id,
+      candidate.repository_evidence?.evidence_id,
+      candidate.verification_admission_id,
+      candidate.verification_review_id,
+    ]),
+    ...verificationReviews.flatMap((review) => [
+      review.review_id,
+      ...(review.validation_attempt_ids ?? []),
+    ]),
+    ...(state.feedback_records ?? [])
+      .filter((feedback) =>
+        feedback.target?.bundle_id === bundle.bundle_id ||
+        workUnitIds.has(feedback.target?.work_unit_id),
+      )
+      .slice(-8)
+      .map((feedback) => feedback.feedback_id),
+    ...(state.gates ?? [])
+      .filter((gate) => gate.bundle_id === bundle.bundle_id)
+      .slice(-8)
+      .map((gate) => gate.gate_id),
+  ].filter(Boolean);
+  return [...new Set(references)].sort();
+}
+
+async function cleanupBundleReviewResources(repositoryWorker, resources) {
+  let firstError = null;
+  for (const resource of [...resources].reverse()) {
+    try {
+      await repositoryWorker.cleanupVerificationWorkspace({
+        repository: resource.repository,
+        workspace: resource.workspace,
+        harnessSnapshot: resource.overlay_snapshot,
+      });
+    } catch (error) {
+      firstError ??= error;
+    }
+  }
+  if (firstError) throw firstError;
+}
+
 function createSupervisionProjection(
   state,
   plan,
@@ -5226,6 +6184,7 @@ function createSupervisionProjection(
       verification_expectation: structuredClone(
         plan.verification_expectation,
       ),
+      bundle_review: structuredClone(plan.bundle_review),
       risks: [...plan.risks],
       unverified_boundaries: [...plan.unverified_boundaries],
       work_units: plan.work_units.map((unit) => ({

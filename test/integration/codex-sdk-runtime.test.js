@@ -64,6 +64,12 @@ describe("Codex SDK Runtime protocol", () => {
           rationale: "The selected behavioral checks cover the change.",
           escalation_triggers: ["scope_divergence"],
         },
+        bundle_review: {
+          mode: "none",
+          agent_profile_id: null,
+          agent_profile_revision: null,
+          attempt_limit: 2,
+        },
         supervision: {
           mode: "manual",
           execution_attempt_limit_per_work_unit: 3,
@@ -284,6 +290,55 @@ describe("Codex SDK Runtime protocol", () => {
     assert.equal(threadOptions[0].sandboxMode, "workspace-write");
     assert.match(prompts[0], /Feedback is review input rather than independent authority/u);
     assert.match(prompts[0], /assess every finding exactly once/u);
+  });
+
+  test("runs exact Bundle review with read-only repositories and a strict assessment", async () => {
+    const threadOptions = [];
+    const turnOptions = [];
+    const prompts = [];
+    const finalResponse = JSON.stringify({
+      type: "bundle_review_completed",
+      disposition: "pass",
+      summary: "The exact Bundle satisfies the confirmed intent.",
+      findings: [
+        {
+          finding_id: "optional-cleanup",
+          severity: "advisory",
+          category: "correctness",
+          message: "A later cleanup could simplify one path.",
+          evidence_reference_ids: [],
+          repository_ids: ["api"],
+          work_unit_ids: [],
+        },
+      ],
+      human_decision: null,
+    });
+    const runtime = new CodexSdkRuntime({
+      ...RUNTIME_OPTIONS,
+      codexFactory() {
+        return {
+          startThread(options) {
+            threadOptions.push(options);
+            return {
+              async runStreamed(prompt, options_) {
+                prompts.push(prompt);
+                turnOptions.push(options_);
+                return { events: providerEvents(finalResponse) };
+              },
+            };
+          },
+        };
+      },
+    });
+
+    const result = await runtime.invoke(bundleReviewInvocation(process.cwd()));
+
+    assert.equal(result.outcome.disposition, "pass");
+    assert.equal(threadOptions[0].sandboxMode, "read-only");
+    assert.equal(threadOptions[0].skipGitRepoCheck, false);
+    assert.equal(turnOptions[0].outputSchema.additionalProperties, false);
+    assert.match(prompts[0], /exact CandidateBundle across all supplied/u);
+    assert.match(prompts[0], /A passage recommendation is not Bundle acceptance/u);
   });
 
   test("runs semantic supervision in a non-Repository read-only thread", async () => {
@@ -565,6 +620,39 @@ function supervisionInvocation(runtimePath) {
       mode: "read_only",
       paths: [runtimePath],
       typed_operations_only: true,
+    },
+    workspace: null,
+    signal: null,
+  };
+}
+
+function bundleReviewInvocation(repositoryPath) {
+  return {
+    operation: "review",
+    agent_profile: {
+      ...PROFILE,
+      profile_id: "codex-reviewer",
+      permissions: "operation_scoped",
+      network_access: false,
+    },
+    control_contract: {
+      schema_version: 5,
+      operation: "review",
+      change_set_id: "change-1",
+      authorized_repositories: ["api"],
+    },
+    context_projection: {
+      schema_version: 1,
+      operation: "review",
+      bundle: {
+        bundle_id: "bundle-1",
+        bundle_hash: "a".repeat(64),
+      },
+      repositories: [{ repository_id: "api", root_path: repositoryPath }],
+    },
+    capabilities: {
+      mode: "read_only",
+      paths: [repositoryPath],
     },
     workspace: null,
     signal: null,

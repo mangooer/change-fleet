@@ -201,7 +201,7 @@ function assertInvocationCapability(
 ) {
   invariant(
     invocation &&
-      ["planning", "execution", "verification", "supervision"].includes(
+      ["planning", "execution", "verification", "supervision", "review"].includes(
         invocation.operation,
       ) &&
       invocation.capabilities &&
@@ -307,7 +307,8 @@ function buildPrompt(invocation) {
           "A plan may use a non-empty subset of authorized repositories, but it must return at most one WorkUnit for each repository_id; combine all tasks for the same Repository into that single WorkUnit.",
           "Commands in checks must be non-interactive argv-style commands that can run in the supplied repository or combined validation environment. Give every check a concise coverage_rationale; timeout_ms is an attempt default rather than check identity.",
           "Set verification_expectation to basic only for an obvious low-risk deterministic fast path, deterministic for selected behavioral checks, or independent_review when semantic uncertainty already requires it. Include concise rationale and only typed escalation_triggers.",
-          "Set supervision.mode to manual or autonomous_until_review and keep every requested supervision limit within the supplied Project supervision policy. Autonomous mode only authorizes progress to exact Bundle review.",
+          "Set bundle_review.mode from the supplied Project policy. Use independent only with its exact authorized agent_profile_id, agent_profile_revision, and attempt limit; use none with null AgentProfile fields when Bundle-level semantic review is not authorized.",
+          "Set supervision.mode to manual or autonomous_until_review and keep every requested supervision limit within the supplied Project supervision policy. Autonomous mode only authorizes progress to the exact Bundle and any Plan-required quality recommendation before final human review.",
         ].join(" ");
   } else if (invocation.operation === "execution") {
     operationInstruction = [
@@ -336,6 +337,17 @@ function buildPrompt(invocation) {
       "Use pass_with_notes only for bounded residual risks that do not require a change. Use human_decision_required only for a genuine unresolved choice and provide 2-8 distinct options.",
       "Additional requested_checks are conditional passing evidence and are allowed only with pass or pass_with_notes. They must be non-interactive argv-style commands, additional to Plan checks, narrowly justified, and bounded; ChangeFleet executes them after this Run.",
       "Do not rely on your own command execution as authoritative evidence and do not include private reasoning, historical cost, or unrelated findings.",
+    ].join(" ");
+  } else if (invocation.operation === "review") {
+    operationInstruction = [
+      "Review the exact CandidateBundle across all supplied read-only Candidate workspaces. Do not edit files, change Git state, commit, change refs, or invent validation commands.",
+      "Judge only the confirmed intent, current Plan, complete Bundle manifest, exact base-to-Candidate diffs, passing evidence, and explicit unverified risks. Repository verification and combined checks remain separate evidence owners.",
+      "Return exactly bundle_review_completed with one disposition: pass, feedback, or gate.",
+      "Use pass when no blocking correctness, security, compatibility, scope, confirmed-intent, cross-repository, data, or required-evidence issue remains. Optional improvements must be advisory findings and cannot block passage.",
+      "Use feedback only for blocking findings that identify every exact affected repository_id and work_unit_id. The execution Agent will independently assess each claim.",
+      "Every evidence_reference_id must copy one stable id present in the supplied exact review subject; use an empty array when no precise reference applies.",
+      "Use gate only for a genuine unresolved human choice, ambiguous repair ownership, authority expansion, or Plan invalidation, and provide 2-8 distinct options.",
+      "A passage recommendation is not Bundle acceptance, delivery, merge, or permission expansion. Do not include private reasoning, historical cost, or unrelated debt.",
     ].join(" ");
   } else {
     operationInstruction = [

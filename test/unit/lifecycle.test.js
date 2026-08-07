@@ -42,7 +42,13 @@ describe("unified lifecycle transitions", () => {
   });
 
   test("makes Run terminals immutable across every operation", () => {
-    for (const operation of ["planning", "execution", "verification"]) {
+    for (const operation of [
+      "planning",
+      "execution",
+      "verification",
+      "supervision",
+      "review",
+    ]) {
       const running = {
         run_id: `run-${operation}`,
         operation,

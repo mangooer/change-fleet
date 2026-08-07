@@ -11,8 +11,8 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
   than current authority.
 - WI-0019 entered local `main` at `bde27ff`; Decision 0025 replaces operation-specific repair states
   with coarse phases, generic Runs, Feedback, Gates, and one recovery path.
-- WI-0020 is accepted, complete, and committed on
-  `codex/wi-0020-plan-confirmed-agentic-supervision`, but is not yet landed. Its Node 24
+- WI-0020 entered local `main` at `3da554f`; its Node 24 deterministic and real Codex gates pass.
+- WI-0021 entered local `main` through accepted implementation commit `47f721d`; its Node 24
   deterministic and real Codex gates pass.
 - Agent Runtimes own semantic work. ChangeFleet owns cross-repository authorization, revisions,
   scheduling, exact Git and Bundle subjects, evidence, recovery, and human gates.
@@ -57,14 +57,16 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
   separate from lifecycle phase.
 - Decision 0026 defines Plan-confirmed Agentic supervision: the
   deterministic kernel offers exact authorized actions, forced actions avoid a model call, and a
-  read-only Supervisor Agent selects only when bounded semantic alternatives remain. Automatic
-  authority ends at exact Bundle review.
+  read-only Supervisor Agent selects only when bounded semantic alternatives remain.
+- Decision 0027 adds optional Plan-confirmed Bundle quality review. One exact read-only Review Run
+  may recommend passage, route bounded Feedback, or request a Gate; human Bundle acceptance remains
+  explicit.
 
 ## Accepted Decisions
 
 - The [Decision Index](decisions/README.md) owns the complete rationale map. Latest accepted
-  Decision 0026 adds policy-governed Agentic supervision without changing Decision 0025's coarse
-  phases or common Run status lifecycle.
+  Decision 0027 adds Bundle-level independent quality review without changing Decision 0025's
+  coarse phases or common Run status lifecycle.
 
 ## Repository Design Proposals
 
@@ -78,6 +80,9 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 - Accepted [0024](proposals/0024-policy-governed-agentic-supervision.md) is recorded by Decision
   0026. Its first single-Candidate autonomous vertical slice is confirmed as
   [WI-0020](work-items/WI-0020-plan-confirmed-agentic-supervision-vertical-slice.md), `done`.
+- Accepted [0025](proposals/0025-bundle-level-independent-quality-review.md) is recorded by Decision
+  0027. Its unique implementation slice is confirmed as
+  [WI-0021](work-items/WI-0021-bundle-level-independent-quality-review.md), `done` and landed.
 
 ## Open Questions
 
@@ -89,22 +94,22 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 - Git URLs, remote workers, merge, deployment, service graph, and stacked ChangeSets are deferred.
 - Native-Windows single-Repository use passed; other hosts and paid multi-Repository work are unverified.
 - Codex SDK usage is aggregate-only; effective model and universal host read-denial remain unknown.
-- Candidate-set-level independent review remains deferred. Local UI support for entering arbitrary
-  Feedback and resolving Gates is intentionally minimal; transport operations already share the
-  same application boundary.
+- Bundle-level independent quality review currently supports one selected reviewer and bounded
+  repair. Multiple reviewers, Candidate comparison, normalized scoring, and automatic model routing
+  remain deferred. Local UI support for arbitrary Feedback and Gate resolution stays intentionally
+  minimal; transport operations already share the same application boundary.
 - Provider-native live feedback steering and durable session continuation remain optimizations;
   current feedback is queued for another same-phase Run.
-- WI-0020's accepted branch implements policy-governed supervision and automatic progress to Bundle
-  review; it is not the landed baseline until integration. Simultaneous independent WorkUnit
-  Provider dispatch remains unproven; the foreground scheduler still advances exact eligible units
-  serially.
+- Simultaneous independent WorkUnit Provider dispatch remains unproven; the foreground scheduler
+  still advances exact eligible units serially.
 - Runtime Kit, Codex App Server, another Provider, Linear, pricing, dashboards, and continuous
   context enforcement are deferred.
 
 ## Next Recommended Task
 
-Integrate the accepted WI-0020 commit before promoting policy-governed supervision into the
-canonical baseline. Choose the next product slice only from that landed baseline.
+Discuss a bounded alternative-AgentProfile trial and comparative-audit proposal. Preserve exact
+isolated Candidates and raw cost, duration, retry, and review evidence; defer normalized scoring and
+automatic model routing until those comparisons are proven useful.
 
 ## Maintenance Contract
 

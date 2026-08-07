@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, test } from "node:test";
 
@@ -37,6 +38,324 @@ describe("Plan-confirmed autonomous supervision", () => {
         (reference) => reference.operation === "supervision",
       ),
       false,
+    );
+  });
+
+  test("dispatches one exact independent Bundle review without a Supervisor decision", async (t) => {
+    const fixture = await createAutonomousFixture(
+      t,
+      "changefleet-auto-bundle-review-pass-",
+      {
+        bundleReviewMode: "independent",
+        bundleReviewOutcomes: [
+          {
+            type: "bundle_review_completed",
+            disposition: "pass",
+            summary: "The exact Bundle passes with one non-blocking observation.",
+            findings: [
+              {
+                finding_id: "optional-cleanup",
+                severity: "advisory",
+                category: "scope",
+                message: "An optional cleanup may be considered in a later ChangeSet.",
+                evidence_reference_ids: [],
+                repository_ids: ["api"],
+                work_unit_ids: ["api-unit"],
+              },
+            ],
+            human_decision: null,
+          },
+        ],
+      },
+    );
+
+    const result = await confirmAutonomousPlan(
+      fixture.service,
+      fixture.changeSetId,
+    );
+
+    assert.equal(result.supervision.status, "review_ready");
+    assert.equal(result.supervision.stop_reason, "bundle_review_recommended");
+    assert.equal(fixture.runtime.reviewInvocationCount, 1);
+    assert.equal(fixture.runtime.supervisionInvocationCount, 0);
+    const invocation = fixture.runtime.invocations.find(
+      (candidate) => candidate.operation === "review",
+    );
+    assert.equal(invocation.capabilities.mode, "read_only");
+    assert.equal(invocation.context_projection.usage, undefined);
+    assert.equal(invocation.context_projection.transcript, undefined);
+    const state = await fixture.service.readChangeSet(fixture.changeSetId);
+    assert.equal(state.phase, "review");
+    assert.equal(state.bundle_review_assessments.length, 1);
+    assert.equal(state.bundle_review_assessments[0].disposition, "pass");
+    assert.equal(
+      state.bundle_review_assessments[0].findings[0].severity,
+      "advisory",
+    );
+    const audit = await new RuntimeAuditQueryService({
+      controlStore: fixture.service.controlStore,
+      runStore: fixture.service.runStore,
+      evidenceStore: fixture.service.evidenceStore,
+    }).getChangeSetAudit(fixture.changeSetId);
+    assert.equal(audit.payload.outcomes.bundle_review.pass, 1);
+    assert.equal(audit.payload.bundle_reviews.rows[0].disposition, "pass");
+    assert.equal(
+      audit.payload.bundle_reviews.rows[0].findings[0].finding_id,
+      "optional-cleanup",
+    );
+    assert.equal(
+      audit.payload.runs.rows.some(
+        (row) => row.identity.operation === "review",
+      ),
+      true,
+    );
+  });
+
+  test("runs a Plan-required Bundle review from the manual execution command", async (t) => {
+    const fixture = await createAutonomousFixture(
+      t,
+      "changefleet-manual-bundle-review-pass-",
+      {
+        supervisionMode: "manual",
+        bundleReviewMode: "independent",
+      },
+    );
+    await confirmAutonomousPlan(fixture.service, fixture.changeSetId);
+
+    const result = await fixture.service.executeChangeSet({
+      idempotency_key: "execute-manual-review",
+      change_set_id: fixture.changeSetId,
+    });
+
+    assert.equal(result.status, "review_ready");
+    assert.equal(fixture.runtime.reviewInvocationCount, 1);
+    const state = await fixture.service.readChangeSet(fixture.changeSetId);
+    assert.equal(state.phase, "review");
+    assert.equal(state.bundle_review_assessments.at(-1).disposition, "pass");
+  });
+
+  test("routes exact blocking Bundle findings through same-Plan targeted repair", async (t) => {
+    const fixture = await createAutonomousFixture(
+      t,
+      "changefleet-auto-bundle-review-feedback-",
+      {
+        bundleReviewMode: "independent",
+        bundleReviewOutcomes: [
+          {
+            type: "bundle_review_completed",
+            disposition: "feedback",
+            summary: "The exact API behavior misses one confirmed requirement.",
+            findings: [
+              {
+                finding_id: "api-contract",
+                severity: "blocking",
+                category: "confirmed_intent",
+                message: "The API fixture must contain the reviewed marker.",
+                evidence_reference_ids: [],
+                repository_ids: ["api"],
+                work_unit_ids: ["api-unit"],
+              },
+            ],
+            human_decision: null,
+          },
+          {
+            type: "bundle_review_completed",
+            disposition: "pass",
+            summary: "The repaired Bundle satisfies the confirmed intent.",
+            findings: [],
+            human_decision: null,
+          },
+        ],
+        feedbackFileContent: "api reviewed\n",
+      },
+    );
+
+    const result = await confirmAutonomousPlan(
+      fixture.service,
+      fixture.changeSetId,
+    );
+
+    assert.equal(result.supervision.status, "review_ready");
+    const state = await fixture.service.readChangeSet(fixture.changeSetId);
+    assert.equal(state.bundles.length, 2);
+    assert.deepEqual(
+      state.bundle_review_assessments.map((assessment) => assessment.disposition),
+      ["feedback", "pass"],
+    );
+    assert.notEqual(
+      state.bundle_review_assessments[0].subject_digest,
+      state.bundle_review_assessments[1].subject_digest,
+    );
+    assert.equal(
+      state.current_bundle_review_assessment_id,
+      state.bundle_review_assessments[1].assessment_id,
+    );
+    assert.equal(
+      state.feedback_records.some((feedback) => feedback.source === "review"),
+      true,
+    );
+    assert.equal(
+      state.run_references.filter(
+        (reference) =>
+          reference.operation === "execution" && reference.trigger === "feedback",
+      ).length,
+      1,
+    );
+  });
+
+  test("stops an ambiguous Bundle assessment at one exact human Gate", async (t) => {
+    const fixture = await createAutonomousFixture(
+      t,
+      "changefleet-auto-bundle-review-gate-",
+      {
+        bundleReviewMode: "independent",
+        bundleReviewOutcomes: [
+          {
+            type: "bundle_review_completed",
+            disposition: "gate",
+            summary: "The compatibility choice needs product authority.",
+            findings: [],
+            human_decision: {
+              question: "Which compatibility contract should this Bundle use?",
+              options: ["preserve_legacy", "adopt_new_contract"],
+            },
+          },
+        ],
+      },
+    );
+
+    const result = await confirmAutonomousPlan(
+      fixture.service,
+      fixture.changeSetId,
+    );
+
+    assert.equal(result.supervision.status, "human_input_required");
+    const state = await fixture.service.readChangeSet(fixture.changeSetId);
+    const gate = state.gates.find((candidate) => candidate.status === "open");
+    assert.equal(gate.kind, "bundle_review_decision");
+    assert.equal(
+      gate.bundle_review_assessment_id,
+      state.current_bundle_review_assessment_id,
+    );
+    assert.equal(state.phase, "review");
+  });
+
+  test("reconciles an interrupted Bundle review before retrying the same exact Bundle", async (t) => {
+    const fixture = await createAutonomousFixture(
+      t,
+      "changefleet-auto-bundle-review-restart-",
+      {
+        bundleReviewMode: "independent",
+        runtimeFactory: (plan) => new InterruptedBundleReviewRuntime({ plan }),
+      },
+    );
+
+    await assert.rejects(
+      confirmAutonomousPlan(fixture.service, fixture.changeSetId),
+      { code: "CONTROLLER_INTERRUPTED" },
+    );
+    let state = await fixture.service.readChangeSet(fixture.changeSetId);
+    assert.equal(
+      state.run_references.find((reference) => reference.operation === "review")
+        .status,
+      "running",
+    );
+
+    const resumedRuntime = new ScriptedRuntime({ plan: fixture.plan });
+    const resumedService = await ChangeFleetService.open({
+      controlRoot: path.join(fixture.root, "control"),
+      workspaceRoot: path.join(fixture.root, "workspaces"),
+      runtime: resumedRuntime,
+      agentProfile: TEST_AGENT_PROFILE,
+    });
+    const resumed = await resumedService.resumeSupervision({
+      idempotency_key: "resume-bundle-review",
+      change_set_id: fixture.changeSetId,
+    });
+
+    assert.equal(resumed.status, "review_ready");
+    state = await resumedService.readChangeSet(fixture.changeSetId);
+    assert.deepEqual(
+      state.run_references
+        .filter((reference) => reference.operation === "review")
+        .map((reference) => reference.status),
+      ["interrupted", "completed"],
+    );
+    assert.equal(state.bundle_review_assessments.at(-1).disposition, "pass");
+  });
+
+  test("fails closed to an exact Gate after invalid Bundle review output exhausts attempts", async (t) => {
+    const invalidOutcome = {
+      type: "bundle_review_completed",
+      disposition: "pass",
+      summary: "This malformed passage still contains a blocker.",
+      findings: [
+        {
+          finding_id: "contradictory-pass",
+          severity: "blocking",
+          category: "correctness",
+          message: "A passage recommendation cannot retain this blocker.",
+          evidence_reference_ids: [],
+          repository_ids: ["api"],
+          work_unit_ids: ["api-unit"],
+        },
+      ],
+      human_decision: null,
+    };
+    const fixture = await createAutonomousFixture(
+      t,
+      "changefleet-auto-bundle-review-invalid-",
+      {
+        bundleReviewMode: "independent",
+        bundleReviewOutcomes: [invalidOutcome, invalidOutcome],
+      },
+    );
+
+    const result = await confirmAutonomousPlan(
+      fixture.service,
+      fixture.changeSetId,
+    );
+
+    assert.equal(result.supervision.status, "human_input_required");
+    const state = await fixture.service.readChangeSet(fixture.changeSetId);
+    assert.deepEqual(
+      state.run_references
+        .filter((reference) => reference.operation === "review")
+        .map((reference) => reference.status),
+      ["failed", "failed"],
+    );
+    const gate = state.gates.find((candidate) => candidate.status === "open");
+    assert.equal(gate.kind, "bundle_review_failure");
+    assert.equal(gate.bundle_id, state.bundles.at(-1).bundle_id);
+  });
+
+  test("rejects and cleans a Review Runtime that writes its disposable Candidate workspace", async (t) => {
+    const fixture = await createAutonomousFixture(
+      t,
+      "changefleet-auto-bundle-review-write-",
+      {
+        bundleReviewMode: "independent",
+        runtimeFactory: (plan) => new MutatingBundleReviewRuntime({ plan }),
+      },
+    );
+
+    const result = await confirmAutonomousPlan(
+      fixture.service,
+      fixture.changeSetId,
+    );
+
+    assert.equal(result.supervision.status, "human_input_required");
+    const state = await fixture.service.readChangeSet(fixture.changeSetId);
+    assert.equal(state.bundle_review_assessments.length, 0);
+    assert.equal(
+      state.bundle_review_last_error.code,
+      "VERIFICATION_WORKSPACE_MODIFIED",
+    );
+    assert.deepEqual(
+      state.run_references
+        .filter((reference) => reference.operation === "review")
+        .map((reference) => reference.status),
+      ["failed", "failed"],
     );
   });
 
@@ -194,6 +513,12 @@ describe("Plan-confirmed autonomous supervision", () => {
       await writeCombinedCheckScript(root, 2),
     );
     plan.supervision.mode = "autonomous_until_review";
+    plan.bundle_review = {
+      mode: "independent",
+      agent_profile_id: "scripted-test-profile-reviewer",
+      agent_profile_revision: 1,
+      attempt_limit: 2,
+    };
     plan.supervision.elapsed_time_limit_ms = 120_000;
     const runtime = new ScriptedRuntime({ plan });
     const service = await ChangeFleetService.open({
@@ -212,6 +537,12 @@ describe("Plan-confirmed autonomous supervision", () => {
           max_verification_attempts_per_work_unit: 3,
           max_feedback_cycles_per_work_unit: 2,
           max_elapsed_ms: 120_000,
+        },
+        bundle_review_policy: {
+          default_mode: "independent",
+          default_agent_profile_id: "scripted-test-profile-reviewer",
+          default_agent_profile_revision: 1,
+          max_attempts: 2,
         },
         repositories: [
           { repository_id: "api", locator: { path: api.path } },
@@ -240,6 +571,12 @@ describe("Plan-confirmed autonomous supervision", () => {
     const state = await service.readChangeSet("two-repository-change");
     assert.equal(state.bundles.length, 1);
     assert.equal(state.bundles[0].candidates.length, 2);
+    assert.equal(runtime.reviewInvocationCount, 1);
+    assert.equal(
+      runtime.invocations.find((invocation) => invocation.operation === "review")
+        .context_projection.repositories.length,
+      2,
+    );
     assert.equal(state.phase, "review");
   });
 
@@ -408,15 +745,27 @@ async function createAutonomousFixture(
     requireVerifierCheckRepair = false,
     runtimeFactory = null,
     supervisionRuntime = null,
+    bundleReviewMode = "none",
+    bundleReviewOutcomes = null,
+    feedbackFileContent = null,
+    supervisionMode = "autonomous_until_review",
   } = {},
 ) {
   const root = await createFixtureRoot(t, prefix);
   const repository = await createGitRepository(root, "api");
   const combinedScript = await writeCombinedCheckScript(root, 1);
   const plan = createOneRepositoryPlan(combinedScript);
-  plan.supervision.mode = "autonomous_until_review";
+  plan.supervision.mode = supervisionMode;
   plan.supervision.verification_attempt_limit_per_work_unit = 6;
   plan.supervision.elapsed_time_limit_ms = 120_000;
+  if (bundleReviewMode === "independent") {
+    plan.bundle_review = {
+      mode: "independent",
+      agent_profile_id: "scripted-test-profile-reviewer",
+      agent_profile_revision: 1,
+      attempt_limit: 2,
+    };
+  }
   if (requireFixedContent) {
     plan.work_units[0].repository_check.argv = [
       "-e",
@@ -460,9 +809,11 @@ async function createAutonomousFixture(
         ]
       : null,
     feedbackFileContent:
-      requireFixedContent || requireVerifierCheckRepair ? "api fixed\n" : null,
+      feedbackFileContent ??
+      (requireFixedContent || requireVerifierCheckRepair ? "api fixed\n" : null),
+    reviewOutcomes: bundleReviewOutcomes,
     feedbackExecutionOutcome:
-      requireFixedContent || requireVerifierCheckRepair
+      requireFixedContent || requireVerifierCheckRepair || feedbackFileContent
       ? {
           type: "implementation_completed",
           summary: "Applied the exact validation Feedback.",
@@ -489,6 +840,15 @@ async function createAutonomousFixture(
         max_feedback_cycles_per_work_unit: 2,
         max_elapsed_ms: 120_000,
       },
+      bundle_review_policy:
+        bundleReviewMode === "independent"
+          ? {
+              default_mode: "independent",
+              default_agent_profile_id: "scripted-test-profile-reviewer",
+              default_agent_profile_revision: 1,
+              max_attempts: 2,
+            }
+          : undefined,
       repositories: [
         { repository_id: "api", locator: { path: repository.path } },
       ],
@@ -528,6 +888,36 @@ class InterruptedSupervisorRuntime extends ScriptedRuntime {
       "CONTROLLER_INTERRUPTED",
       "Simulated controller loss during semantic supervision",
     );
+  }
+}
+
+class InterruptedBundleReviewRuntime extends ScriptedRuntime {
+  async invoke(invocation) {
+    if (invocation.operation !== "review" || this.interrupted) {
+      return super.invoke(invocation);
+    }
+    this.invocations.push(structuredClone(invocation));
+    this.interrupted = true;
+    throw new ChangeFleetError(
+      "CONTROLLER_INTERRUPTED",
+      "Simulated controller loss during exact Bundle review",
+    );
+  }
+}
+
+class MutatingBundleReviewRuntime extends ScriptedRuntime {
+  async invoke(invocation) {
+    if (invocation.operation === "review") {
+      await writeFile(
+        path.join(
+          invocation.context_projection.repositories[0].root_path,
+          "feature.txt",
+        ),
+        "reviewer mutation\n",
+        "utf8",
+      );
+    }
+    return super.invoke(invocation);
   }
 }
 

@@ -2,8 +2,8 @@ import { canonicalStringify } from "./canonical-json.js";
 import { invariant } from "./errors.js";
 
 // Runtime 只接收当前操作所需投影；完整历史留在控制存储中按引用读取。
-export const CONTROL_CONTRACT_VERSION = 4;
-export const CONTEXT_PROJECTION_VERSION = 10;
+export const CONTROL_CONTRACT_VERSION = 5;
+export const CONTEXT_PROJECTION_VERSION = 11;
 const RUNTIME_EXCLUDED_DECISION_TYPES = new Set([
   "bundle_review",
   "legacy_candidate_recovery",
@@ -55,6 +55,7 @@ export function createContextProjection({
   planningConversation = null,
   verificationPolicy = null,
   supervisionPolicy = null,
+  bundleReviewPolicy = null,
   verification = null,
   feedback = null,
 }) {
@@ -68,6 +69,10 @@ export function createContextProjection({
       verificationPolicy === null ? null : structuredClone(verificationPolicy),
     supervision_policy:
       supervisionPolicy === null ? null : structuredClone(supervisionPolicy),
+    bundle_review_policy:
+      bundleReviewPolicy === null
+        ? null
+        : structuredClone(bundleReviewPolicy),
     // 只投影当前选择，不把已废弃 revision 历史灌入 Agent 上下文。
     repository_selection: repositorySelection,
     repository_harness_selection: repositoryHarnessSelection,

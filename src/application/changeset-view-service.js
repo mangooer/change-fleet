@@ -203,6 +203,7 @@ function projectExactChangeSet(state, project, planningMessage) {
             verification_expectation: structuredClone(
               currentPlan.verification_expectation,
             ),
+            bundle_review: structuredClone(currentPlan.bundle_review),
             supervision: structuredClone(currentPlan.supervision),
             work_units: currentPlan.work_units.map((unit) => ({
               work_unit_id: unit.work_unit_id,
@@ -251,6 +252,7 @@ function projectExactChangeSet(state, project, planningMessage) {
                     actor: bundleDecision.actor,
                     decided_at: bundleDecision.decided_at,
                   },
+            quality_review: projectBundleReview(state, currentBundle),
             candidates: currentBundle.candidates.map((bundleCandidate) => {
               const candidate = (state.candidates ?? []).find(
                 (item) => item.candidate_id === bundleCandidate.candidate_id,
@@ -304,6 +306,7 @@ function projectPlanContent(plan) {
     risks: [...plan.risks],
     unverified_boundaries: [...plan.unverified_boundaries],
     verification_expectation: structuredClone(plan.verification_expectation),
+    bundle_review: structuredClone(plan.bundle_review),
     supervision: structuredClone(plan.supervision),
     work_units: plan.work_units.map((unit) => ({
       work_unit_id: unit.work_unit_id,
@@ -365,6 +368,7 @@ function projectAuditView(audit) {
       outcomes: audit.payload.outcomes,
       validation: audit.payload.validation,
       bundles: audit.payload.bundles,
+      bundle_reviews: audit.payload.bundle_reviews,
       human_review: audit.payload.human_review,
       diagnostics: audit.payload.diagnostics,
       runs: audit.payload.runs,
@@ -412,6 +416,62 @@ function currentBundleSummary(state) {
     bundle_hash: bundle.bundle_hash,
     candidate_count: bundle.candidates.length,
     human_decision: decision?.decision ?? null,
+    quality_review: projectBundleReviewSummary(state, bundle),
+  };
+}
+
+function currentBundleReviewAssessment(state, bundle) {
+  if (bundle === null) return null;
+  return (
+    (state.bundle_review_assessments ?? []).find(
+      (assessment) =>
+        assessment.assessment_id ===
+          state.current_bundle_review_assessment_id &&
+        assessment.bundle_id === bundle.bundle_id &&
+        assessment.bundle_revision === bundle.revision &&
+        assessment.bundle_hash === bundle.bundle_hash,
+    ) ?? null
+  );
+}
+
+// 列表只显示结论与 finding 数量；完整有界 finding 留在精确 ChangeSet 读模型。
+function projectBundleReviewSummary(state, bundle) {
+  const assessment = currentBundleReviewAssessment(state, bundle);
+  if (assessment === null) return null;
+  return {
+    assessment_id: assessment.assessment_id,
+    disposition: assessment.disposition,
+    blocking_findings: assessment.findings.filter(
+      (finding) => finding.severity === "blocking",
+    ).length,
+    advisory_findings: assessment.findings.filter(
+      (finding) => finding.severity === "advisory",
+    ).length,
+  };
+}
+
+function projectBundleReview(state, bundle) {
+  const assessment = currentBundleReviewAssessment(state, bundle);
+  if (assessment === null) return null;
+  return {
+    assessment_id: assessment.assessment_id,
+    run_id: assessment.run_id,
+    plan_revision: assessment.plan_revision,
+    bundle_id: assessment.bundle_id,
+    bundle_revision: assessment.bundle_revision,
+    bundle_hash: assessment.bundle_hash,
+    subject_digest: assessment.subject_digest,
+    disposition: assessment.disposition,
+    summary: assessment.summary,
+    findings: structuredClone(assessment.findings),
+    human_decision: structuredClone(assessment.human_decision),
+    agent_profile: {
+      profile_id: assessment.agent_profile.profile_id,
+      revision: assessment.agent_profile.revision,
+      provider: assessment.agent_profile.provider,
+      model: assessment.agent_profile.model,
+    },
+    created_at: assessment.created_at,
   };
 }
 

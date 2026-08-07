@@ -21,6 +21,12 @@ authority.
 An immutable manifest of the exact repository Candidates, validation evidence, missing boundaries,
 and plan revision reviewed as one ChangeSet result.
 
+## BundleReviewAssessment
+
+One bounded `pass | feedback | gate` recommendation from a read-only Review Runtime, bound to an
+exact CandidateBundle, confirmed Plan, Candidate identities, required evidence, and Review Run. It
+is not Bundle acceptance or repository mutation authority.
+
 ## ChangeIntent
 
 The confirmed task-specific objective, constraints, acceptance criteria, decisions, and open
@@ -29,7 +35,7 @@ questions. It describes what and why, not the complete implementation method.
 ## ChangePlan
 
 A versioned, code-informed proposal describing affected repositories, WorkUnits, dependencies,
-validation, supervision authorization, delivery, and risks.
+validation, Bundle review admission, supervision authorization, delivery, and risks.
 
 ## ChangeSet
 
@@ -113,15 +119,16 @@ and publishes one exact Candidate.
 
 ## Run
 
-One bounded Agent Runtime invocation for `planning`, `execution`, `verification`, or `supervision`,
-with trigger, continuation lineage, common terminal status, events, outcome, usage, and evidence.
+One bounded Agent Runtime invocation for `planning`, `execution`, `verification`, `supervision`, or
+`review`, with trigger, continuation lineage, common terminal status, events, outcome, usage, and
+evidence.
 Deterministic validation commands are ValidationAttempts rather than Runs.
 
 ## Run Context Projection
 
-A rebuildable current view generated for one planning, execution, verification, supervision, or
-recovery operation. It contains the relevant current plan slice and references durable history
-rather than replaying it.
+A rebuildable current view generated for one planning, execution, verification, supervision,
+review, or recovery operation. It contains the relevant current plan slice and references durable
+history rather than replaying it.
 
 ## Supervisor
 

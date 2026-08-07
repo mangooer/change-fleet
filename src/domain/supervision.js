@@ -1,5 +1,6 @@
 import { sha256, stableId } from "./canonical-json.js";
 import { invariant } from "./errors.js";
+import { bundleReviewAssessmentMatches } from "./bundle-review.js";
 
 export const SUPERVISION_MODES = Object.freeze([
   "manual",
@@ -21,6 +22,7 @@ const ACTION_TYPES = new Set([
   "retry_validation",
   "submit_feedback",
   "validate_and_assemble_bundle",
+  "dispatch_bundle_review",
   "open_gate",
   "pause",
   "stop",
@@ -173,7 +175,51 @@ export function deriveSupervisionActionSet(changeSet, { now }) {
       }),
     ]);
   }
+  const openGate = (changeSet.gates ?? []).find((gate) => gate.status === "open");
+  if (openGate) {
+    return actionSet(snapshotId, progress, [
+      envelope("stop", { gate_id: openGate.gate_id }, { reason: "gate_open" }),
+    ]);
+  }
   if (changeSet.phase === "review") {
+    const bundle = (changeSet.bundles ?? []).at(-1) ?? null;
+    const assessment = (changeSet.bundle_review_assessments ?? []).find(
+      (item) =>
+        item.assessment_id === changeSet.current_bundle_review_assessment_id,
+    );
+    if (plan.bundle_review?.mode === "independent") {
+      if (bundleReviewAssessmentMatches(assessment, bundle, plan)) {
+        return actionSet(snapshotId, progress, [
+          envelope("stop", { bundle_id: bundle.bundle_id }, {
+            reason:
+              assessment.disposition === "pass"
+                ? "bundle_review_recommended"
+                : "bundle_review_gate_required",
+          }),
+        ]);
+      }
+      if (progress.elapsed.exhausted) {
+        return actionSet(snapshotId, progress, [
+          envelope("stop", { bundle_id: bundle?.bundle_id ?? null }, {
+            reason: "elapsed_budget_exhausted",
+          }),
+        ]);
+      }
+      if (progress.bundle_review.exhausted) {
+        return actionSet(snapshotId, progress, [
+          envelope("open_gate", { bundle_id: bundle?.bundle_id ?? null }, {
+            reason: "bundle_review_budget_exhausted",
+          }),
+        ]);
+      }
+      return actionSet(snapshotId, progress, [
+        envelope("dispatch_bundle_review", {
+          bundle_id: bundle?.bundle_id ?? null,
+          bundle_revision: bundle?.revision ?? null,
+          bundle_hash: bundle?.bundle_hash ?? null,
+        }),
+      ]);
+    }
     return actionSet(snapshotId, progress, [
       envelope("stop", {}, { reason: "bundle_review_ready" }),
     ]);
@@ -191,12 +237,6 @@ export function deriveSupervisionActionSet(changeSet, { now }) {
   if (progress.elapsed.exhausted) {
     return actionSet(snapshotId, progress, [
       envelope("stop", {}, { reason: "elapsed_budget_exhausted" }),
-    ]);
-  }
-  const openGate = (changeSet.gates ?? []).find((gate) => gate.status === "open");
-  if (openGate) {
-    return actionSet(snapshotId, progress, [
-      envelope("stop", { gate_id: openGate.gate_id }, { reason: "gate_open" }),
     ]);
   }
   if ((changeSet.run_references ?? []).some((run) => run.status === "running")) {
@@ -407,6 +447,14 @@ export function deriveSupervisionProgress(changeSet, { now, plan = null } = {}) 
     ? combinedAttempts.filter((attempt) => attempt.subject_id === combinedSubject)
         .length
     : 0;
+  const bundle = (changeSet.bundles ?? []).at(-1) ?? null;
+  const bundleReviewAttemptCount = bundle
+    ? (changeSet.run_references ?? []).filter(
+        (reference) =>
+          reference.operation === "review" &&
+          reference.bundle_id === bundle.bundle_id,
+      ).length
+    : 0;
   return {
     mode: current?.supervision?.mode ?? "manual",
     plan_revision: current?.revision ?? null,
@@ -422,6 +470,13 @@ export function deriveSupervisionProgress(changeSet, { now, plan = null } = {}) 
       ...budgetCounter(
         combinedAttemptCount,
         limits.verification_attempt_limit_per_work_unit,
+      ),
+    },
+    bundle_review: {
+      bundle_id: bundle?.bundle_id ?? null,
+      ...budgetCounter(
+        bundleReviewAttemptCount,
+        current?.bundle_review?.attempt_limit ?? 1,
       ),
     },
     work_units: currentUnits(changeSet).map((unit) => {
@@ -514,8 +569,10 @@ function createActionEnvelope({
   progress,
 }) {
   invariant(ACTION_TYPES.has(type), "INVALID_SUPERVISION_ACTION", "Action type is invalid");
+  const budgetDigest = sha256(budgetIdentity(progress));
   const identity = {
     snapshot_id: snapshotId,
+    budget_identity: budgetDigest,
     type,
     subject,
     details,
@@ -533,7 +590,7 @@ function createActionEnvelope({
       `plan_revision=${String(snapshot.plan_revision)}`,
       `snapshot=${snapshotId}`,
     ],
-    budget_identity: sha256(budgetIdentity(progress)),
+    budget_identity: budgetDigest,
     idempotency_key: stableId("supervision-command", identity),
     details: structuredClone(details),
   };
@@ -547,6 +604,7 @@ function exactSnapshot(changeSet, plan) {
     plan_revision: changeSet.current_plan_revision,
     plan_status: plan?.status ?? null,
     supervision: structuredClone(plan?.supervision ?? null),
+    bundle_review: structuredClone(plan?.bundle_review ?? null),
     repository_selection_revision:
       changeSet.current_repository_selection_revision,
     repository_harness_selection_revision:
@@ -577,6 +635,14 @@ function exactSnapshot(changeSet, plan) {
     open_gate_ids: (changeSet.gates ?? [])
       .filter((gate) => gate.status === "open")
       .map((gate) => gate.gate_id),
+    bundle: structuredClone((changeSet.bundles ?? []).at(-1) ?? null),
+    bundle_review_assessment: structuredClone(
+      (changeSet.bundle_review_assessments ?? []).find(
+        (assessment) =>
+          assessment.assessment_id ===
+          changeSet.current_bundle_review_assessment_id,
+      ) ?? null,
+    ),
     hold: structuredClone(changeSet.supervision_control?.hold ?? null),
   };
 }
@@ -591,6 +657,7 @@ function budgetIdentity(progress) {
       exhausted: progress.elapsed.exhausted,
     },
     combined_validation: progress.combined_validation,
+    bundle_review: progress.bundle_review,
     work_units: progress.work_units,
   };
 }

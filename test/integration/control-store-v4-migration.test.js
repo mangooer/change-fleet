@@ -59,9 +59,13 @@ test("control store migrates private v4 catalog and ChangeSets to the current sc
   assert.equal(state.work_units[0].disposition, "current");
   assert.equal(catalog.projects.project.verification_policy.minimum_mode, "basic");
   assert.equal(catalog.projects.project.supervision_policy.default_mode, "manual");
+  assert.equal(catalog.projects.project.bundle_review_policy.default_mode, "none");
   assert.equal(state.verification_policy.max_attempt_timeout_ms, 600_000);
   assert.equal(state.supervision_policy.default_mode, "manual");
   assert.equal(state.supervision_control.plan_revision, null);
+  assert.equal(state.bundle_review_policy.default_mode, "none");
+  assert.deepEqual(state.bundle_review_assessments, []);
+  assert.equal(state.current_bundle_review_assessment_id, null);
   assert.deepEqual(state.feedback_records, []);
   assert.equal(state.current_feedback_id, null);
   assert.deepEqual(state.gates, []);
@@ -76,7 +80,7 @@ test("control store migrates private v4 catalog and ChangeSets to the current sc
   assert.equal(persistedCatalog.schema_version, CONTROL_SCHEMA_VERSION);
 });
 
-test("control store migrates every v10 Plan to manual supervision without dispatch authority", async (t) => {
+test("control store migrates legacy Plans without silent supervision or Bundle review authority", async (t) => {
   const root = await createFixtureRoot(t, "changefleet-control-v10-supervision-");
   const changeSetRoot = path.join(root, "changesets", "change-1");
   await mkdir(changeSetRoot, { recursive: true });
@@ -122,10 +126,13 @@ test("control store migrates every v10 Plan to manual supervision without dispat
   await store.initialize();
   const state = await store.readChangeSet("change-1");
   assert.equal(state.plans[0].supervision.mode, "manual");
+  assert.equal(state.plans[0].bundle_review.mode, "none");
+  assert.equal(state.plans[0].bundle_review.agent_profile_id, null);
+  assert.equal(state.plans[0].bundle_review.agent_profile_revision, null);
   assert.equal(state.supervision_control.plan_revision, null);
-  assert.equal(
-    state.migration_records.at(-1).migration_id,
-    "control-schema-v10-to-v11",
+  assert.deepEqual(
+    state.migration_records.slice(-2).map((record) => record.migration_id),
+    ["control-schema-v10-to-v11", "control-schema-v11-to-v12"],
   );
 });
 

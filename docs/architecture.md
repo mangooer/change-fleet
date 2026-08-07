@@ -106,6 +106,7 @@ Owns current aggregate state and references to immutable evidence:
 - bounded current GitHub delivery requests and latest evidence references;
 - human decisions;
 - Plan-bound supervision authorization and exact Supervisor-decision references;
+- exact Bundle review admission, current assessment, and Review Run references;
 - recovery markers.
 
 It should not embed complete logs, diffs, or large Agent output.
@@ -130,9 +131,9 @@ presentation activity. They do not invoke Providers, Git, checks, or delivery.
 
 `RunCoordinator` owns only live local Provider invocation and operator interruption.
 `RunRecoveryService` is the single persisted-running-Run reconciler; planning, writable execution,
-read-only verification, and read-only supervision supply bounded resource adapters rather than
-separate recovery state machines. `FeedbackService` records immutable exact Feedback and its
-current pointer without deciding semantic truth.
+read-only verification, read-only supervision, and exact-Bundle review supply bounded resource
+adapters rather than separate recovery state machines. `FeedbackService` records immutable exact
+Feedback and its current pointer without deciding semantic truth.
 
 `RepositoryValidator` and `CombinedValidator` own deterministic command execution and immutable
 evidence for exact subjects. `BundleAssembler` freezes and writes an exact CandidateBundle without
@@ -196,14 +197,16 @@ remain behind evidence-producing validation operations. Project policy supplies 
 confirmed Plan records `manual | autonomous_until_review` and its effective bounded limits.
 
 Normal failed checks and material review findings may become Feedback and continue through the same
-Plan. The loop stops at Bundle review, a Gate, Plan invalidation, unbounded semantic routing,
-exhausted budget, operator hold, abandonment, or terminal completion. None of these conditions adds
-a supervision-specific aggregate phase.
+Plan. When the Plan requires independent Bundle quality review, its forced dispatch and bounded
+same-Plan repairs remain inside the autonomous route. The loop stops with a current required passage
+recommendation, a Gate, Plan invalidation, unbounded semantic routing, exhausted budget, operator
+hold, abandonment, or terminal completion. None of these conditions adds a supervision- or review-
+specific aggregate phase.
 
 ### RunContextAssembler
 
-Builds a disposable current projection for one planning, execution, verification, supervision, or recovery operation
-from durable ChangeSet and Run state. It includes:
+Builds a disposable current projection for one planning, execution, verification, supervision,
+review, or recovery operation from durable ChangeSet and Run state. It includes:
 
 - exact operation, ChangeSet, plan, WorkUnit, repository, base, and workspace identity;
 - current Repository Harness selection identity and bounded discovery references;
@@ -217,6 +220,8 @@ from durable ChangeSet and Run state. It includes:
   actual changed delta;
 - for a supervision Run, the exact offered action ids, relevant bounded evidence, remaining budget,
   and no repository-write capability;
+- for a review Run, the exact Bundle manifest, all Candidate identities, relevant validation and
+  verification evidence, unverified risks, and no mutation or acceptance capability;
 - required evidence and progressive resource references;
 - initial context-budget components and classification.
 
@@ -402,17 +407,20 @@ A bundle hash changes whenever any subject or required evidence identity changes
 
 ### BundleReviewer
 
-Runs an optional independent Agent review or presents direct human review for one exact
-CandidateBundle.
+Deterministically follows the confirmed Plan's `none | independent` admission for one exact
+CandidateBundle. `none` presents direct human review without a model call. `independent` starts one
+ChangeSet-scoped, read-only `review` Run bound to the exact Plan, Bundle hash, Candidate SHAs, and
+required evidence.
 
-Review may request:
+The structured assessment is `pass | feedback | gate`. Passage is a recommendation rather than
+Bundle acceptance. Valid blocking findings may target authorized WorkUnits through the existing
+Feedback service; advisory findings remain audit-only. Ambiguous ownership, scope or Plan changes,
+invalid output, failure, and exhausted attempts retry safely or open a Gate. Any changed Candidate
+creates a new Bundle identity and requires a new assessment.
 
-- repository-local rework;
-- combined rework;
-- scope or plan revision;
-- missing verification;
-- human decision;
-- delivery readiness.
+BundleReviewer owns neither repository validation nor arbitrary commands. It coordinates exact
+read-only resources, preflight and postflight, Review Runtime dispatch, assessment validation, and
+Feedback routing through existing services. It adds no aggregate phase or recovery workflow.
 
 ### DeliveryCoordinator
 
@@ -540,12 +548,12 @@ On restart:
 6. resume only from the current ChangeSet and plan revision.
 
 An exact current CandidateCheckpoint may resume repository validation, and an unchanged current
-Candidate set may resume combined validation, without repeating execution. Interrupted
-verification abandons its incomplete Run and disposable worktree, reuses matching passed
-repository evidence, and starts one fresh verification Run. Failed attempts remain immutable
-evidence. An operational retry may use a different bounded timeout while preserving the same
-semantic check and exact subject. Private pre-checkpoint recovery requires an explicit exact human
-gate and never becomes generic commit or workspace import.
+Candidate set may resume combined validation, without repeating execution. Interrupted verification
+or Bundle review abandons its incomplete Run and disposable read-only resources, reuses matching
+passed deterministic evidence, and starts one fresh same-purpose Run only for the unchanged exact
+subject. Failed attempts remain immutable evidence. An operational retry may use a different bounded
+timeout while preserving the same semantic check and exact subject. Private pre-checkpoint recovery
+requires an explicit exact human gate and never becomes generic commit or workspace import.
 
 One generic reconciler handles all persisted running Runs. It records an unprovable invocation as
 `interrupted`, retains the owning ChangeSet and WorkUnit phase, then applies the bounded workspace

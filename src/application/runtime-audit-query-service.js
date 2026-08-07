@@ -17,6 +17,7 @@ import {
   deriveCanonicalUsage,
   elapsedMilliseconds,
 } from "../domain/runtime-audit.js";
+import { bundleReviewAssessmentMatches } from "../domain/bundle-review.js";
 
 const MAX_BOUNDED_ROWS = 100;
 // 查询服务只接收 Store 的 read 能力，构造时不初始化目录，也不持有任何编排或写入端口。
@@ -119,6 +120,7 @@ export class RuntimeAuditQueryService {
       },
       validation: validation.payload,
       bundles: summarizeBundles(state),
+      bundle_reviews: summarizeBundleReviews(state, loadedRuns),
       human_review: summarizeHumanReview(state),
       diagnostics: summarizeDiagnostics(
         loadedRuns.flatMap((loaded) => loaded.payload.usage.diagnostics),
@@ -479,6 +481,9 @@ function summarizeOutcomes(state, loadedRuns, validation) {
   const verificationRuns = loadedRuns.filter(
     (loaded) => loaded.payload.identity.operation === "verification",
   );
+  const reviewRuns = loadedRuns.filter(
+    (loaded) => loaded.payload.identity.operation === "review",
+  );
   const feedbackExecutionRuns = loadedRuns.filter(
     (loaded) =>
       loaded.payload.identity.operation === "execution" &&
@@ -499,6 +504,15 @@ function summarizeOutcomes(state, loadedRuns, validation) {
       verificationRuns.map((loaded) =>
         loaded.payload.terminal.status === "completed"
           ? (loaded.payload.outcome?.verdict ??
+            loaded.payload.terminal.outcome_type ??
+            "completed_unknown")
+          : loaded.payload.terminal.status,
+      ),
+    ),
+    bundle_review: countValues(
+      reviewRuns.map((loaded) =>
+        loaded.payload.terminal.status === "completed"
+          ? (loaded.payload.outcome?.disposition ??
             loaded.payload.terminal.outcome_type ??
             "completed_unknown")
           : loaded.payload.terminal.status,
@@ -578,8 +592,60 @@ function summarizeBundles(state) {
             decision.bundle_revision === bundle.revision &&
             decision.bundle_hash === bundle.bundle_hash,
         )?.decision ?? null,
+      quality_review: bundleReviewSummary(state, bundle),
     }));
   return boundedRows(rows);
+}
+
+// 审计视图连接 assessment 与通用 Run；用量和耗时仍只从不可变 Run evidence 推导。
+function summarizeBundleReviews(state, loadedRuns) {
+  const rows = (state.bundle_review_assessments ?? [])
+    .map((assessment) => ({
+      assessment_id: assessment.assessment_id,
+      run_id: assessment.run_id,
+      plan_revision: assessment.plan_revision,
+      bundle_id: assessment.bundle_id,
+      bundle_revision: assessment.bundle_revision,
+      bundle_hash: assessment.bundle_hash,
+      subject_digest: assessment.subject_digest,
+      disposition: assessment.disposition,
+      summary: assessment.summary,
+      findings: structuredClone(assessment.findings),
+      blocking_findings: assessment.findings.filter(
+        (finding) => finding.severity === "blocking",
+      ).length,
+      advisory_findings: assessment.findings.filter(
+        (finding) => finding.severity === "advisory",
+      ).length,
+      agent_profile_id: assessment.agent_profile.profile_id,
+      agent_profile_revision: assessment.agent_profile.revision,
+      assessment_artifact:
+        loadedRuns.find(
+          (loaded) =>
+            loaded.payload.identity.run_id === assessment.run_id,
+        )?.payload.outcome?.assessment_artifact ?? null,
+      created_at: assessment.created_at,
+      current:
+        assessment.assessment_id ===
+        state.current_bundle_review_assessment_id,
+    }))
+    .sort((left, right) => left.created_at.localeCompare(right.created_at));
+  return boundedRows(rows);
+}
+
+function bundleReviewSummary(state, bundle) {
+  const assessment = (state.bundle_review_assessments ?? []).find(
+    (item) =>
+      item.assessment_id === state.current_bundle_review_assessment_id &&
+      item.bundle_id === bundle.bundle_id,
+  );
+  return assessment
+    ? {
+        assessment_id: assessment.assessment_id,
+        disposition: assessment.disposition,
+        run_id: assessment.run_id,
+      }
+    : null;
 }
 
 function summarizeHumanReview(state) {
@@ -919,7 +985,7 @@ function validateRunAuditSource(run) {
   invariant(
     typeof run.change_set_id === "string" &&
       (run.work_unit_id === null || typeof run.work_unit_id === "string") &&
-      ["planning", "execution", "verification", "supervision"].includes(
+      ["planning", "execution", "verification", "supervision", "review"].includes(
         run.operation,
       ) &&
       Number.isSafeInteger(run.attempt) &&
@@ -946,6 +1012,7 @@ function validateChangeSetAuditSource(state, changeSetId) {
       Array.isArray(state.work_units) &&
       Array.isArray(state.candidates) &&
       Array.isArray(state.bundles) &&
+      Array.isArray(state.bundle_review_assessments) &&
       Array.isArray(state.decisions) &&
       typeof state.created_at === "string" &&
       Number.isFinite(Date.parse(state.created_at)) &&
@@ -970,6 +1037,35 @@ function validateChangeSetAuditSource(state, changeSetId) {
       { decision_id: decision.decision_id },
     );
   }
+  for (const assessment of state.bundle_review_assessments) {
+    const bundle = state.bundles.find(
+      (candidate) => candidate.bundle_id === assessment.bundle_id,
+    );
+    const plan = state.plans.find(
+      (candidate) => candidate.revision === assessment.plan_revision,
+    );
+    invariant(
+      bundleReviewAssessmentMatches(assessment, bundle, plan) &&
+        state.run_references.some(
+          (reference) =>
+            reference.run_id === assessment.run_id &&
+            reference.operation === "review",
+        ),
+      "AUDIT_SOURCE_IDENTITY_MISMATCH",
+      "Bundle review assessment does not bind its exact Bundle and Review Run",
+      { assessment_id: assessment.assessment_id },
+    );
+  }
+  invariant(
+    state.current_bundle_review_assessment_id === null ||
+      state.bundle_review_assessments.some(
+        (assessment) =>
+          assessment.assessment_id ===
+          state.current_bundle_review_assessment_id,
+      ),
+    "AUDIT_SOURCE_IDENTITY_MISMATCH",
+    "Current Bundle review assessment reference is invalid",
+  );
 }
 
 function validateBundleIdentity(bundle) {
