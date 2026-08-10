@@ -336,9 +336,10 @@ function buildPrompt(invocation) {
       feedbackInstruction,
       "Inspect the exact base-to-Candidate diff, confirmed intent and Plan, repository-native guidance, completed deterministic evidence, and explicit unverified boundaries.",
       "Choose triage when the bounded facts are sufficient; choose deep_review when semantic inspection is necessary. This is one review depth decision inside this same Run, not a request for another reviewer.",
-      "Return exactly verification_completed with one verdict: pass, pass_with_notes, changes_required, or human_decision_required.",
-      "A blocking finding must identify a confirmed-intent, repository-authority, correctness, security, data, compatibility, scope, or required-evidence defect. Style preference, unrelated debt, speculative improvement, and optional refactoring may only be non-blocking notes.",
+      "Return exactly verification_completed with one verdict-specific assessment: pass, pass_with_notes, changes_required, or human_decision_required.",
+      "Every item in findings is blocking and therefore belongs only to changes_required. Positive confirmations belong in summary; bounded residual risk, style preference, unrelated debt, speculative improvement, and optional refactoring belong only in notes and cannot block passage.",
       "Use pass_with_notes only for bounded residual risks that do not require a change. Use human_decision_required only for a genuine unresolved choice and provide 2-8 distinct options.",
+      "Checks listed in verification.scheduled_later_checks are controller-owned future gates. Their absence from completed_checks during this Candidate review is not missing evidence, must not become a finding, and must not be requested again; ChangeFleet will require them before Bundle assembly.",
       "Additional requested_checks are conditional passing evidence and are allowed only with pass or pass_with_notes. They must be non-interactive argv-style commands, additional to Plan checks, narrowly justified, and bounded; ChangeFleet executes them after this Run.",
       "Do not rely on your own command execution as authoritative evidence and do not include private reasoning, historical cost, or unrelated findings.",
     ].join(" ");

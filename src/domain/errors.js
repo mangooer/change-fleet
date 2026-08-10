@@ -4,6 +4,7 @@ const MAX_SECONDARY_FAILURES = 8;
 const MAX_SECONDARY_STAGE_BYTES = 128;
 const MAX_SECONDARY_CODE_BYTES = 128;
 const MAX_SECONDARY_MESSAGE_BYTES = 1_024;
+const MAX_FAILURE_DIAGNOSTIC_BYTES = 128;
 
 export class ChangeFleetError extends Error {
   // code 是持久且可供程序判断的契约；message 只是当前语言下给人的展示文本。
@@ -55,6 +56,21 @@ export function boundedSecondaryFailures(input) {
     .map(normalizeSecondaryFailure);
 }
 
+// 主失败只允许少量稳定分类字段进入持久 Run；Provider 正文、堆栈和任意 details
+// 仍不得借诊断路径进入聚合状态或默认审计视图。
+export function boundedFailureDiagnostic(details) {
+  if (!details || typeof details !== "object" || Array.isArray(details)) {
+    return null;
+  }
+  const stage = boundedDiagnosticField(details.stage);
+  const rule = boundedDiagnosticField(details.rule);
+  if (stage === null && rule === null) return null;
+  return {
+    stage: stage ?? "unknown",
+    rule: rule ?? "unknown",
+  };
+}
+
 export async function preserveSecondaryFailure(primaryError, stage, operation) {
   // 审计或清理写入失败不会覆盖最初的业务错误，但会随主错误返回。
   try {
@@ -90,4 +106,10 @@ function truncateUtf8(value, maximumBytes) {
     bytes += characterBytes;
   }
   return result;
+}
+
+function boundedDiagnosticField(value) {
+  return typeof value === "string" && value.length > 0
+    ? truncateUtf8(value, MAX_FAILURE_DIAGNOSTIC_BYTES)
+    : null;
 }

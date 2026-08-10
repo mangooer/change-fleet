@@ -189,16 +189,27 @@ describe("Runtime identity and evidence", () => {
     const verificationOutcome = {
       type: "verification_completed",
       review_depth: "triage",
-      verdict: "pass",
       summary: "No blocking issue found.",
-      findings: [],
-      notes: [],
-      human_decision: null,
-      requested_checks: [],
+      assessment: {
+        verdict: "pass",
+        findings: [],
+        notes: [],
+        human_decision: null,
+        requested_checks: [],
+      },
     };
-    assert.equal(
+    assert.deepEqual(
       assertStructuredOutcome("verification", verificationOutcome),
-      verificationOutcome,
+      {
+        type: "verification_completed",
+        review_depth: "triage",
+        verdict: "pass",
+        summary: "No blocking issue found.",
+        findings: [],
+        notes: [],
+        human_decision: null,
+        requested_checks: [],
+      },
     );
     const feedbackExecutionOutcome = {
       type: "implementation_completed",

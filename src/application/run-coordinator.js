@@ -1,5 +1,6 @@
 import { invokeRuntime } from "../adapters/runtime/runtime-port.js";
 import {
+  boundedFailureDiagnostic,
   boundedSecondaryFailures,
   invariant,
 } from "../domain/errors.js";
@@ -151,6 +152,7 @@ export class RunCoordinator {
 
   async failRun(runId, error, { completedAt = this.now() } = {}) {
     const status = runTerminalStatusForError(error);
+    const diagnostic = boundedFailureDiagnostic(error.details);
     await this.runStore.appendEvent(runId, {
       event_id: this.idFactory("event"),
       type: `run.${status}`,
@@ -158,6 +160,7 @@ export class RunCoordinator {
       payload: {
         code: error.code ?? "UNEXPECTED_ERROR",
         message: error.message,
+        ...(diagnostic === null ? {} : { diagnostic }),
         secondary_failures: boundedSecondaryFailures(
           error.secondary_failures,
         ),
@@ -169,6 +172,7 @@ export class RunCoordinator {
       run.outcome = {
         type: status,
         code: error.code ?? "UNEXPECTED_ERROR",
+        ...(diagnostic === null ? {} : { diagnostic }),
         secondary_failures: boundedSecondaryFailures(
           error.secondary_failures,
         ),

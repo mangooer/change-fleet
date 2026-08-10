@@ -285,10 +285,121 @@ const HUMAN_DECISION_SCHEMA = Object.freeze({
   type: "object",
   properties: {
     question: { type: "string" },
-    options: { type: "array", items: { type: "string" }, minItems: 2 },
+    options: {
+      type: "array",
+      items: { type: "string" },
+      minItems: 2,
+      maxItems: 8,
+    },
   },
   required: ["question", "options"],
   additionalProperties: false,
+});
+
+const EMPTY_FINDINGS_SCHEMA = Object.freeze({
+  type: "array",
+  items: VERIFICATION_FINDING_SCHEMA,
+  maxItems: 0,
+});
+
+const BOUNDED_FINDINGS_SCHEMA = Object.freeze({
+  type: "array",
+  items: VERIFICATION_FINDING_SCHEMA,
+  minItems: 1,
+  maxItems: 16,
+});
+
+const EMPTY_NOTES_SCHEMA = Object.freeze({
+  type: "array",
+  items: VERIFICATION_NOTE_SCHEMA,
+  maxItems: 0,
+});
+
+const BOUNDED_NOTES_SCHEMA = Object.freeze({
+  type: "array",
+  items: VERIFICATION_NOTE_SCHEMA,
+  maxItems: 16,
+});
+
+const REQUIRED_NOTES_SCHEMA = Object.freeze({
+  type: "array",
+  items: VERIFICATION_NOTE_SCHEMA,
+  minItems: 1,
+  maxItems: 16,
+});
+
+const EMPTY_CHECKS_SCHEMA = Object.freeze({
+  type: "array",
+  items: COMMAND_SCHEMA,
+  maxItems: 0,
+});
+
+const BOUNDED_CHECKS_SCHEMA = Object.freeze({
+  type: "array",
+  items: COMMAND_SCHEMA,
+  maxItems: 8,
+});
+
+function verificationAssessmentSchema({
+  verdict,
+  findings,
+  notes,
+  humanDecision,
+  requestedChecks,
+}) {
+  return Object.freeze({
+    type: "object",
+    properties: {
+      verdict: { type: "string", enum: [verdict] },
+      findings,
+      notes,
+      human_decision: humanDecision,
+      requested_checks: requestedChecks,
+    },
+    required: [
+      "verdict",
+      "findings",
+      "notes",
+      "human_decision",
+      "requested_checks",
+    ],
+    additionalProperties: false,
+  });
+}
+
+// Verdict 联合放在顶层 object 的属性内：既保持 OpenAI 严格输出的根 object，
+// 又让 Provider 不可能生成“通过但携带阻塞 findings”这类领域层必然拒绝的形状。
+const VERIFICATION_ASSESSMENT_SCHEMA = Object.freeze({
+  anyOf: [
+    verificationAssessmentSchema({
+      verdict: "pass",
+      findings: EMPTY_FINDINGS_SCHEMA,
+      notes: EMPTY_NOTES_SCHEMA,
+      humanDecision: { type: "null" },
+      requestedChecks: BOUNDED_CHECKS_SCHEMA,
+    }),
+    verificationAssessmentSchema({
+      verdict: "pass_with_notes",
+      findings: EMPTY_FINDINGS_SCHEMA,
+      notes: REQUIRED_NOTES_SCHEMA,
+      humanDecision: { type: "null" },
+      requestedChecks: BOUNDED_CHECKS_SCHEMA,
+    }),
+    verificationAssessmentSchema({
+      verdict: "changes_required",
+      findings: BOUNDED_FINDINGS_SCHEMA,
+      notes: BOUNDED_NOTES_SCHEMA,
+      humanDecision: { type: "null" },
+      requestedChecks: EMPTY_CHECKS_SCHEMA,
+    }),
+    verificationAssessmentSchema({
+      verdict: "human_decision_required",
+      findings: EMPTY_FINDINGS_SCHEMA,
+      notes: BOUNDED_NOTES_SCHEMA,
+      humanDecision: HUMAN_DECISION_SCHEMA,
+      requestedChecks: EMPTY_CHECKS_SCHEMA,
+    }),
+  ],
 });
 
 export const VERIFICATION_OUTCOME_SCHEMA = Object.freeze({
@@ -299,44 +410,14 @@ export const VERIFICATION_OUTCOME_SCHEMA = Object.freeze({
       type: "string",
       enum: ["triage", "deep_review"],
     },
-    verdict: {
-      type: "string",
-      enum: [
-        "pass",
-        "pass_with_notes",
-        "changes_required",
-        "human_decision_required",
-      ],
-    },
     summary: { type: "string" },
-    findings: {
-      type: "array",
-      items: VERIFICATION_FINDING_SCHEMA,
-      maxItems: 16,
-    },
-    notes: {
-      type: "array",
-      items: VERIFICATION_NOTE_SCHEMA,
-      maxItems: 16,
-    },
-    human_decision: {
-      anyOf: [HUMAN_DECISION_SCHEMA, { type: "null" }],
-    },
-    requested_checks: {
-      type: "array",
-      items: COMMAND_SCHEMA,
-      maxItems: 8,
-    },
+    assessment: VERIFICATION_ASSESSMENT_SCHEMA,
   },
   required: [
     "type",
     "review_depth",
-    "verdict",
     "summary",
-    "findings",
-    "notes",
-    "human_decision",
-    "requested_checks",
+    "assessment",
   ],
   additionalProperties: false,
 });
@@ -472,22 +553,15 @@ export function assertStructuredOutcome(operation, outcome) {
     operation === "verification" &&
     outcome.type === "verification_completed" &&
     ["triage", "deep_review"].includes(outcome.review_depth) &&
-    [
-      "pass",
-      "pass_with_notes",
-      "changes_required",
-      "human_decision_required",
-    ].includes(outcome.verdict) &&
     typeof outcome.summary === "string" &&
-    Array.isArray(outcome.findings) &&
-    Array.isArray(outcome.notes) &&
-    (outcome.human_decision === null ||
-      (outcome.human_decision &&
-        typeof outcome.human_decision === "object" &&
-        !Array.isArray(outcome.human_decision))) &&
-    Array.isArray(outcome.requested_checks)
+    validVerificationAssessment(outcome.assessment)
   ) {
-    return outcome;
+    return {
+      type: outcome.type,
+      review_depth: outcome.review_depth,
+      summary: outcome.summary,
+      ...structuredClone(outcome.assessment),
+    };
   }
   if (
     operation === "supervision" &&
@@ -568,4 +642,50 @@ export function assertStructuredOutcome(operation, outcome) {
   throw new Error(
     `Structured Runtime outcome does not match operation ${operation}`,
   );
+}
+
+function validVerificationAssessment(assessment) {
+  if (
+    !assessment ||
+    typeof assessment !== "object" ||
+    Array.isArray(assessment) ||
+    !Array.isArray(assessment.findings) ||
+    !Array.isArray(assessment.notes) ||
+    !Array.isArray(assessment.requested_checks)
+  ) {
+    return false;
+  }
+  const humanDecisionIsObject =
+    assessment.human_decision !== null &&
+    typeof assessment.human_decision === "object" &&
+    !Array.isArray(assessment.human_decision);
+  if (assessment.verdict === "pass") {
+    return (
+      assessment.findings.length === 0 &&
+      assessment.notes.length === 0 &&
+      assessment.human_decision === null
+    );
+  }
+  if (assessment.verdict === "pass_with_notes") {
+    return (
+      assessment.findings.length === 0 &&
+      assessment.notes.length > 0 &&
+      assessment.human_decision === null
+    );
+  }
+  if (assessment.verdict === "changes_required") {
+    return (
+      assessment.findings.length > 0 &&
+      assessment.human_decision === null &&
+      assessment.requested_checks.length === 0
+    );
+  }
+  if (assessment.verdict === "human_decision_required") {
+    return (
+      assessment.findings.length === 0 &&
+      humanDecisionIsObject &&
+      assessment.requested_checks.length === 0
+    );
+  }
+  return false;
 }

@@ -17,6 +17,13 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 - Agent Runtimes own semantic work. ChangeFleet owns cross-repository authorization, revisions,
   scheduling, exact Git and Bundle subjects, evidence, recovery, and human gates.
 
+## Branch-Local Work
+
+- Completed [WI-0030](work-items/WI-0030-verification-contract-and-staged-evidence-reliability.md)
+  makes verdict-specific Runtime output structural, distinguishes completed Candidate evidence
+  from the combined check scheduled before Bundle assembly, and preserves only bounded
+  normalization-failure diagnostics. It adds no lifecycle or authority state.
+
 ## Accepted Product Direction
 
 - Managed Runs receive compact current control facts; referenced history stays out of default
@@ -100,10 +107,9 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 
 ## Next Recommended Task
 
-After this history is canonical, discuss a bounded alternative-AgentProfile trial and
-comparative-audit proposal. Preserve exact isolated Candidates and raw cost, duration, retry, and
-review evidence; defer normalized scoring and automatic model routing until those comparisons are
-proven useful.
+After WI-0030 lands, repair the independently observed controller-restart execution retry and
+resolved-Gate identity defect. Preserve the completed alternative-AgentProfile trial as audit
+evidence; normalized scoring and automatic model routing remain deferred.
 
 ## Maintenance Contract
 

@@ -989,6 +989,15 @@ export class VerificationOrchestrator {
             evidence: structuredClone(repositoryEvidence),
           },
         ],
+        // combined check 只有全部仓库 Candidate 就绪后才能执行；显式标为未来门禁，
+        // 避免只读 verifier 把控制器尚未到达的阶段误判成证据缺失。
+        scheduled_later_checks: [
+          {
+            stage: "candidate_bundle_assembly",
+            status: "scheduled",
+            check: structuredClone(plan.combined_check),
+          },
+        ],
         focus:
           focus?.sourceReview && focus?.feedbackRun
             ? {

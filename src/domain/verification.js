@@ -202,6 +202,28 @@ export function createCheckIdentity(command) {
 
 export function normalizeVerificationOutcome(
   input,
+  options,
+) {
+  try {
+    return normalizeVerificationOutcomeInput(input, options);
+  } catch (error) {
+    if (error?.code === "INVALID_VERIFICATION_OUTCOME") {
+      // 只保留稳定归一化阶段与规则；拒绝的 Provider 正文仍留在 Provider 自有会话，
+      // 不复制进 Run 聚合、默认上下文或审计摘要。
+      error.details = {
+        stage: "verification_outcome_normalization",
+        rule:
+          typeof error.details?.rule === "string"
+            ? error.details.rule
+            : "field_normalization",
+      };
+    }
+    throw error;
+  }
+}
+
+function normalizeVerificationOutcomeInput(
+  input,
   { projectPolicy, existingCommandIds = [] },
 ) {
   // Verification 输出是控制输入而不是事实；先做严格边界归一化，再由确定性证据决定能否晋升。
@@ -258,6 +280,7 @@ export function normalizeVerificationOutcome(
       findings.length === 0 && notes.length === 0 && humanDecision === null,
       "INVALID_VERIFICATION_OUTCOME",
       "A pass verdict cannot contain findings, notes, or a human decision",
+      { rule: "pass_requires_empty_findings_notes_and_decision" },
     );
   }
   if (input.verdict === "pass_with_notes") {
@@ -265,6 +288,7 @@ export function normalizeVerificationOutcome(
       findings.length === 0 && notes.length > 0 && humanDecision === null,
       "INVALID_VERIFICATION_OUTCOME",
       "pass_with_notes requires notes and cannot contain blocking findings",
+      { rule: "pass_with_notes_requires_notes_without_findings_or_decision" },
     );
   }
   if (input.verdict === "changes_required") {
@@ -272,6 +296,7 @@ export function normalizeVerificationOutcome(
       findings.length > 0 && humanDecision === null && requestedChecks.length === 0,
       "INVALID_VERIFICATION_OUTCOME",
       "changes_required requires findings and cannot request conditional checks",
+      { rule: "changes_required_requires_findings_without_checks_or_decision" },
     );
   }
   if (input.verdict === "human_decision_required") {
@@ -279,6 +304,7 @@ export function normalizeVerificationOutcome(
       findings.length === 0 && humanDecision !== null && requestedChecks.length === 0,
       "INVALID_VERIFICATION_OUTCOME",
       "human_decision_required requires one bounded question",
+      { rule: "human_decision_requires_question_without_findings_or_checks" },
     );
   }
 

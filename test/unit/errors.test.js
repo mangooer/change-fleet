@@ -3,6 +3,7 @@ import { test } from "node:test";
 
 import {
   attachSecondaryFailure,
+  boundedFailureDiagnostic,
   boundedSecondaryFailures,
   preserveSecondaryFailure,
 } from "../../src/domain/errors.js";
@@ -41,4 +42,19 @@ test("secondary failures stay bounded at attachment and persistence boundaries",
   });
   assert.equal(primary.message, "primary");
   assert.equal(primary.secondary_failures.length, 8);
+});
+
+test("primary failure diagnostics keep only bounded stable classification", () => {
+  const diagnostic = boundedFailureDiagnostic({
+    stage: `verification-${"阶".repeat(200)}`,
+    rule: `pass-${"规".repeat(200)}`,
+    provider_output: "must not persist",
+  });
+  assert.deepEqual(Object.keys(diagnostic), ["stage", "rule"]);
+  assert.match(diagnostic.stage, /^verification-/u);
+  assert.match(diagnostic.rule, /^pass-/u);
+  assert.ok(Buffer.byteLength(diagnostic.stage, "utf8") <= 128);
+  assert.ok(Buffer.byteLength(diagnostic.rule, "utf8") <= 128);
+  assert.equal(Object.hasOwn(diagnostic, "provider_output"), false);
+  assert.equal(boundedFailureDiagnostic({ provider_output: "ignored" }), null);
 });

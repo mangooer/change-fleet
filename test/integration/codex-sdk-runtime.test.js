@@ -223,14 +223,16 @@ describe("Codex SDK Runtime protocol", () => {
     const finalResponse = JSON.stringify({
       type: "verification_completed",
       review_depth: "deep_review",
-      verdict: "pass_with_notes",
       summary: "The exact diff satisfies the confirmed contract.",
-      findings: [],
-      notes: [
-        { note_id: "note-1", message: "Another host remains unverified." },
-      ],
-      human_decision: null,
-      requested_checks: [],
+      assessment: {
+        verdict: "pass_with_notes",
+        findings: [],
+        notes: [
+          { note_id: "note-1", message: "Another host remains unverified." },
+        ],
+        human_decision: null,
+        requested_checks: [],
+      },
     });
     const runtime = new CodexSdkRuntime({
       ...RUNTIME_OPTIONS,
@@ -255,8 +257,56 @@ describe("Codex SDK Runtime protocol", () => {
     assert.equal(result.outcome.verdict, "pass_with_notes");
     assert.equal(threadOptions[0].sandboxMode, "read-only");
     assert.equal(turnOptions[0].outputSchema.additionalProperties, false);
+    assert.equal(turnOptions[0].outputSchema.required.includes("assessment"), true);
+    assert.equal(
+      turnOptions[0].outputSchema.properties.assessment.anyOf.length,
+      4,
+    );
     assert.match(prompts[0], /Do not edit files, change Git state/u);
-    assert.match(prompts[0], /optional refactoring may only be non-blocking notes/u);
+    assert.match(prompts[0], /Every item in findings is blocking/u);
+    assert.match(prompts[0], /scheduled_later_checks are controller-owned future gates/u);
+  });
+
+  test("rejects a passing verification assessment that carries blocking findings", async () => {
+    const finalResponse = JSON.stringify({
+      type: "verification_completed",
+      review_depth: "deep_review",
+      summary: "The candidate passes, with one positive observation.",
+      assessment: {
+        verdict: "pass_with_notes",
+        findings: [
+          {
+            finding_id: "positive-observation",
+            category: "correctness",
+            message: "The changed path is correct.",
+            path: "src/a.js",
+          },
+        ],
+        notes: [
+          { note_id: "note-1", message: "Another host remains unverified." },
+        ],
+        human_decision: null,
+        requested_checks: [],
+      },
+    });
+    const runtime = new CodexSdkRuntime({
+      ...RUNTIME_OPTIONS,
+      codexFactory() {
+        return {
+          startThread() {
+            return {
+              async runStreamed() {
+                return { events: providerEvents(finalResponse) };
+              },
+            };
+          },
+        };
+      },
+    });
+
+    await assert.rejects(runtime.invoke(verificationInvocation(process.cwd())), {
+      code: "CODEX_RUNTIME_OUTPUT_INVALID",
+    });
   });
 
   test("runs feedback-triggered execution with writable capability and explicit assessments", async () => {
@@ -549,6 +599,13 @@ function verificationInvocation(repositoryPath) {
           base_sha: "a".repeat(40),
           candidate_sha: "b".repeat(40),
         },
+        scheduled_later_checks: [
+          {
+            stage: "candidate_bundle_assembly",
+            status: "scheduled",
+            check: { command_id: "combined-check" },
+          },
+        ],
       },
     },
     capabilities: {

@@ -263,7 +263,14 @@ describe("independent verification outcomes", () => {
           },
           { projectPolicy: {}, existingCommandIds: [] },
         ),
-      { code: "INVALID_VERIFICATION_OUTCOME" },
+      (error) => {
+        assert.equal(error.code, "INVALID_VERIFICATION_OUTCOME");
+        assert.deepEqual(error.details, {
+          stage: "verification_outcome_normalization",
+          rule: "field_normalization",
+        });
+        return true;
+      },
     );
     assert.throws(
       () =>
@@ -287,7 +294,14 @@ describe("independent verification outcomes", () => {
           },
           { projectPolicy: {}, existingCommandIds: [] },
         ),
-      { code: "INVALID_VERIFICATION_OUTCOME" },
+      (error) => {
+        assert.equal(error.code, "INVALID_VERIFICATION_OUTCOME");
+        assert.deepEqual(error.details, {
+          stage: "verification_outcome_normalization",
+          rule: "pass_requires_empty_findings_notes_and_decision",
+        });
+        return true;
+      },
     );
   });
 

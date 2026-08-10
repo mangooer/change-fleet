@@ -4,6 +4,7 @@ import path from "node:path";
 import { describe, test } from "node:test";
 
 import { ChangeFleetService } from "../../src/application/change-fleet-service.js";
+import { RuntimeAuditQueryService } from "../../src/application/runtime-audit-query-service.js";
 import { ChangeFleetError } from "../../src/domain/errors.js";
 import {
   createFixtureRoot,
@@ -230,6 +231,70 @@ describe("post-Provider Candidate finalization recovery", () => {
       ).length,
       1,
     );
+    const verificationInvocation = runtime.invocations.find(
+      (invocation) => invocation.operation === "verification",
+    );
+    assert.deepEqual(
+      verificationInvocation.context_projection.verification.scheduled_later_checks,
+      [
+        {
+          stage: "candidate_bundle_assembly",
+          status: "scheduled",
+          check: fixture.plan.combined_check,
+        },
+      ],
+    );
+  });
+
+  test("persists one bounded rule when verification normalization rejects an outcome", async (t) => {
+    const fixture = await createFixture(t, "verification-normalization-rule");
+    const runtime = new ScriptedRuntime({
+      plan: fixture.plan,
+      verificationOutcome: {
+        type: "verification_completed",
+        review_depth: "deep_review",
+        verdict: "pass_with_notes",
+        summary: "The candidate passes with one positive observation.",
+        findings: [
+          {
+            finding_id: "positive-observation",
+            category: "correctness",
+            message: "The changed path is correct.",
+            path: "feature.txt",
+          },
+        ],
+        notes: [
+          { note_id: "host-note", message: "Another host remains unverified." },
+        ],
+        human_decision: null,
+        requested_checks: [],
+      },
+    });
+    const service = await bootstrap(fixture, runtime);
+
+    await assert.rejects(
+      service.executeChangeSet({
+        idempotency_key: "execute-invalid-verification",
+        change_set_id: "change-1",
+        verification_admission_mode: "independent_review",
+      }),
+      { code: "INVALID_VERIFICATION_OUTCOME" },
+    );
+    const state = await service.readChangeSet("change-1");
+    const runId = state.work_units[0].run_references.at(-1).run_id;
+    const run = await service.runStore.read(runId);
+    assert.deepEqual(run.outcome.diagnostic, {
+      stage: "verification_outcome_normalization",
+      rule: "pass_with_notes_requires_notes_without_findings_or_decision",
+    });
+    assert.equal(Object.hasOwn(run.outcome.diagnostic, "provider_output"), false);
+
+    const audit = await new RuntimeAuditQueryService({
+      controlStore: service.controlStore,
+      runStore: service.runStore,
+      evidenceStore: service.evidenceStore,
+    }).getRunAudit(runId);
+    assert.deepEqual(audit.payload.outcome.diagnostic, run.outcome.diagnostic);
   });
 
   test("executes every additional check requested by one deep-review Run", async (t) => {
