@@ -11,18 +11,17 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
   operation-specific repair states with coarse phases, generic Runs, Feedback, Gates, and one
   recovery path; abandoned attempts remain audit history.
 - This history adds completed WI-0022 through
-  [WI-0029](work-items/WI-0029-bundle-review-orchestration-boundary.md): private compatibility debt
-  is removed and Proposal 0026's internal split is complete. WorkItems and Git retain slice-level
-  evidence; landing this exact history requires no Harness-status follow-up.
+  [WI-0030](work-items/WI-0030-verification-contract-and-staged-evidence-reliability.md): private
+  compatibility debt is removed, Proposal 0026's internal split is complete, and verification
+  verdicts match their strict Runtime contract. WorkItems and Git retain slice-level evidence.
 - Agent Runtimes own semantic work. ChangeFleet owns cross-repository authorization, revisions,
   scheduling, exact Git and Bundle subjects, evidence, recovery, and human gates.
 
 ## Branch-Local Work
 
-- Completed [WI-0030](work-items/WI-0030-verification-contract-and-staged-evidence-reliability.md)
-  makes verdict-specific Runtime output structural, distinguishes completed Candidate evidence
-  from the combined check scheduled before Bundle assembly, and preserves only bounded
-  normalization-failure diagnostics. It adds no lifecycle or authority state.
+- Completed [WI-0031](work-items/WI-0031-controller-restart-execution-retry-and-gate-occurrence.md)
+  repairs clean exact execution retry after controller restart and prevents a resolved Gate from
+  suppressing a later occurrence of the same bounded request. It adds no lifecycle state.
 
 ## Accepted Product Direction
 
@@ -107,8 +106,8 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 
 ## Next Recommended Task
 
-After WI-0030 lands, repair the independently observed controller-restart execution retry and
-resolved-Gate identity defect. Preserve the completed alternative-AgentProfile trial as audit
+After WI-0031 lands, run one bounded alternative-AgentProfile ChangeSet from the corrected exact
+base to prove the autonomous route through Bundle review. Preserve the earlier trial as audit
 evidence; normalized scoring and automatic model routing remain deferred.
 
 ## Maintenance Contract

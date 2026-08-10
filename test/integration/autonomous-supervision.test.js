@@ -655,6 +655,105 @@ describe("Plan-confirmed autonomous supervision", () => {
     );
   });
 
+  test("opens a new Gate occurrence when a resolved supervision request recurs", async (t) => {
+    const fixture = await createAutonomousFixture(
+      t,
+      "changefleet-auto-repeat-gate-",
+    );
+    fixture.runtime.failRepository = "api";
+    fixture.runtime.failCode = "CODEX_PROVIDER_FAILED";
+    fixture.runtime.supervisionActionType = "open_gate";
+    await confirmAutonomousPlan(fixture.service, fixture.changeSetId);
+
+    let state = await fixture.service.readChangeSet(fixture.changeSetId);
+    const firstGate = state.gates.find((gate) => gate.status === "open");
+    await fixture.service.resolveGate({
+      idempotency_key: "resolve-first-gate",
+      change_set_id: fixture.changeSetId,
+      gate_id: firstGate.gate_id,
+      option: "resume",
+    });
+
+    const resumed = await fixture.service.resumeSupervision({
+      idempotency_key: "resume-after-first-gate",
+      change_set_id: fixture.changeSetId,
+    });
+
+    assert.equal(resumed.stop_reason, "execution_failure_requires_routing");
+    state = await fixture.service.readChangeSet(fixture.changeSetId);
+    assert.equal(state.gates.length, 2);
+    assert.equal(state.gates[0].status, "resolved");
+    assert.equal(state.gates[1].status, "open");
+    assert.notEqual(state.gates[0].gate_id, state.gates[1].gate_id);
+    assert.equal(
+      state.gates[0].supervision_action_id,
+      state.gates[1].supervision_action_id,
+    );
+    assert.notEqual(
+      state.supervision_control.last_stop_reason,
+      "controller_dispatch_limit_reached",
+    );
+  });
+
+  test("retries one clean interrupted execution after controller restart", async (t) => {
+    const fixture = await createAutonomousFixture(
+      t,
+      "changefleet-auto-execution-recovery-",
+      {
+        runtimeFactory: (plan) =>
+          new ScriptedRuntime({ plan, interruptRepository: "api" }),
+      },
+    );
+
+    await assert.rejects(
+      confirmAutonomousPlan(fixture.service, fixture.changeSetId),
+      { code: "CONTROLLER_INTERRUPTED" },
+    );
+    const interrupted = await fixture.service.readChangeSet(
+      fixture.changeSetId,
+    );
+    const interruptedUnit = interrupted.work_units.find(
+      (unit) => unit.disposition === "current",
+    );
+    assert.equal(interruptedUnit.run_references[0].status, "running");
+
+    const resumedRuntime = new ScriptedRuntime({ plan: fixture.plan });
+    const reopened = await ChangeFleetService.open({
+      controlRoot: path.join(fixture.root, "control"),
+      workspaceRoot: path.join(fixture.root, "workspaces"),
+      runtime: resumedRuntime,
+      agentProfile: TEST_AGENT_PROFILE,
+    });
+    const result = await reopened.startSupervision({
+      idempotency_key: "resume-interrupted-execution",
+      change_set_id: fixture.changeSetId,
+    });
+
+    assert.equal(result.status, "review_ready");
+    const recovered = await reopened.readChangeSet(fixture.changeSetId);
+    const recoveredUnit = recovered.work_units.find(
+      (unit) => unit.disposition === "current",
+    );
+    assert.deepEqual(
+      recoveredUnit.run_references.map((reference) => reference.status),
+      ["interrupted", "completed"],
+    );
+    assert.equal(
+      recovered.decisions.some(
+        (decision) =>
+          decision.type === "provider_retry" &&
+          decision.reason_code === "RUN_INTERRUPTED_AFTER_RESTART",
+      ),
+      true,
+    );
+    assert.equal(
+      resumedRuntime.invocations.filter(
+        (invocation) => invocation.operation === "execution",
+      ).length,
+      1,
+    );
+  });
+
   test("stops after an explicit operator interruption instead of retrying it automatically", async (t) => {
     const fixture = await createAutonomousFixture(
       t,

@@ -33,12 +33,18 @@ const RETRYABLE_EXECUTION_CODES = new Set([
   "CODEX_CREDENTIALS_UNAVAILABLE",
   "CODEX_PROVIDER_FAILED",
   "CODEX_RUNTIME_OUTPUT_INVALID",
+  "RUN_INTERRUPTED_AFTER_RESTART",
   "RUNTIME_CANCELLED",
   "RUNTIME_INTERRUPTED",
   "RUNTIME_IMPLEMENTATION_BLOCKED",
   "UNEXPECTED_RUNTIME_OUTCOME",
   "EMPTY_IMPLEMENTATION_RESULT",
 ]);
+
+// 重试资格是一个领域规则；监督动作和确定性预检必须读取同一来源，避免恢复错误码漂移。
+export function executionFailureIsRetryable(code) {
+  return RETRYABLE_EXECUTION_CODES.has(code);
+}
 
 // Project 只给出自动运行的上限；省略策略时保持人工模式，绝不因迁移或升级静默启动 Agent。
 export function normalizeSupervisionPolicy(input = null) {
@@ -323,7 +329,7 @@ export function deriveSupervisionActionSet(changeSet, { now }) {
     const actions = [];
     if (
       !budget.execution.exhausted &&
-      RETRYABLE_EXECUTION_CODES.has(failedExecution.last_error.code)
+      executionFailureIsRetryable(failedExecution.last_error.code)
     ) {
       actions.push(
         envelope("retry_execution", subject, {

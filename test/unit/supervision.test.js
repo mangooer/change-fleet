@@ -163,6 +163,33 @@ describe("deterministic supervision authority", () => {
     );
   });
 
+  test("offers the bounded retry route after controller-restart execution recovery", () => {
+    const state = createState();
+    const unit = state.work_units[0];
+    unit.run_references = [
+      {
+        run_id: "run-interrupted",
+        operation: "execution",
+        trigger: "initial",
+        status: "interrupted",
+      },
+    ];
+    unit.last_error = {
+      code: "RUN_INTERRUPTED_AFTER_RESTART",
+      run_id: "run-interrupted",
+    };
+
+    const actions = deriveSupervisionActionSet(state, {
+      now: "2026-08-07T00:00:02.000Z",
+    });
+
+    assert.equal(actionRequiresSupervisor(actions), true);
+    assert.deepEqual(
+      actions.actions.map((action) => action.type),
+      ["retry_execution", "open_gate"],
+    );
+  });
+
   test("opens one forced Gate when exact combined-validation attempts exhaust the Plan budget", () => {
     const state = createState();
     state.work_units[0].phase = "complete";

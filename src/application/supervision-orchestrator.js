@@ -613,9 +613,13 @@ export class SupervisionOrchestrator {
   async openSupervisionGate(changeSetId, action) {
     return this.controlStore.transactChangeSet(changeSetId, (state) => {
       const existing = state.gates.find(
-        (gate) => gate.supervision_action_id === action.action_id,
+        (gate) =>
+          gate.status === "open" &&
+          gate.supervision_action_id === action.action_id,
       );
       if (existing) return structuredClone(existing);
+      // action_id 约束控制事实而不是一次人类交互；历史 Gate 已解决后，相同事实再次
+      // 升级必须创建新的开放 Gate，不能用旧记录吞掉本次等待边界。
       const createdAt = this.now();
       const bundleReviewFailure =
         action.details.reason === "bundle_review_budget_exhausted";

@@ -75,6 +75,7 @@ import {
   supersedeWorkUnit,
 } from "../domain/lifecycle.js";
 import {
+  executionFailureIsRetryable,
   normalizeSupervisionPolicy,
 } from "../domain/supervision.js";
 import {
@@ -3378,17 +3379,6 @@ async function cleanupBundleReviewResources(repositoryWorker, resources) {
   if (firstError) throw firstError;
 }
 
-const RETRYABLE_PRE_CANDIDATE_CODES = new Set([
-  "CODEX_CREDENTIALS_UNAVAILABLE",
-  "CODEX_PROVIDER_FAILED",
-  "CODEX_RUNTIME_OUTPUT_INVALID",
-  "RUNTIME_CANCELLED",
-  "RUNTIME_INTERRUPTED",
-  "RUNTIME_IMPLEMENTATION_BLOCKED",
-  "UNEXPECTED_RUNTIME_OUTCOME",
-  "EMPTY_IMPLEMENTATION_RESULT",
-]);
-
 function retryableExecutionUnits(state) {
   return unitsForCurrentPlan(state).filter(
     (unit) => retryableExecutionReason(state, unit) !== null,
@@ -3400,7 +3390,7 @@ function retryableExecutionReason(state, unit) {
   if (
     unit.phase === "execution" &&
     unit.candidate_checkpoint_id === null &&
-    RETRYABLE_PRE_CANDIDATE_CODES.has(unit.last_error?.code)
+    executionFailureIsRetryable(unit.last_error?.code)
   ) {
     return {
       reason_code: unit.last_error.code,
