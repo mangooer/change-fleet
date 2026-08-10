@@ -1,7 +1,7 @@
 ---
 artifact_type: development_work_item
 id: WI-0033
-status: in_progress
+status: done
 title: Generic Repository Harness completeness review
 source: User-confirmed follow-up after landing WI-0032
 confirmed_by: user
@@ -72,10 +72,11 @@ completeness obligation precisely enough.
 ## Current Projection
 
 - Current subject: branch `codex/wi-0033-repository-harness-completeness` from `main` at `aa930c9`.
-- Last verified state: prompt implementation and deterministic gates pass; the required bounded
-  real self-iteration remains pending.
-- Next step: commit this exact in-progress baseline and let the real ChangeSet independently review,
-  correct if necessary, and complete the repository-native Harness in its Candidate.
+- Last verified state: implementation and deterministic gates pass. The bounded real trial reached
+  Bundle review, exposed one missed repository-format defect, and then stopped safely after an
+  operator-interrupted Feedback Run exhausted the confirmed execution budget.
+- Next step: adopt this completed slice independently of its unaccepted trial Candidate. A later
+  confirmed slice may tighten exact repository-contract review without teaching Core any format.
 
 ## Implementation Evidence
 
@@ -89,10 +90,24 @@ completeness obligation precisely enough.
 - `npx --yes node@24 --test --test-concurrency=1 test/integration/repository-harness-overlay.test.js`
   exited 0 in 51.8 seconds: 8 real-Git Harness scenarios passed, covering frozen discovery,
   operation access, restart, mutation rejection, cleanup, and Candidate exclusion.
-- The bounded real self-iteration and final `git diff --check` remain pending at this baseline.
+- The real ChangeSet `wi-0033-real-self-iteration` ran from exact base `1265880a6630af19ec29554272ccc6055d84a195`.
+  Its first execution produced Candidate `7af7efc753adb63a3370d246f2004992b7fd6270`; repository
+  validation and independent verification passed, and Bundle review recommended passage.
+- Human audit correctly rejected Bundle revision 1: the Candidate used unsupported WorkItem status
+  `completed` instead of repository-defined `done`, and its next-task projection would become stale
+  after external review. This proves the generic completeness prompt induced tracked Harness
+  maintenance but did not make semantic reviewers validate every exact repository format.
+- One bounded `request_revision` recorded both findings. The Feedback execution was interrupted by
+  the controller process ending after 12.3 seconds; the confirmed `2/2` execution budget then
+  stopped supervision with `execution_failure_requires_routing`. No replacement Candidate or
+  Bundle was fabricated or accepted.
+- Before Feedback, five completed Provider Runs reported 1,104,085 aggregate tokens and 605,557 ms
+  of Provider duration. The linked Control Store retains exact Run, usage, validation, review,
+  decision, and interruption evidence outside repository Harness context.
+- Final branch-local `git diff --check` exited 0 after the completion projection update.
 
 ## Project Memory Impact
 
-This is a confirmed corrective slice inside the accepted boundary that repository-native Harness
-is Agent semantic input rather than ChangeFleet Core authority. Local `main` includes WI-0032 at
-`aa930c9`; canonical remote state remains separate until explicitly pushed.
+This completed corrective slice preserves repository-native Harness as Agent semantic input rather
+than ChangeFleet Core authority. The unaccepted real-trial Bundle remains external audit evidence;
+it is not repository authority and is not merged into this branch.

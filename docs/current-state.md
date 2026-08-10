@@ -7,24 +7,18 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 
 ## Current Baseline
 
-- Commit `20b2b9c` is the accepted baseline through WI-0021. Decision 0025 replaces
-  operation-specific repair states with coarse phases, generic Runs, Feedback, Gates, and one
-  recovery path; abandoned attempts remain audit history.
-- This history adds completed WI-0022 through
-  [WI-0032](work-items/WI-0032-path-safe-review-workspaces-and-checkout-diagnostics.md): private
+- This history includes completed WI-0022 through
+  [WI-0033](work-items/WI-0033-generic-repository-harness-completeness-review.md): private
   compatibility debt is removed, Proposal 0026's internal split is complete, verification verdicts
   match their strict Runtime contract, exact clean execution retry survives controller restart, and
-  disposable Bundle-review worktrees use path-safe physical identities. WorkItems and Git retain
-  slice-level evidence.
+  disposable reviews use path-safe identities. Agents now receive a generic obligation to complete
+  and review applicable repository-native delivery maintenance without Core parsing its format.
 - Agent Runtimes own semantic work. ChangeFleet owns cross-repository authorization, revisions,
   scheduling, exact Git and Bundle subjects, evidence, recovery, and human gates.
 
 ## Branch-Local Work
 
-- In-progress [WI-0033](work-items/WI-0033-generic-repository-harness-completeness-review.md) has
-  implemented and deterministically tested the generic Agent obligation to satisfy and review
-  applicable repository-native delivery maintenance. Its bounded real self-iteration remains the
-  completion gate; Core remains unaware of project-specific Harness formats and statuses.
+- None after WI-0033 adoption; unlanded real-trial Candidates are audit artifacts, not authority.
 
 ## Accepted Product Direction
 
@@ -104,14 +98,15 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
   still advances exact eligible units serially.
 - Runtime Kit, Codex App Server, another Provider, Linear, pricing, dashboards, and continuous
   context enforcement are deferred.
-- WI-0022's real Codex gate is unverified: account capacity rejected planning; SDK protocol tests
-  pass.
+- WI-0033's real trial reached Bundle review but both semantic reviewers missed an invalid
+  repository-defined status. Human Feedback was recorded; an operator-interrupted correction then
+  exhausted its exact execution budget and stopped without an accepted replacement Candidate.
 
 ## Next Recommended Task
 
-Complete WI-0033 and run one bounded real self-iteration ChangeSet from its exact committed base.
-Preserve the earlier trial and its unaccepted Bundle as audit evidence; do not begin scoring or
-automatic model routing until the quality route is proven complete.
+Discuss one narrow follow-up for exact repository-native contract checking during semantic review.
+Keep format knowledge with the Agent and frozen repository instructions, not Core; separately test
+the normal long-running CLI invocation path before attributing operator interruption to Runtime.
 
 ## Maintenance Contract
 
