@@ -11,17 +11,18 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
   operation-specific repair states with coarse phases, generic Runs, Feedback, Gates, and one
   recovery path; abandoned attempts remain audit history.
 - This history adds completed WI-0022 through
-  [WI-0030](work-items/WI-0030-verification-contract-and-staged-evidence-reliability.md): private
-  compatibility debt is removed, Proposal 0026's internal split is complete, and verification
-  verdicts match their strict Runtime contract. WorkItems and Git retain slice-level evidence.
+  [WI-0031](work-items/WI-0031-controller-restart-execution-retry-and-gate-occurrence.md): private
+  compatibility debt is removed, Proposal 0026's internal split is complete, verification verdicts
+  match their strict Runtime contract, and exact clean execution retry survives controller restart.
+  WorkItems and Git retain slice-level evidence.
 - Agent Runtimes own semantic work. ChangeFleet owns cross-repository authorization, revisions,
   scheduling, exact Git and Bundle subjects, evidence, recovery, and human gates.
 
 ## Branch-Local Work
 
-- Completed [WI-0031](work-items/WI-0031-controller-restart-execution-retry-and-gate-occurrence.md)
-  repairs clean exact execution retry after controller restart and prevents a resolved Gate from
-  suppressing a later occurrence of the same bounded request. It adds no lifecycle state.
+- Completed [WI-0032](work-items/WI-0032-path-safe-review-workspaces-and-checkout-diagnostics.md)
+  gives disposable Bundle-review worktrees short deterministic physical paths while preserving
+  logical identity and stable checkout-failure diagnostics. It adds no lifecycle state.
 
 ## Accepted Product Direction
 
@@ -106,9 +107,10 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 
 ## Next Recommended Task
 
-After WI-0031 lands, run one bounded alternative-AgentProfile ChangeSet from the corrected exact
-base to prove the autonomous route through Bundle review. Preserve the earlier trial as audit
-evidence; normalized scoring and automatic model routing remain deferred.
+After WI-0032 lands, address the separate generic Agent obligation to assess repository-native
+Harness completeness without teaching Core any project-specific artifact format. Then rerun one
+bounded real ChangeSet from the corrected exact base; preserve the earlier trial and its unaccepted
+Bundle as audit evidence.
 
 ## Maintenance Contract
 

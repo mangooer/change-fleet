@@ -101,6 +101,14 @@ test("independent verification diagnostics preserve stable codes", () => {
     "Read-only independent verification modified its temporary workspace.",
   );
   assert.equal(
+    diagnosticMessage("WORKSPACE_CHECKOUT_FAILED"),
+    "无法准备临时 Git 工作区。",
+  );
+  assert.equal(
+    diagnosticMessage("WORKSPACE_CHECKOUT_FAILED", { locale: "en" }),
+    "The temporary Git workspace could not be prepared.",
+  );
+  assert.equal(
     diagnosticMessage("FEEDBACK_EXECUTION_CHANGED_PATHS_MISMATCH", { locale: "en" }),
     "A no-change feedback execution incorrectly reported changed paths.",
   );

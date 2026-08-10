@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { stat, writeFile } from "node:fs/promises";
+import { mkdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, test } from "node:test";
 
@@ -9,6 +9,7 @@ import { ChangeFleetError } from "../../src/domain/errors.js";
 import {
   createFixtureRoot,
   createGitRepository,
+  git,
   writeCombinedCheckScript,
 } from "../support/git-fixture.js";
 import {
@@ -108,6 +109,86 @@ describe("Plan-confirmed autonomous supervision", () => {
         (row) => row.identity.operation === "review",
       ),
       true,
+    );
+  });
+
+  test("completes Bundle review when its former workspace path would exceed the Windows boundary", async (t) => {
+    const longRelativePath = path.join(
+      `component-${"a".repeat(44)}`,
+      `implementation-${"b".repeat(42)}.txt`,
+    );
+    let runNumber = 0;
+    let otherNumber = 0;
+    const fixture = await createAutonomousFixture(
+      t,
+      "changefleet-auto-review-long-path-",
+      {
+        bundleReviewMode: "independent",
+        longTrackedRelativePath: longRelativePath,
+        idFactory: (prefix) => {
+          if (prefix === "run") {
+            runNumber += 1;
+            return runNumber === 3
+              ? `run-${"r".repeat(120)}`
+              : `run-${runNumber}`;
+          }
+          otherNumber += 1;
+          return `${prefix}-${otherNumber}`;
+        },
+      },
+    );
+
+    const result = await confirmAutonomousPlan(
+      fixture.service,
+      fixture.changeSetId,
+    );
+
+    assert.equal(result.supervision.status, "review_ready");
+    const state = await fixture.service.readChangeSet(fixture.changeSetId);
+    const reviewReference = state.run_references.find(
+      (reference) => reference.operation === "review",
+    );
+    const reviewRun = await fixture.service.runStore.read(reviewReference.run_id);
+    const workspace = reviewRun.review_workspaces[0];
+    const formerPhysicalPath = path.resolve(
+      fixture.workspaceRoot,
+      "_verification",
+      workspace.repository_id,
+      workspace.workspace_id,
+    );
+    assert.ok(path.join(formerPhysicalPath, longRelativePath).length > 260);
+    assert.match(path.basename(workspace.workspace_path), /^br-[a-f0-9]{24}$/u);
+    assert.equal(workspace.workspace_path.includes(workspace.workspace_id), false);
+    assert.equal(await stat(workspace.workspace_path).catch(() => null), null);
+  });
+
+  test("reports a stable supervision stop when Bundle-review checkout cannot be prepared", async (t) => {
+    const fixture = await createAutonomousFixture(
+      t,
+      "changefleet-auto-review-checkout-failure-",
+      { bundleReviewMode: "independent" },
+    );
+    await mkdir(fixture.workspaceRoot, { recursive: true });
+    await writeFile(
+      path.join(fixture.workspaceRoot, "_review"),
+      "path conflict\n",
+      "utf8",
+    );
+
+    const result = await confirmAutonomousPlan(
+      fixture.service,
+      fixture.changeSetId,
+    );
+
+    assert.equal(result.supervision.status, "stopped");
+    assert.equal(
+      result.supervision.stop_reason,
+      "action_failed:WORKSPACE_CHECKOUT_FAILED",
+    );
+    const state = await fixture.service.readChangeSet(fixture.changeSetId);
+    assert.equal(
+      state.run_references.some((reference) => reference.operation === "review"),
+      false,
     );
   });
 
@@ -870,10 +951,19 @@ async function createAutonomousFixture(
     bundleReviewOutcomes = null,
     feedbackFileContent = null,
     supervisionMode = "autonomous_until_review",
+    idFactory = undefined,
+    longTrackedRelativePath = null,
   } = {},
 ) {
   const root = await createFixtureRoot(t, prefix);
   const repository = await createGitRepository(root, "api");
+  if (longTrackedRelativePath !== null) {
+    const trackedPath = path.join(repository.path, longTrackedRelativePath);
+    await mkdir(path.dirname(trackedPath), { recursive: true });
+    await writeFile(trackedPath, "long tracked review fixture\n", "utf8");
+    await git(repository.path, ["add", "-A"]);
+    await git(repository.path, ["commit", "-m", "add long tracked path"]);
+  }
   const combinedScript = await writeCombinedCheckScript(root, 1);
   const plan = createOneRepositoryPlan(combinedScript);
   plan.supervision.mode = supervisionMode;
@@ -943,12 +1033,14 @@ async function createAutonomousFixture(
         }
       : null,
   });
+  const workspaceRoot = path.join(root, "workspaces");
   const service = await ChangeFleetService.open({
     controlRoot: path.join(root, "control"),
-    workspaceRoot: path.join(root, "workspaces"),
+    workspaceRoot,
     runtime,
     supervisionRuntime: supervisionRuntime ?? runtime,
     agentProfile: TEST_AGENT_PROFILE,
+    idFactory,
   });
   await service.registerProject({
     idempotency_key: "register",
@@ -982,7 +1074,15 @@ async function createAutonomousFixture(
     project_id: "project",
     intent: { objective: "Implement the exact autonomous fixture" },
   });
-  return { root, repository, plan, runtime, service, changeSetId };
+  return {
+    root,
+    workspaceRoot,
+    repository,
+    plan,
+    runtime,
+    service,
+    changeSetId,
+  };
 }
 
 async function confirmAutonomousPlan(service, changeSetId) {

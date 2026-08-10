@@ -5,6 +5,7 @@ import {
   mkdir,
   readFile,
   realpath,
+  rm,
   rmdir,
   stat,
   unlink,
@@ -13,7 +14,12 @@ import {
 import path from "node:path";
 import { promisify } from "node:util";
 
-import { ChangeFleetError, invariant } from "../../domain/errors.js";
+import { stableId } from "../../domain/canonical-json.js";
+import {
+  ChangeFleetError,
+  invariant,
+  preserveSecondaryFailure,
+} from "../../domain/errors.js";
 import { normalizeId } from "../../domain/model.js";
 import {
   HARNESS_POLICY_SELECTORS,
@@ -533,19 +539,59 @@ export class RepositoryWorker {
     harnessBaseSha = candidateSha,
     workspaceId,
   }) {
-    // 独立验证使用 Candidate commit 的一次性 detached worktree，绝不复用执行 Agent 的工作区。
     normalizeId("workspace_id", workspaceId);
     const workspacePath = this.verificationWorkspacePath(
       repository.repository_id,
       workspaceId,
     );
+    return this.prepareReadOnlyCandidateWorkspace({
+      repository,
+      candidateSha,
+      harnessBaseSha,
+      workspaceId,
+      workspacePath,
+      label: "Verification workspace",
+    });
+  }
+
+  async prepareBundleReviewWorkspace({
+    repository,
+    candidateSha,
+    harnessBaseSha = candidateSha,
+    workspaceId,
+  }) {
+    // 审查记录保留完整逻辑 ID；宿主机目录只使用稳定短摘要，避免逻辑名称和仓库路径叠加放大。
+    normalizeId("workspace_id", workspaceId);
+    const workspacePath = this.bundleReviewWorkspacePath(
+      repository.repository_id,
+      workspaceId,
+    );
+    return this.prepareReadOnlyCandidateWorkspace({
+      repository,
+      candidateSha,
+      harnessBaseSha,
+      workspaceId,
+      workspacePath,
+      label: "Bundle review workspace",
+    });
+  }
+
+  async prepareReadOnlyCandidateWorkspace({
+    repository,
+    candidateSha,
+    harnessBaseSha,
+    workspaceId,
+    workspacePath,
+    label,
+  }) {
+    // 独立验证与 Bundle 审查共用精确 Candidate、只读预检和清理契约，仅物理路径策略不同。
     await assertCommitExists(repository.resolved_git_root, candidateSha);
 
     await this.prepareDetachedWorktree({
       repository,
       workspacePath,
       commitSha: candidateSha,
-      label: "Verification workspace",
+      label,
     });
 
     const workspace = {
@@ -894,15 +940,41 @@ export class RepositoryWorker {
   async prepareDetachedWorktree({ repository, workspacePath, commitSha, label }) {
     const workspaceStat = await statIfExists(workspacePath);
     if (!workspaceStat) {
-      await mkdir(path.dirname(workspacePath), { recursive: true });
-      await git(repository.resolved_git_root, ["worktree", "prune"]);
-      await git(repository.resolved_git_root, [
-        "worktree",
-        "add",
-        "--detach",
-        workspacePath,
-        commitSha,
-      ]);
+      try {
+        await mkdir(path.dirname(workspacePath), { recursive: true });
+      } catch (error) {
+        throw workspaceCheckoutError(error, label, "create_parent_directory");
+      }
+      try {
+        await git(repository.resolved_git_root, ["worktree", "prune"]);
+      } catch (error) {
+        throw workspaceCheckoutError(error, label, "prune_stale_worktrees");
+      }
+      try {
+        await git(repository.resolved_git_root, [
+          "worktree",
+          "add",
+          "--detach",
+          workspacePath,
+          commitSha,
+        ]);
+      } catch (error) {
+        const primary = workspaceCheckoutError(
+          error,
+          label,
+          "checkout_exact_commit",
+        );
+        // 失败的 Git checkout 可能已经留下半成品目录或 worktree 元数据；清理失败只作为次级诊断。
+        await preserveSecondaryFailure(
+          primary,
+          "workspace_checkout_cleanup",
+          async () => {
+            await rm(workspacePath, { recursive: true, force: true });
+            await git(repository.resolved_git_root, ["worktree", "prune"]);
+          },
+        );
+        throw primary;
+      }
     } else {
       invariant(
         workspaceStat.isDirectory(),
@@ -959,6 +1031,19 @@ export class RepositoryWorker {
       repositoryId,
       workspaceId,
     );
+    this.assertContainedWorkspace(candidate);
+    return candidate;
+  }
+
+  bundleReviewWorkspacePath(repositoryId, workspaceId) {
+    normalizeId("repository_id", repositoryId);
+    normalizeId("workspace_id", workspaceId);
+    const physicalId = stableId(
+      "br",
+      { repository_id: repositoryId, workspace_id: workspaceId },
+      24,
+    );
+    const candidate = path.resolve(this.workspaceRoot, "_review", physicalId);
     this.assertContainedWorkspace(candidate);
     return candidate;
   }
@@ -1427,13 +1512,23 @@ function redactRemoteCredentials(value) {
   }
 }
 
-function gitBoundaryError(error, code, message) {
+function gitBoundaryError(error, code, message, diagnostic = {}) {
   if (error instanceof ChangeFleetError) return error;
   const wrapped = new ChangeFleetError(code, message, {
+    ...diagnostic,
     cwd: error.git_cwd,
     arguments: error.git_arguments,
     stderr: error.stderr?.trim(),
   });
   wrapped.cause = error;
   return wrapped;
+}
+
+function workspaceCheckoutError(error, label, rule) {
+  return gitBoundaryError(
+    error,
+    "WORKSPACE_CHECKOUT_FAILED",
+    `${label} checkout could not be prepared`,
+    { stage: "workspace_preparation", rule },
+  );
 }

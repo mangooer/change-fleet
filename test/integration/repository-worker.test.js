@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, test } from "node:test";
 
@@ -167,6 +167,105 @@ describe("RepositoryWorker", () => {
     await assert.rejects(
       worker.assertWorkspaceOwnership(first, workspace.workspace_path),
       { code: "FOREIGN_WORKSPACE" },
+    );
+  });
+
+  test("keeps Bundle-review identity logical while using a short deterministic physical path", async (t) => {
+    const root = await createFixtureRoot(t, "changefleet-review-path-");
+    const repositoryFixture = await createGitRepository(root, "api");
+    const longRelativePath = path.join(
+      `component-${"a".repeat(44)}`,
+      `implementation-${"b".repeat(42)}.txt`,
+    );
+    await mkdir(path.dirname(path.join(repositoryFixture.path, longRelativePath)), {
+      recursive: true,
+    });
+    await writeFile(
+      path.join(repositoryFixture.path, longRelativePath),
+      "long tracked review fixture\n",
+      "utf8",
+    );
+    await git(repositoryFixture.path, ["add", "-A"]);
+    await git(repositoryFixture.path, ["commit", "-m", "add long tracked path"]);
+
+    const workspaceRoot = path.join(root, "workspaces");
+    const worker = new RepositoryWorker({ workspaceRoot });
+    const repository = await worker.inspectRegistration({
+      repositoryId: "api",
+      locator: repositoryFixture.path,
+    });
+    const candidateSha = (
+      await git(repositoryFixture.path, ["rev-parse", "HEAD"])
+    ).trim();
+    const logicalWorkspaceId = `r${"x".repeat(127)}`;
+    const formerPhysicalPath = path.resolve(
+      workspaceRoot,
+      "_verification",
+      "api",
+      logicalWorkspaceId,
+    );
+
+    const workspace = await worker.prepareBundleReviewWorkspace({
+      repository,
+      candidateSha,
+      workspaceId: logicalWorkspaceId,
+    });
+
+    assert.equal(workspace.workspace_id, logicalWorkspaceId);
+    assert.match(path.basename(workspace.workspace_path), /^br-[a-f0-9]{24}$/u);
+    assert.equal(workspace.workspace_path.includes(logicalWorkspaceId), false);
+    assert.ok(path.join(formerPhysicalPath, longRelativePath).length > 260);
+    assert.ok(
+      path.join(workspace.workspace_path, longRelativePath).length <
+        path.join(formerPhysicalPath, longRelativePath).length,
+    );
+    assert.equal(
+      await readFile(path.join(workspace.workspace_path, longRelativePath), "utf8"),
+      "long tracked review fixture\n",
+    );
+
+    await worker.cleanupVerificationWorkspace({ repository, workspace });
+    assert.equal(await stat(workspace.workspace_path).catch(() => null), null);
+
+    const recreated = await worker.prepareBundleReviewWorkspace({
+      repository,
+      candidateSha,
+      workspaceId: logicalWorkspaceId,
+    });
+    assert.equal(recreated.workspace_path, workspace.workspace_path);
+    await worker.cleanupVerificationWorkspace({ repository, workspace: recreated });
+  });
+
+  test("maps temporary worktree preparation failure to one stable diagnostic", async (t) => {
+    const root = await createFixtureRoot(t, "changefleet-review-failure-");
+    const repositoryFixture = await createGitRepository(root, "api");
+    const workspaceRoot = path.join(root, "workspaces");
+    await mkdir(workspaceRoot, { recursive: true });
+    await writeFile(path.join(workspaceRoot, "_review"), "path conflict\n", "utf8");
+    const worker = new RepositoryWorker({ workspaceRoot });
+    const repository = await worker.inspectRegistration({
+      repositoryId: "api",
+      locator: repositoryFixture.path,
+    });
+
+    await assert.rejects(
+      worker.prepareBundleReviewWorkspace({
+        repository,
+        candidateSha: repositoryFixture.base_sha,
+        workspaceId: "bundle-review-failure",
+      }),
+      (error) => {
+        assert.equal(error.code, "WORKSPACE_CHECKOUT_FAILED");
+        assert.deepEqual(
+          { stage: error.details.stage, rule: error.details.rule },
+          {
+            stage: "workspace_preparation",
+            rule: "create_parent_directory",
+          },
+        );
+        assert.notEqual(error.code, 128);
+        return true;
+      },
     );
   });
 

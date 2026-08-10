@@ -216,7 +216,7 @@ export class BundleReviewOrchestrator {
           "Bundle review subject no longer matches Repository authority",
         );
         let workspace =
-          await this.repositoryWorker.prepareVerificationWorkspace({
+          await this.repositoryWorker.prepareBundleReviewWorkspace({
             repository,
             candidateSha: candidate.candidate_sha,
             harnessBaseSha: candidate.base_sha,
