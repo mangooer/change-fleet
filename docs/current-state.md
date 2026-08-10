@@ -26,6 +26,9 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 - Branch-local [WI-0026](work-items/WI-0026-supervision-orchestrator.md) is `done` but unlanded;
   it moves the supervision command surface and autonomous loop into a bounded
   `SupervisionOrchestrator`.
+- Branch-local [WI-0027](work-items/WI-0027-verification-execution-boundary.md) is `done` but
+  unlanded; it moves requested, repository, and combined validation execution into a bounded
+  `VerificationOrchestrator`.
 - Agent Runtimes own semantic work. ChangeFleet owns cross-repository authorization, revisions,
   scheduling, exact Git and Bundle subjects, evidence, recovery, and human gates.
 
