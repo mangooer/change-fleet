@@ -51,6 +51,18 @@ const CODEX_REASONING_EFFORTS = new Set([
   "xhigh",
 ]);
 
+// 各语义阶段只约束“交付结果满足项目自身约定”，不把任何具体 Harness 文件或状态提升为 Core 契约。
+const REPOSITORY_HARNESS_COMPLETENESS_INSTRUCTIONS = Object.freeze({
+  planning:
+    "Treat repository-native instructions as semantic requirements rather than controller state. Determine whether this change requires tracked maintenance, governance, documentation, or status artifacts to be updated; when required, include them in the same Repository WorkUnit and its check or completion evidence. Do not invent an artifact or assume a universal format when the repository has no applicable requirement.",
+  execution:
+    "Apply the repository-native instructions to the whole deliverable. When they require tracked maintenance, governance, documentation, or status artifacts to reflect the completed change, update them in this same Candidate before reporting completion. Do not invent an artifact or update an optional convention merely because one might exist elsewhere.",
+  verification:
+    "Assess the Candidate against applicable repository-native instructions, including any required tracked maintenance, governance, documentation, or status update. A proven omission is a blocking finding; an absent, optional, stylistic, or unknown convention is not.",
+  review:
+    "Assess the complete Bundle against each applicable repository-native instruction, including required tracked maintenance, governance, documentation, or status updates in its exact Candidate. A proven omission is blocking; an absent, optional, stylistic, or unknown convention is not.",
+});
+
 export class CodexSdkRuntime {
   constructor({
     apiKey = null,
@@ -304,6 +316,7 @@ function buildPrompt(invocation) {
   if (invocation.operation === "planning") {
     operationInstruction = [
           "Inspect only the supplied exact-base repositories and their repository-native instructions.",
+          REPOSITORY_HARNESS_COMPLETENESS_INSTRUCTIONS.planning,
           "This is a planning conversation, not a Plan revision. Reply with conversation_message and a concise user-facing text. Include a complete structured plan only when the message is ready for exact human approval; otherwise set message.plan to null.",
           "When feedback is present and the message carries a replacement plan, treat every finding as a reviewer claim to evaluate, not as an automatic fact or command. Return exactly one revision_feedback_assessment for each finding_id using adopt, adapt, or decline with a concise rationale. When no feedback is present, a plan must contain an empty revision_feedback_assessments array.",
           "Return either conversation_message with message populated and request null, or repository_selection_change_request with request populated and message null.",
@@ -317,6 +330,7 @@ function buildPrompt(invocation) {
   } else if (invocation.operation === "execution") {
     operationInstruction = [
           `CURRENT WORKUNIT TASK: ${invocation.context_projection.work_unit.task}`,
+          REPOSITORY_HARNESS_COMPLETENESS_INSTRUCTIONS.execution,
           "Feedback is review input rather than independent authority. If feedback is present, assess every finding exactly once as adopt, adapt, or decline and implement adopted or adapted changes under the confirmed Plan. When no feedback is present, return an empty revision_feedback_assessments array.",
           "Use plan_invalidation_required only when exact workspace evidence proves the confirmed Plan materially unsound; ordinary implementation changes, test failures, and diff review findings stay under the current Plan.",
           "Implement this exact task in the supplied writable workspace; do not stop after inspection or merely describe the change.",
@@ -333,6 +347,7 @@ function buildPrompt(invocation) {
       : "This is the initial independent review.";
     operationInstruction = [
       "Review the exact Candidate in the supplied disposable workspace. Do not edit files, change Git state, commit, or change refs.",
+      REPOSITORY_HARNESS_COMPLETENESS_INSTRUCTIONS.verification,
       feedbackInstruction,
       "Inspect the exact base-to-Candidate diff, confirmed intent and Plan, repository-native guidance, completed deterministic evidence, and explicit unverified boundaries.",
       "Choose triage when the bounded facts are sufficient; choose deep_review when semantic inspection is necessary. This is one review depth decision inside this same Run, not a request for another reviewer.",
@@ -346,6 +361,7 @@ function buildPrompt(invocation) {
   } else if (invocation.operation === "review") {
     operationInstruction = [
       "Review the exact CandidateBundle across all supplied read-only Candidate workspaces. Do not edit files, change Git state, commit, change refs, or invent validation commands.",
+      REPOSITORY_HARNESS_COMPLETENESS_INSTRUCTIONS.review,
       "Judge only the confirmed intent, current Plan, complete Bundle manifest, exact base-to-Candidate diffs, passing evidence, and explicit unverified risks. Repository verification and combined checks remain separate evidence owners.",
       "Return exactly bundle_review_completed with one disposition: pass, feedback, or gate.",
       "Use pass when no blocking correctness, security, compatibility, scope, confirmed-intent, cross-repository, data, or required-evidence issue remains. Optional improvements must be advisory findings and cannot block passage.",
