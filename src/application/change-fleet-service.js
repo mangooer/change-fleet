@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, rm } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import path from "node:path";
 
 import { sha256, stableId } from "../domain/canonical-json.js";
@@ -70,6 +70,7 @@ import {
   RunCoordinator,
   runTerminalStatusForError,
 } from "./run-coordinator.js";
+import { ChangeSetRunService } from "./change-set-run-service.js";
 import { RunRecoveryService } from "./run-recovery-service.js";
 import { RepositoryValidator } from "./repository-validator.js";
 import { BundleAssembler } from "./bundle-assembler.js";
@@ -169,8 +170,18 @@ export class ChangeFleetService {
       clock,
       controllerId: this.instanceId,
     });
+    this.runService = new ChangeSetRunService({
+      controlStore: this.controlStore,
+      runStore: this.runStore,
+      repositoryWorker: this.repositoryWorker,
+      harnessSnapshotStore: this.harnessSnapshotStore,
+      workspaceRoot: this.workspaceRoot,
+      idFactory,
+      now: () => this.now(),
+    });
     this.runCoordinator = new RunCoordinator({
-      appendEvent: (runId, event) => this.appendRuntimeEvent(runId, event),
+      appendEvent: (runId, event) =>
+        this.runService.appendRuntimeEvent(runId, event),
       runStore: this.runStore,
       evidenceStore: this.evidenceStore,
       idFactory,
@@ -182,7 +193,8 @@ export class ChangeFleetService {
       runStore: this.runStore,
       harnessSnapshotStore: this.harnessSnapshotStore,
       repositoryWorker: this.repositoryWorker,
-      cleanupPlanningWorkspaces: (input) => this.cleanupPlanningWorkspaces(input),
+      cleanupPlanningWorkspaces: (input) =>
+        this.runService.cleanupPlanningWorkspaces(input),
       recordRuntimeEvidence: (input) =>
         this.runCoordinator.recordRuntimeEvidence(input),
       idFactory,
@@ -1389,7 +1401,7 @@ export class ChangeFleetService {
         error,
         "planning_workspace_cleanup",
         () =>
-          this.cleanupPlanningWorkspaces({
+          this.runService.cleanupPlanningWorkspaces({
             planningWorkspaces,
             projectRepositories,
           }),
@@ -1554,7 +1566,7 @@ export class ChangeFleetService {
         error,
         "planning_workspace_cleanup",
         () =>
-          this.cleanupPlanningWorkspaces({
+          this.runService.cleanupPlanningWorkspaces({
             planningWorkspaces,
             projectRepositories,
           }),
@@ -1631,7 +1643,7 @@ export class ChangeFleetService {
       throw runtimeError;
     }
     try {
-      await this.cleanupPlanningWorkspaces({
+      await this.runService.cleanupPlanningWorkspaces({
         planningWorkspaces,
         projectRepositories,
       });
@@ -1645,7 +1657,7 @@ export class ChangeFleetService {
         providerEvidence,
         error: runtimeError,
       });
-      await this.markRunReference(
+      await this.runService.markRunReference(
         change_set_id,
         runId,
         runTerminalStatusForError(runtimeError),
@@ -2302,7 +2314,7 @@ export class ChangeFleetService {
         "supervisor-proposal",
         proposal,
       );
-      await this.cleanupSupervisionWorkspace(workspacePath);
+      await this.runService.cleanupSupervisionWorkspace(workspacePath);
       await this.runCoordinator.completeAttempt({
         runId,
         invocation,
@@ -2317,7 +2329,11 @@ export class ChangeFleetService {
           disposition_error_code: null,
         },
       });
-      await this.markRunReference(state.change_set_id, runId, "completed");
+      await this.runService.markRunReference(
+        state.change_set_id,
+        runId,
+        "completed",
+      );
       return {
         run_id: runId,
         action: actionSet.actions.find(
@@ -2327,7 +2343,7 @@ export class ChangeFleetService {
     } catch (caughtError) {
       const error = caughtError;
       try {
-        await this.cleanupSupervisionWorkspace(workspacePath);
+        await this.runService.cleanupSupervisionWorkspace(workspacePath);
       } catch (cleanupError) {
         attachSecondaryFailure(error, "supervision_workspace_cleanup", cleanupError);
       }
@@ -2361,7 +2377,7 @@ export class ChangeFleetService {
             error.code ?? "INVALID_SUPERVISOR_PROPOSAL";
         });
       }
-      await this.markRunReference(
+      await this.runService.markRunReference(
         state.change_set_id,
         runId,
         runTerminalStatusForError(error),
@@ -2826,7 +2842,7 @@ export class ChangeFleetService {
         error: runtimeError,
         errorCode: runtimeError.code ?? "INVALID_BUNDLE_REVIEW_OUTCOME",
       });
-      await this.markRunReference(
+      await this.runService.markRunReference(
         changeSetId,
         runId,
         runTerminalStatusForError(runtimeError),
@@ -3363,7 +3379,11 @@ export class ChangeFleetService {
           error,
           "command_failure_persistence",
           () =>
-            this.markCommandFailed(change_set_id, idempotency_key, error),
+            this.runService.markCommandFailed(
+              change_set_id,
+              idempotency_key,
+              error,
+            ),
         );
       }
       throw error;
@@ -4004,7 +4024,7 @@ export class ChangeFleetService {
         providerEvidence: error.runtime_evidence ?? providerEvidence,
         error,
       });
-      await this.failWorkUnit(changeSetId, workUnitId, error, runId);
+      await this.runService.failWorkUnit(changeSetId, workUnitId, error, runId);
       throw error;
     }
 
@@ -4014,7 +4034,7 @@ export class ChangeFleetService {
         outcome.summary || outcome.blocker.message,
         { blocker_code: outcome.blocker.code },
       );
-      await this.blockWorkUnit(changeSetId, workUnitId, error, runId);
+      await this.runService.blockWorkUnit(changeSetId, workUnitId, error, runId);
       throw error;
     }
 
@@ -4192,7 +4212,12 @@ export class ChangeFleetService {
       };
     } catch (error) {
       if (!checkpointPersisted) {
-        await this.failWorkUnit(changeSetId, workUnitId, error, runId);
+        await this.runService.failWorkUnit(
+          changeSetId,
+          workUnitId,
+          error,
+          runId,
+        );
       }
       throw error;
     }
@@ -5372,163 +5397,6 @@ export class ChangeFleetService {
       });
       throw error;
     }
-  }
-
-  async cleanupPlanningWorkspaces({
-    planningWorkspaces,
-    projectRepositories,
-  }) {
-    // 逐个清理并保留首个错误，避免一个仓库异常导致其余临时 worktree 永久泄漏。
-    let firstError = null;
-    for (const workspace of [...planningWorkspaces].reverse()) {
-      const repository = projectRepositories.get(workspace.repository_id);
-      let harnessSnapshot = null;
-      if (workspace.harness_overlay) {
-        try {
-          harnessSnapshot = await this.harnessSnapshotStore.read(
-            workspace.harness_overlay,
-          );
-        } catch (error) {
-          firstError ??= error;
-        }
-      }
-      try {
-        await this.repositoryWorker.cleanupPlanningWorkspace({
-          repository,
-          workspace,
-          harnessSnapshot,
-        });
-      } catch (error) {
-        firstError ??= error;
-      }
-    }
-    if (firstError) throw firstError;
-  }
-
-  async cleanupSupervisionWorkspace(workspacePath) {
-    const supervisionRoot = path.resolve(
-      this.workspaceRoot,
-      ".changefleet-supervision",
-    );
-    const resolvedWorkspace = path.resolve(workspacePath);
-    invariant(
-      resolvedWorkspace.startsWith(`${supervisionRoot}${path.sep}`),
-      "INVALID_SUPERVISION_WORKSPACE",
-      "Supervision workspace must remain inside the owned supervision root",
-    );
-    await rm(resolvedWorkspace, { recursive: true, force: true });
-  }
-
-  async appendRuntimeEvent(runId, event) {
-    invariant(
-      event &&
-        typeof event.type === "string" &&
-        event.payload &&
-        typeof event.payload === "object",
-      "INVALID_RUNTIME_EVENT",
-      "Runtime event must contain a type and bounded payload",
-    );
-    await this.runStore.appendEvent(runId, {
-      event_id: this.idFactory("event"),
-      type: event.type,
-      at: this.now(),
-      payload: event.payload,
-    });
-  }
-
-  async markRunReference(changeSetId, runId, status) {
-    await this.controlStore.transactChangeSet(changeSetId, (state) => {
-      const reference = state.run_references.find(
-        (candidate) => candidate.run_id === runId,
-      );
-      if (reference?.status === "running") reference.status = status;
-      state.updated_at = this.now();
-    });
-  }
-
-  async failWorkUnit(changeSetId, workUnitId, error, runId = null) {
-    const status = runTerminalStatusForError(error);
-    await this.controlStore.transactChangeSet(changeSetId, (state) => {
-      const workUnit = unitsForCurrentPlan(state).find(
-        (candidate) => candidate.work_unit_id === workUnitId,
-      );
-      workUnit.last_error = {
-        code: error.code ?? "UNEXPECTED_ERROR",
-        message: error.message,
-      };
-      const latestRunReference = runId
-        ? workUnit.run_references.find(
-            (reference) => reference.run_id === runId,
-          )
-        : workUnit.run_references.at(-1);
-      if (latestRunReference?.status === "running") {
-        latestRunReference.status = status;
-        const aggregateReference = state.run_references.find(
-          (reference) => reference.run_id === latestRunReference.run_id,
-        );
-        if (aggregateReference) aggregateReference.status = status;
-      }
-      if (status === "failed") {
-        state.blockers.push({
-          code: error.code ?? "UNEXPECTED_ERROR",
-          work_unit_id: workUnitId,
-        });
-      }
-      state.updated_at = this.now();
-    });
-  }
-
-  async blockWorkUnit(changeSetId, workUnitId, error, runId = null) {
-    // Provider 正常结束但无法完成语义工作时保留 completed Run，WorkUnit 单独进入可审计阻塞态。
-    await this.controlStore.transactChangeSet(changeSetId, (state) => {
-      const workUnit = unitsForCurrentPlan(state).find(
-        (candidate) => candidate.work_unit_id === workUnitId,
-      );
-      workUnit.last_error = {
-        code: error.code,
-        message: error.message,
-        blocker_code: error.details?.blocker_code ?? null,
-        run_id: runId,
-      };
-      state.blockers.push({
-        code: error.code,
-        work_unit_id: workUnitId,
-        blocker_code: error.details?.blocker_code ?? null,
-        run_id: runId,
-      });
-      state.updated_at = this.now();
-    });
-  }
-
-  async markCommandFailed(changeSetId, idempotencyKey, error) {
-    await this.controlStore.transactChangeSet(changeSetId, (state) => {
-      const command = state.commands[idempotencyKey];
-      if (!command || command.status !== "in_progress") return;
-      command.status = "failed";
-      command.failed_at = this.now();
-      command.error = {
-        code: error.code ?? "UNEXPECTED_ERROR",
-        message: error.message,
-      };
-      if (
-        state.phase !== "terminal" &&
-        runTerminalStatusForError(error) === "failed"
-      ) {
-        if (
-          !state.blockers.some(
-            (blocker) =>
-              blocker.code === command.error.code &&
-              blocker.command_id === idempotencyKey,
-          )
-        ) {
-          state.blockers.push({
-            code: command.error.code,
-            command_id: idempotencyKey,
-          });
-        }
-      }
-      state.updated_at = this.now();
-    });
   }
 
   now() {

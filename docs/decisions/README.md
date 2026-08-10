@@ -33,6 +33,7 @@ projection.
 | [0025](0025-unified-stage-and-run-lifecycle.md) | Unified ChangeSet, WorkUnit, and Agent Run lifecycle | Accepted |
 | [0026](0026-policy-governed-agentic-supervision.md) | Policy-governed Agentic supervision within deterministic action authority | Accepted |
 | [0027](0027-bundle-level-independent-quality-review.md) | Bundle-level independent quality review before human acceptance | Accepted |
+| [0028](0028-shared-application-orchestration-boundary.md) | Shared application orchestration boundary | Accepted |
 
 Changing one of these boundaries requires a proposal. When a decision is superseded, preserve this
 record and point to the later accepted authority.

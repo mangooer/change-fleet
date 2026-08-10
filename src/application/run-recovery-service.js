@@ -1,6 +1,10 @@
 import { HARNESS_SELECTION_MODES } from "../domain/repository-harness.js";
 import { invariant } from "../domain/errors.js";
-import { setChangeSetPhase, setWorkUnitPhase } from "../domain/lifecycle.js";
+import {
+  currentPlanWorkUnits,
+  setChangeSetPhase,
+  setWorkUnitPhase,
+} from "../domain/lifecycle.js";
 
 // RunRecoveryService 统一解释控制器丢失；不同 operation 只提供资源清理适配。
 export class RunRecoveryService {
@@ -446,14 +450,6 @@ function assertNoAmbiguousRecovery(results, label) {
 function setReferenceStatus(references, runId, status) {
   const reference = references.find((item) => item.run_id === runId);
   if (reference) reference.status = status;
-}
-
-function currentPlanWorkUnits(state) {
-  return (state.work_units ?? []).filter(
-    (workUnit) =>
-      workUnit.plan_revision === state.current_plan_revision &&
-      workUnit.disposition === "current",
-  );
 }
 
 function currentHarnessSelection(state) {

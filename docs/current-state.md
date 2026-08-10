@@ -21,6 +21,8 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 - Branch-local [WI-0024](work-items/WI-0024-recovery-skeleton-and-store-array-assertions.md) is
   `done` but unlanded; it generalizes the five recovery reconciles into one skeleton and requires
   current-schema ChangeSet arrays at the store boundary.
+- Branch-local [WI-0025](work-items/WI-0025-shared-run-command-and-workspace-helpers.md) is `done`
+  but unlanded; it extracts shared Run, command, and workspace helpers under Proposal 0026.
 - Agent Runtimes own semantic work. ChangeFleet owns cross-repository authorization, revisions,
   scheduling, exact Git and Bundle subjects, evidence, recovery, and human gates.
 
@@ -72,8 +74,9 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 ## Accepted Decisions
 
 - The [Decision Index](decisions/README.md) owns the complete rationale map. Latest accepted
-  Decision 0027 adds Bundle-level independent quality review without changing Decision 0025's
-  coarse phases or common Run status lifecycle.
+  Decision 0028 records the internal application orchestration boundary; Decision 0027 adds
+  Bundle-level independent quality review without changing Decision 0025's coarse phases or
+  common Run status lifecycle.
 
 ## Repository Design Proposals
 
@@ -90,6 +93,10 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 - Accepted [0025](proposals/0025-bundle-level-independent-quality-review.md) is recorded by Decision
   0027. Its unique implementation slice is confirmed as
   [WI-0021](work-items/WI-0021-bundle-level-independent-quality-review.md), `done` and landed.
+- Accepted [0026](proposals/0026-shared-application-orchestration-boundary.md) is recorded by
+  Decision 0028. It splits only internal application boundaries; branch-local
+  [WI-0025](work-items/WI-0025-shared-run-command-and-workspace-helpers.md) extracts the shared
+  leaf service first.
 
 ## Open Questions
 

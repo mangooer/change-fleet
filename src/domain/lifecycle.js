@@ -183,6 +183,14 @@ export function currentWorkUnits(changeSet) {
   return (changeSet?.work_units ?? []).filter(isCurrentWorkUnit);
 }
 
+export function currentPlanWorkUnits(state) {
+  return (state.work_units ?? []).filter(
+    (workUnit) =>
+      workUnit.plan_revision === state.current_plan_revision &&
+      workUnit.disposition === "current",
+  );
+}
+
 export function runReferenceIsActive(reference) {
   return ["queued", "running"].includes(reference?.status);
 }
