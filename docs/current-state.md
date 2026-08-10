@@ -23,6 +23,9 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
   current-schema ChangeSet arrays at the store boundary.
 - Branch-local [WI-0025](work-items/WI-0025-shared-run-command-and-workspace-helpers.md) is `done`
   but unlanded; it extracts shared Run, command, and workspace helpers under Proposal 0026.
+- Branch-local [WI-0026](work-items/WI-0026-supervision-orchestrator.md) is `done` but unlanded;
+  it moves the supervision command surface and autonomous loop into a bounded
+  `SupervisionOrchestrator`.
 - Agent Runtimes own semantic work. ChangeFleet owns cross-repository authorization, revisions,
   scheduling, exact Git and Bundle subjects, evidence, recovery, and human gates.
 
