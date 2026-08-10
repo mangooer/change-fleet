@@ -1,5 +1,8 @@
 import { invokeRuntime } from "../adapters/runtime/runtime-port.js";
-import { invariant } from "../domain/errors.js";
+import {
+  boundedSecondaryFailures,
+  invariant,
+} from "../domain/errors.js";
 import { createRuntimeInvocationEvidence } from "../domain/runtime-evidence.js";
 
 // RunCoordinator 统一一次 Provider 尝试的调用所有权和终态信封；业务 phase 仍由调用方裁决。
@@ -155,7 +158,9 @@ export class RunCoordinator {
       payload: {
         code: error.code ?? "UNEXPECTED_ERROR",
         message: error.message,
-        secondary_failures: structuredClone(error.secondary_failures ?? []),
+        secondary_failures: boundedSecondaryFailures(
+          error.secondary_failures,
+        ),
       },
     });
     await this.runStore.update(runId, (run) => {
@@ -164,7 +169,9 @@ export class RunCoordinator {
       run.outcome = {
         type: status,
         code: error.code ?? "UNEXPECTED_ERROR",
-        secondary_failures: structuredClone(error.secondary_failures ?? []),
+        secondary_failures: boundedSecondaryFailures(
+          error.secondary_failures,
+        ),
       };
     });
   }

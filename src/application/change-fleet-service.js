@@ -7,7 +7,6 @@ import {
   commandFingerprint,
   createCandidateCheckpoint,
   createConfirmedPlan,
-  createValidationSubject,
   normalizeHumanDecision,
   normalizeChangeSetCloseRequest,
   normalizeId,
@@ -62,6 +61,7 @@ import {
 import { ChangeSetRunService } from "./change-set-run-service.js";
 import { SupervisionOrchestrator } from "./supervision-orchestrator.js";
 import { VerificationOrchestrator } from "./verification-orchestrator.js";
+import { BundleReviewOrchestrator } from "./bundle-review-orchestrator.js";
 import { RunRecoveryService } from "./run-recovery-service.js";
 import { RepositoryValidator } from "./repository-validator.js";
 import { BundleAssembler } from "./bundle-assembler.js";
@@ -75,15 +75,11 @@ import {
   supersedeWorkUnit,
 } from "../domain/lifecycle.js";
 import {
-  deriveSupervisionProgress,
   normalizeSupervisionPolicy,
 } from "../domain/supervision.js";
 import {
-  blockingFeedbackByWorkUnit,
   bundleReviewAllowsHumanDecision,
   bundleReviewAssessmentMatches,
-  createBundleReviewAssessment,
-  normalizeBundleReviewOutcome,
   normalizeBundleReviewPolicy,
 } from "../domain/bundle-review.js";
 
@@ -203,6 +199,36 @@ export class ChangeFleetService {
       overlayHarnessResources,
       repositoryHarnessObservation,
     });
+    this.bundleReviewOrchestrator = new BundleReviewOrchestrator({
+      controlStore: this.controlStore,
+      runStore: this.runStore,
+      runCoordinator: this.runCoordinator,
+      runService: this.runService,
+      feedbackService: this.feedbackService,
+      bundleAssembler: this.bundleAssembler,
+      repositoryWorker: this.repositoryWorker,
+      harnessSnapshotStore: this.harnessSnapshotStore,
+      reviewRuntime,
+      reviewAgentProfile: this.reviewAgentProfile,
+      idFactory,
+      now: () => this.now(),
+      validateCombinedCandidates: (input) =>
+        this.verificationOrchestrator.validateCombinedCandidates(input),
+      currentPlan,
+      currentRepositorySelection,
+      currentRepositoryHarnessSelection,
+      unitsForCurrentPlan,
+      requireProject,
+      requireRepository,
+      resolveValidationBlockers,
+      resolveFailedExecutionCommandBlockers,
+      harnessSelectionForContext,
+      overlayHarnessResources,
+      repositoryHarnessObservation,
+      cleanupBundleReviewResources,
+      bundleReviewEvidenceReferenceIds,
+      createBundleReviewProjection,
+    });
     this.supervisionOrchestrator = new SupervisionOrchestrator({
       controlStore: this.controlStore,
       runStore: this.runStore,
@@ -234,12 +260,12 @@ export class ChangeFleetService {
       prepareRetryableExecutions: (changeSetId, commandId, actor) =>
         this.prepareRetryableExecutions(changeSetId, commandId, actor),
       finalizeCurrentBundle: (changeSetId, options) =>
-        this.finalizeCurrentBundle(changeSetId, options),
-      reviewCurrentBundle: (changeSetId) => this.reviewCurrentBundle(changeSetId),
-      recordSupervisionStop: (changeSetId, reason) =>
-        this.recordSupervisionStop(changeSetId, reason),
-      supervisionResult: (changeSetId, reason) =>
-        this.supervisionResult(changeSetId, reason),
+        this.bundleReviewOrchestrator.finalizeCurrentBundle(
+          changeSetId,
+          options,
+        ),
+      reviewCurrentBundle: (changeSetId) =>
+        this.bundleReviewOrchestrator.reviewCurrentBundle(changeSetId),
     });
     this.runRecoveryService = new RunRecoveryService({
       controlStore: this.controlStore,
@@ -1995,630 +2021,6 @@ export class ChangeFleetService {
   }
 
 
-  async finalizeCurrentBundle(changeSetId, { budgetRequest = null } = {}) {
-    const beforeValidation = await this.controlStore.readChangeSet(changeSetId);
-    const plan = currentPlan(beforeValidation);
-    const project = requireProject(
-      await this.controlStore.readCatalog(),
-      beforeValidation.project_id,
-    );
-    const repositories = Object.fromEntries(
-      project.repositories.map((repository) => [
-        repository.repository_id,
-        repository,
-      ]),
-    );
-    const candidates = unitsForCurrentPlan(beforeValidation).map(
-      (unit) => unit.candidate,
-    );
-    invariant(
-      candidates.length > 0 && candidates.every(Boolean),
-      "CANDIDATE_BUNDLE_NOT_READY",
-      "Every current WorkUnit requires one exact Candidate",
-    );
-    const subject = createValidationSubject(
-      beforeValidation,
-      plan,
-      candidates,
-    );
-    const combinedEvidence = await this.verificationOrchestrator.validateCombinedCandidates({
-      changeSetId,
-      subject,
-      candidates,
-      repositories,
-      command: plan.combined_check,
-      projectPolicy: beforeValidation.verification_policy,
-      budgetRequest,
-    });
-    const stateForBundle = await this.controlStore.readChangeSet(changeSetId);
-    const bundle = await this.bundleAssembler.assemble({
-      changeSet: stateForBundle,
-      plan,
-      candidates,
-      combinedEvidence,
-    });
-    await this.controlStore.transactChangeSet(changeSetId, (state) => {
-      invariant(
-        state.current_plan_revision === plan.revision &&
-          state.phase === "working" &&
-          unitsForCurrentPlan(state).every((unit) => unit.phase === "complete"),
-        "STALE_SUPERVISION_ACTION",
-        "Bundle subject changed before assembly completed",
-      );
-      state.bundles.push(bundle);
-      state.current_bundle_review_assessment_id = null;
-      state.bundle_review_last_error = null;
-      this.feedbackService.clear(state);
-      resolveValidationBlockers(state, {
-        validationSubjectHash: subject.validation_subject_hash,
-        resolvedAt: this.now(),
-      });
-      resolveFailedExecutionCommandBlockers(state, this.now());
-      setChangeSetPhase(state, "review");
-      state.updated_at = this.now();
-      return null;
-    });
-    return bundle;
-  }
-
-  async reviewCurrentBundle(changeSetId) {
-    let state = await this.controlStore.readChangeSet(changeSetId);
-    const plan = currentPlan(state);
-    const bundle = state.bundles.at(-1) ?? null;
-    invariant(
-      state.phase === "review" &&
-        plan?.status === "confirmed" &&
-        plan.bundle_review?.mode === "independent" &&
-        bundle,
-      "BUNDLE_REVIEW_REQUIRED",
-      "The current ChangeSet has no independently reviewable exact Bundle",
-    );
-    const existing = (state.bundle_review_assessments ?? []).find(
-      (assessment) =>
-        assessment.assessment_id ===
-        state.current_bundle_review_assessment_id,
-    );
-    if (bundleReviewAssessmentMatches(existing, bundle, plan)) {
-      return structuredClone(existing);
-    }
-    invariant(
-      plan.bundle_review.agent_profile_id ===
-          this.reviewAgentProfile.profile_id &&
-        plan.bundle_review.agent_profile_revision ===
-          this.reviewAgentProfile.revision,
-      "REVIEW_AGENT_PROFILE_MISMATCH",
-      "The configured Review AgentProfile does not match the confirmed Plan",
-    );
-    const attempt =
-      state.run_references.filter(
-        (reference) =>
-          reference.operation === "review" &&
-          reference.bundle_id === bundle.bundle_id,
-      ).length + 1;
-    invariant(
-      attempt <= plan.bundle_review.attempt_limit,
-      "BUNDLE_REVIEW_BUDGET_EXCEEDS_PROJECT_POLICY",
-      "Bundle review attempt limit is exhausted",
-    );
-
-    const catalog = await this.controlStore.readCatalog();
-    const project = requireProject(catalog, state.project_id);
-    const repositorySelection = currentRepositorySelection(state);
-    const harnessSelection = currentRepositoryHarnessSelection(state);
-    const runId = this.idFactory("run");
-    const reviewResources = [];
-    try {
-      for (const candidate of bundle.candidates) {
-        const repository = requireRepository(project, candidate.repository_id);
-        const selectedRepository = repositorySelection.repositories.find(
-          (item) => item.repository_id === candidate.repository_id,
-        );
-        const selectedHarness = harnessSelection.repositories.find(
-          (item) => item.repository_id === candidate.repository_id,
-        );
-        invariant(
-          selectedRepository &&
-            selectedHarness?.resolved_base_sha === candidate.base_sha,
-          "STALE_BUNDLE_REVIEW",
-          "Bundle review subject no longer matches Repository authority",
-        );
-        let workspace = await this.repositoryWorker.prepareVerificationWorkspace({
-          repository,
-          candidateSha: candidate.candidate_sha,
-          harnessBaseSha: candidate.base_sha,
-          workspaceId: `bundle-review-${runId}-${candidate.repository_id}`.slice(
-            0,
-            128,
-          ),
-        });
-        // 工作区一经创建就登记清理责任，后续 Harness 读取失败也不会泄漏临时目录。
-        const reviewResource = {
-          repository,
-          selected_repository: selectedRepository,
-          selected_harness: selectedHarness,
-          workspace,
-          overlay_snapshot: null,
-          harness_observation: null,
-          available_harness: [],
-          candidate,
-        };
-        reviewResources.push(reviewResource);
-        let overlaySnapshot = null;
-        if (
-          selectedHarness.mode ===
-          HARNESS_SELECTION_MODES.EXACT_BASE_PLUS_OVERLAY
-        ) {
-          overlaySnapshot = await this.harnessSnapshotStore.read(
-            selectedHarness.artifact_reference,
-          );
-          workspace = await this.repositoryWorker.materializeHarnessOverlay({
-            repository,
-            workspace: {
-              ...workspace,
-              harness_overlay: {
-                ...selectedHarness.artifact_reference,
-                paths: [...selectedHarness.resolved_relative_paths],
-              },
-            },
-            snapshot: overlaySnapshot,
-          });
-          reviewResource.workspace = workspace;
-          reviewResource.overlay_snapshot = overlaySnapshot;
-        }
-        const exactCandidateHarness = await this.repositoryWorker.discoverHarness(
-          repository,
-          candidate.candidate_sha,
-        );
-        const overlayResources = overlayHarnessResources(overlaySnapshot);
-        Object.assign(reviewResource, {
-          harness_observation: repositoryHarnessObservation({
-            repositoryId: repository.repository_id,
-            exactBaseResources: exactCandidateHarness,
-            overlayResources,
-          }),
-          available_harness: [...exactCandidateHarness, ...overlayResources],
-        });
-      }
-    } catch (error) {
-      await cleanupBundleReviewResources(this.repositoryWorker, reviewResources);
-      throw error;
-    }
-
-    const evidenceReferenceIds = bundleReviewEvidenceReferenceIds(
-      state,
-      bundle,
-    );
-    const contextProjection = createBundleReviewProjection({
-      state,
-      plan,
-      bundle,
-      repositorySelection,
-      harnessSelection,
-      resources: reviewResources,
-      evidenceReferenceIds,
-    });
-    const controlContract = createControlContract({
-      operation: "review",
-      changeSetId,
-      planRevision: plan.revision,
-      repositorySelectionRevision: repositorySelection.revision,
-      repositoryHarnessSelectionRevision: harnessSelection.revision,
-      authorizedRepositories: bundle.candidates.map(
-        (candidate) => candidate.repository_id,
-      ),
-      allowedOutcomes: ["bundle_review_completed"],
-      humanGates: ["bundle_quality_decision", "candidate_bundle_acceptance"],
-    });
-    const invocation = {
-      operation: "review",
-      agent_profile: this.reviewAgentProfile,
-      control_contract: controlContract,
-      context_projection: contextProjection,
-      capabilities: contextProjection.capability,
-      workspace: null,
-      signal: null,
-    };
-    const createdAt = this.now();
-    await this.runStore.create(
-      createAgentRunRecord({
-        runId,
-        changeSetId,
-        workUnitId: null,
-        operation: "review",
-        trigger: attempt === 1 ? "initial" : "retry",
-        attempt,
-        agentProfile: this.reviewAgentProfile,
-        continuationOfRunId:
-          state.run_references
-            .filter(
-              (reference) =>
-                reference.operation === "review" &&
-                reference.bundle_id === bundle.bundle_id,
-            )
-            .at(-1)?.run_id ?? null,
-        repositoryHarnessSelection: {
-          revision: harnessSelection.revision,
-          repositories: reviewResources.map((resource) =>
-            harnessSelectionForContext(resource.selected_harness),
-          ),
-        },
-        repositoryHarnessObservation: {
-          repositories: reviewResources.map(
-            (resource) => resource.harness_observation,
-          ),
-        },
-        contextEvidence: null,
-        contextProjectionIdentity: null,
-        createdAt,
-        extra: {
-          review_workspaces: reviewResources.map(
-            (resource) => resource.workspace,
-          ),
-          bundle_subject: {
-            bundle_id: bundle.bundle_id,
-            bundle_revision: bundle.revision,
-            bundle_hash: bundle.bundle_hash,
-          },
-        },
-      }),
-    );
-    await this.controlStore.transactChangeSet(changeSetId, (current) => {
-      const currentBundle = current.bundles.at(-1);
-      invariant(
-        current.phase === "review" &&
-          current.current_plan_revision === plan.revision &&
-          currentBundle?.bundle_id === bundle.bundle_id &&
-          current.current_bundle_review_assessment_id === null,
-        "STALE_BUNDLE_REVIEW",
-        "Bundle review subject changed before Runtime dispatch",
-      );
-      current.run_references.push(
-        createRunReference({
-          runId,
-          operation: "review",
-          trigger: attempt === 1 ? "initial" : "retry",
-          plan_revision: plan.revision,
-          work_unit_id: null,
-          bundle_id: bundle.bundle_id,
-          bundle_revision: bundle.revision,
-          bundle_hash: bundle.bundle_hash,
-          attempt,
-        }),
-      );
-      current.updated_at = this.now();
-    });
-
-    let providerEvidence = null;
-    let runtimeError = null;
-    let rawOutcome = null;
-    try {
-      const contextEvidence = assessInitialContext({
-        controlContract,
-        contextProjection,
-        agentProfile: this.reviewAgentProfile,
-        runtimeMeasurement: await measureInitialContext(
-          this.reviewRuntime,
-          invocation,
-        ),
-      });
-      await this.runStore.update(runId, (run) => {
-        run.context_evidence = contextEvidence;
-        run.context_projection_identity = {
-          schema_version: contextProjection.schema_version,
-          digest: sha256(contextProjection),
-        };
-      });
-      const result = await this.runCoordinator.invoke(
-        this.reviewRuntime,
-        runId,
-        invocation,
-      );
-      providerEvidence = result.provider_evidence;
-      rawOutcome = result.outcome;
-      normalizeBundleReviewOutcome(rawOutcome, {
-        bundle,
-        plan,
-        workUnits: plan.work_units,
-        evidenceReferenceIds,
-      });
-      for (const resource of reviewResources) {
-        await this.repositoryWorker.preflightVerificationWorkspace({
-          repository: resource.repository,
-          workspace: resource.workspace,
-        });
-      }
-    } catch (error) {
-      runtimeError = error;
-      providerEvidence = error.runtime_evidence ?? providerEvidence;
-    }
-    if (runtimeError?.code === "CONTROLLER_INTERRUPTED") throw runtimeError;
-    try {
-      await cleanupBundleReviewResources(this.repositoryWorker, reviewResources);
-    } catch (error) {
-      runtimeError ??= error;
-    }
-    if (runtimeError) {
-      await this.runCoordinator.failAttempt({
-        runId,
-        invocation,
-        providerEvidence,
-        error: runtimeError,
-        errorCode: runtimeError.code ?? "INVALID_BUNDLE_REVIEW_OUTCOME",
-      });
-      await this.runService.markRunReference(
-        changeSetId,
-        runId,
-        runTerminalStatusForError(runtimeError),
-      );
-      await this.controlStore.transactChangeSet(changeSetId, (current) => {
-        current.bundle_review_last_error = {
-          code: runtimeError.code ?? "INVALID_BUNDLE_REVIEW_OUTCOME",
-          run_id: runId,
-        };
-        current.updated_at = this.now();
-      });
-      throw runtimeError;
-    }
-
-    const completedAt = this.now();
-    const assessment = createBundleReviewAssessment({
-      bundle,
-      plan,
-      runId,
-      agentProfile: this.reviewAgentProfile,
-      outcome: rawOutcome,
-      createdAt: completedAt,
-      evidenceReferenceIds,
-    });
-    const assessmentArtifact = await this.runStore.writeJsonArtifact(
-      runId,
-      "bundle-review-assessment",
-      assessment,
-    );
-    await this.runCoordinator.completeAttempt({
-      runId,
-      invocation,
-      providerEvidence,
-      completedAt,
-      eventPayload: rawOutcome,
-      runOutcome: {
-        type: rawOutcome.type,
-        disposition: assessment.disposition,
-        summary: assessment.summary,
-        assessment_id: assessment.assessment_id,
-        assessment_artifact: assessmentArtifact,
-      },
-    });
-    await this.controlStore.transactChangeSet(changeSetId, (current) => {
-      const currentBundle = current.bundles.at(-1);
-      invariant(
-        current.phase === "review" &&
-          current.current_plan_revision === plan.revision &&
-          currentBundle?.bundle_id === bundle.bundle_id,
-        "STALE_BUNDLE_REVIEW",
-        "Bundle review subject changed before its assessment was recorded",
-      );
-      const reference = current.run_references.find(
-        (item) => item.run_id === runId,
-      );
-      reference.status = "completed";
-      current.bundle_review_assessments.push(assessment);
-      current.current_bundle_review_assessment_id = assessment.assessment_id;
-      current.bundle_review_last_error = null;
-      if (assessment.disposition === "feedback") {
-        const grouped = blockingFeedbackByWorkUnit(assessment);
-        const currentUnits = unitsForCurrentPlan(current);
-        const exhaustedTargets = [...grouped.keys()].filter((workUnitId) => {
-          const unit = currentUnits.find(
-            (candidate) => candidate.work_unit_id === workUnitId,
-          );
-          return (
-            unit?.run_references.filter(
-              (item) =>
-                item.operation === "execution" && item.trigger === "feedback",
-            ).length >= plan.supervision.feedback_cycle_limit_per_work_unit
-          );
-        });
-        if (exhaustedTargets.length > 0) {
-          // Reviewer 不能越过已确认的返工上限；保留 finding 并把超限选择交给人类。
-          current.gates.push({
-            gate_id: this.idFactory("gate"),
-            kind: "bundle_review_decision",
-            status: "open",
-            change_set_id: changeSetId,
-            work_unit_id: null,
-            bundle_id: bundle.bundle_id,
-            bundle_revision: bundle.revision,
-            bundle_hash: bundle.bundle_hash,
-            bundle_review_assessment_id: assessment.assessment_id,
-            request: {
-              question: "Bundle review Feedback exceeds the confirmed repair ceiling.",
-              options: ["request_plan_revision", "close_changeset"],
-            },
-            created_at: completedAt,
-          });
-        } else {
-          for (const [workUnitId, findings] of grouped) {
-            const unit = unitsForCurrentPlan(current).find(
-              (candidate) => candidate.work_unit_id === workUnitId,
-            );
-            invariant(
-              unit?.phase === "complete" && unit.candidate,
-              "STALE_BUNDLE_REVIEW",
-              "Bundle review Feedback target is no longer complete",
-            );
-            const feedback = this.feedbackService.record(current, {
-              source: "review",
-              target: {
-                change_set_id: changeSetId,
-                plan_revision: plan.revision,
-                bundle_id: bundle.bundle_id,
-                bundle_revision: bundle.revision,
-                bundle_hash: bundle.bundle_hash,
-                bundle_review_assessment_id: assessment.assessment_id,
-                work_unit_id: workUnitId,
-              },
-              content: { summary: assessment.summary, findings },
-              createdAt: completedAt,
-            });
-            setWorkUnitPhase(unit, "execution");
-            unit.workspace = null;
-            unit.candidate_checkpoint_id = null;
-            unit.verification_admission_id = null;
-            unit.verification_review_id = null;
-            unit.pending_feedback_id = feedback.feedback_id;
-            unit.validation_attempt_ids = [];
-            unit.candidate = null;
-            unit.last_error = null;
-            resolveValidationBlockers(current, {
-              workUnitId,
-              resolvedAt: completedAt,
-            });
-          }
-        }
-        if (exhaustedTargets.length === 0) {
-          current.current_bundle_review_assessment_id = null;
-          setChangeSetPhase(current, "working");
-        }
-      } else if (assessment.disposition === "gate") {
-        current.gates.push({
-          gate_id: this.idFactory("gate"),
-          kind: "bundle_review_decision",
-          status: "open",
-          change_set_id: changeSetId,
-          work_unit_id: null,
-          bundle_id: bundle.bundle_id,
-          bundle_revision: bundle.revision,
-          bundle_hash: bundle.bundle_hash,
-          bundle_review_assessment_id: assessment.assessment_id,
-          request: structuredClone(assessment.human_decision),
-          created_at: completedAt,
-        });
-      }
-      current.updated_at = completedAt;
-    });
-    return structuredClone(assessment);
-  }
-
-  async reviewCurrentBundleUntilBoundary(changeSetId) {
-    // 手工执行入口也消费同一冻结预算；失败只会重试当前精确 Bundle，耗尽后显式开 Gate。
-    while (true) {
-      try {
-        const assessment = await this.reviewCurrentBundle(changeSetId);
-        const state = await this.controlStore.readChangeSet(changeSetId);
-        return {
-          assessment,
-          gate:
-            assessment.disposition === "gate"
-              ? state.gates.find(
-                  (gate) =>
-                    gate.status === "open" &&
-                    gate.bundle_review_assessment_id ===
-                      assessment.assessment_id,
-                ) ?? null
-              : null,
-        };
-      } catch (error) {
-        if (["CONTROLLER_INTERRUPTED", "RUNTIME_INTERRUPTED"].includes(error.code)) {
-          throw error;
-        }
-        const state = await this.controlStore.readChangeSet(changeSetId);
-        const plan = currentPlan(state);
-        const bundle = state.bundles.at(-1) ?? null;
-        const attempts = state.run_references.filter(
-          (reference) =>
-            reference.operation === "review" &&
-            reference.bundle_id === bundle?.bundle_id,
-        ).length;
-        if (bundle && attempts < plan.bundle_review.attempt_limit) continue;
-        return {
-          assessment: null,
-          gate: await this.openBundleReviewFailureGate(
-            changeSetId,
-            bundle,
-            error,
-          ),
-        };
-      }
-    }
-  }
-
-  async openBundleReviewFailureGate(changeSetId, bundle, error) {
-    return this.controlStore.transactChangeSet(changeSetId, (state) => {
-      const currentBundle = state.bundles.at(-1) ?? null;
-      invariant(
-        state.phase === "review" &&
-          bundle &&
-          currentBundle?.bundle_id === bundle.bundle_id,
-        "STALE_BUNDLE_REVIEW",
-        "Bundle review failure no longer binds the current exact Bundle",
-      );
-      const existing = state.gates.find(
-        (gate) =>
-          gate.status === "open" &&
-          gate.kind === "bundle_review_failure" &&
-          gate.bundle_id === bundle.bundle_id,
-      );
-      if (existing) return structuredClone(existing);
-      const gate = {
-        gate_id: this.idFactory("gate"),
-        kind: "bundle_review_failure",
-        status: "open",
-        change_set_id: changeSetId,
-        work_unit_id: null,
-        bundle_id: bundle.bundle_id,
-        bundle_revision: bundle.revision,
-        bundle_hash: bundle.bundle_hash,
-        bundle_review_assessment_id: null,
-        request: {
-          question: `Bundle review stopped: ${error.code ?? "UNEXPECTED_ERROR"}.`,
-          options: ["request_plan_revision", "close_changeset"],
-        },
-        created_at: this.now(),
-      };
-      state.gates.push(gate);
-      state.updated_at = this.now();
-      return structuredClone(gate);
-    });
-  }
-
-  async recordSupervisionStop(changeSetId, reason) {
-    await this.controlStore.transactChangeSet(changeSetId, (state) => {
-      if (!state.supervision_control) return;
-      state.supervision_control.last_stop_reason = reason;
-      state.supervision_control.updated_at = this.now();
-      state.updated_at = this.now();
-    });
-  }
-
-  async supervisionResult(changeSetId, reason) {
-    const state = await this.controlStore.readChangeSet(changeSetId);
-    const assessment = (state.bundle_review_assessments ?? []).find(
-      (item) =>
-        item.assessment_id === state.current_bundle_review_assessment_id,
-    );
-    return {
-      change_set_id: changeSetId,
-      plan_revision: state.current_plan_revision,
-      phase: state.phase,
-      status: ["bundle_review_ready", "bundle_review_recommended"].includes(
-        reason,
-      )
-        ? "review_ready"
-        : ["gate_open", "bundle_review_gate_required"].includes(reason)
-          ? "human_input_required"
-          : "stopped",
-      stop_reason: reason,
-      bundle:
-        state.phase === "review"
-          ? structuredClone(state.bundles.at(-1) ?? null)
-          : null,
-      bundle_review_assessment:
-        assessment === undefined ? null : structuredClone(assessment),
-      progress: deriveSupervisionProgress(state, { now: this.now() }),
-    };
-  }
-
   async executeChangeSet({
     idempotency_key,
     change_set_id,
@@ -2733,9 +2135,10 @@ export class ChangeFleetService {
       );
       if (commandState.completed) return commandState.result;
       if (commandState.resume_bundle_review) {
-        const reviewBoundary = await this.reviewCurrentBundleUntilBoundary(
-          change_set_id,
-        );
+        const reviewBoundary =
+          await this.bundleReviewOrchestrator.reviewCurrentBundleUntilBoundary(
+            change_set_id,
+          );
         return this.controlStore.transactChangeSet(change_set_id, (state) => {
           const result = createBundleExecutionResult({
             changeSetId: change_set_id,
@@ -2853,20 +2256,25 @@ export class ChangeFleetService {
       const plan = currentPlan(
         await this.controlStore.readChangeSet(change_set_id),
       );
-      const bundle = await this.finalizeCurrentBundle(change_set_id, {
-        budgetRequest: selectValidationAttemptBudgetRequest(
-          attemptBudgetRequests,
+      const bundle =
+        await this.bundleReviewOrchestrator.finalizeCurrentBundle(
+          change_set_id,
           {
-            kind: "combined_validation",
-            commandId: plan.combined_check.command_id,
+            budgetRequest: selectValidationAttemptBudgetRequest(
+              attemptBudgetRequests,
+              {
+                kind: "combined_validation",
+                commandId: plan.combined_check.command_id,
+              },
+            ),
           },
-        ),
-      });
+        );
       let reviewBoundary = { assessment: null, gate: null };
       if (plan.bundle_review.mode === "independent") {
-        reviewBoundary = await this.reviewCurrentBundleUntilBoundary(
-          change_set_id,
-        );
+        reviewBoundary =
+          await this.bundleReviewOrchestrator.reviewCurrentBundleUntilBoundary(
+            change_set_id,
+          );
       }
       return this.controlStore.transactChangeSet(change_set_id, (state) => {
         const result = createBundleExecutionResult({

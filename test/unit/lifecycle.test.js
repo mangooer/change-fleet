@@ -3,6 +3,8 @@ import { describe, test } from "node:test";
 
 import {
   assertAgentRunTransition,
+  createAgentRunRecord,
+  createRunReference,
   derivePresentationActivity,
   setChangeSetPhase,
   setWorkUnitPhase,
@@ -87,6 +89,43 @@ describe("unified lifecycle transitions", () => {
         });
       }
     }
+  });
+
+  test("prevents operation extensions from overriding Run authority", () => {
+    const reference = createRunReference({
+      runId: "run-authoritative",
+      operation: "planning",
+      trigger: "initial",
+      status: "running",
+      run_id: "run-forged",
+    });
+    assert.equal(reference.run_id, "run-authoritative");
+
+    const run = createAgentRunRecord({
+      runId: "run-authoritative",
+      changeSetId: "change-1",
+      workUnitId: null,
+      operation: "planning",
+      trigger: "initial",
+      attempt: 1,
+      agentProfile: {},
+      continuationOfRunId: null,
+      repositoryHarnessSelection: null,
+      repositoryHarnessObservation: null,
+      contextEvidence: null,
+      contextProjectionIdentity: null,
+      createdAt: "2026-08-10T00:00:00.000Z",
+      extra: {
+        run_id: "run-forged",
+        operation: "review",
+        status: "completed",
+        schema_version: 999,
+      },
+    });
+    assert.equal(run.run_id, "run-authoritative");
+    assert.equal(run.operation, "planning");
+    assert.equal(run.status, "running");
+    assert.equal(run.schema_version, 1);
   });
 
   test("derives activity from Runs, Gates, Blockers, and exact completion", () => {

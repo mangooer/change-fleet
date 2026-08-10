@@ -59,8 +59,6 @@ export class SupervisionOrchestrator {
     prepareRetryableExecutions,
     finalizeCurrentBundle,
     reviewCurrentBundle,
-    recordSupervisionStop,
-    supervisionResult,
   }) {
     this.controlStore = controlStore;
     this.runStore = runStore;
@@ -86,8 +84,6 @@ export class SupervisionOrchestrator {
     this.prepareRetryableExecutions = prepareRetryableExecutions;
     this.finalizeCurrentBundle = finalizeCurrentBundle;
     this.reviewCurrentBundle = reviewCurrentBundle;
-    this.recordSupervisionStop = recordSupervisionStop;
-    this.supervisionResult = supervisionResult;
   }
 
   async startSupervision({ idempotency_key, change_set_id, actor = "human" }) {
@@ -660,6 +656,43 @@ export class SupervisionOrchestrator {
       state.updated_at = createdAt;
       return structuredClone(gate);
     });
+  }
+
+  async recordSupervisionStop(changeSetId, reason) {
+    await this.controlStore.transactChangeSet(changeSetId, (state) => {
+      if (!state.supervision_control) return;
+      state.supervision_control.last_stop_reason = reason;
+      state.supervision_control.updated_at = this.now();
+      state.updated_at = this.now();
+    });
+  }
+
+  async supervisionResult(changeSetId, reason) {
+    const state = await this.controlStore.readChangeSet(changeSetId);
+    const assessment = (state.bundle_review_assessments ?? []).find(
+      (item) =>
+        item.assessment_id === state.current_bundle_review_assessment_id,
+    );
+    return {
+      change_set_id: changeSetId,
+      plan_revision: state.current_plan_revision,
+      phase: state.phase,
+      status: ["bundle_review_ready", "bundle_review_recommended"].includes(
+        reason,
+      )
+        ? "review_ready"
+        : ["gate_open", "bundle_review_gate_required"].includes(reason)
+          ? "human_input_required"
+          : "stopped",
+      stop_reason: reason,
+      bundle:
+        state.phase === "review"
+          ? structuredClone(state.bundles.at(-1) ?? null)
+          : null,
+      bundle_review_assessment:
+        assessment === undefined ? null : structuredClone(assessment),
+      progress: deriveSupervisionProgress(state, { now: this.now() }),
+    };
   }
 }
 

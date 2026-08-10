@@ -1,5 +1,10 @@
 import { DEFAULT_LOCALE, diagnosticMessage, normalizeLocale } from "./diagnostics.js";
 
+const MAX_SECONDARY_FAILURES = 8;
+const MAX_SECONDARY_STAGE_BYTES = 128;
+const MAX_SECONDARY_CODE_BYTES = 128;
+const MAX_SECONDARY_MESSAGE_BYTES = 1_024;
+
 export class ChangeFleetError extends Error {
   // code 是持久且可供程序判断的契约；message 只是当前语言下给人的展示文本。
   constructor(code, fallbackMessage, details = undefined, { locale = DEFAULT_LOCALE } = {}) {
@@ -30,14 +35,24 @@ export function wrapError(error, code, message, details = undefined) {
 }
 
 export function attachSecondaryFailure(primaryError, stage, secondaryError) {
-  // 次级清理或审计失败不能覆盖主错误，但必须随主错误进入有界终态信封。
-  primaryError.secondary_failures ??= [];
-  primaryError.secondary_failures.push({
-    stage,
-    code: secondaryError?.code ?? "UNEXPECTED_ERROR",
-    message: secondaryError?.message ?? String(secondaryError),
-  });
+  // 次级错误最多保留固定条数和字节，不能借错误正文无限放大聚合或事件记录。
+  const failures = boundedSecondaryFailures(primaryError.secondary_failures);
+  if (failures.length < MAX_SECONDARY_FAILURES) {
+    failures.push(normalizeSecondaryFailure({
+      stage,
+      code: secondaryError?.code ?? "UNEXPECTED_ERROR",
+      message: secondaryError?.message ?? String(secondaryError),
+    }));
+  }
+  primaryError.secondary_failures = failures;
   return primaryError;
+}
+
+export function boundedSecondaryFailures(input) {
+  if (!Array.isArray(input)) return [];
+  return input
+    .slice(0, MAX_SECONDARY_FAILURES)
+    .map(normalizeSecondaryFailure);
 }
 
 export async function preserveSecondaryFailure(primaryError, stage, operation) {
@@ -47,4 +62,32 @@ export async function preserveSecondaryFailure(primaryError, stage, operation) {
   } catch (secondaryError) {
     attachSecondaryFailure(primaryError, stage, secondaryError);
   }
+}
+
+function normalizeSecondaryFailure(input) {
+  return {
+    stage: truncateUtf8(input?.stage ?? "unknown", MAX_SECONDARY_STAGE_BYTES),
+    code: truncateUtf8(
+      input?.code ?? "UNEXPECTED_ERROR",
+      MAX_SECONDARY_CODE_BYTES,
+    ),
+    message: truncateUtf8(
+      input?.message ?? "Unexpected secondary failure",
+      MAX_SECONDARY_MESSAGE_BYTES,
+    ),
+  };
+}
+
+function truncateUtf8(value, maximumBytes) {
+  const text = String(value);
+  if (Buffer.byteLength(text, "utf8") <= maximumBytes) return text;
+  let result = "";
+  let bytes = 0;
+  for (const character of text) {
+    const characterBytes = Buffer.byteLength(character, "utf8");
+    if (bytes + characterBytes > maximumBytes) break;
+    result += character;
+    bytes += characterBytes;
+  }
+  return result;
 }

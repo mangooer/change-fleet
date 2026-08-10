@@ -3,6 +3,7 @@ import {
   commandFingerprint,
 } from "../domain/model.js";
 import {
+  boundedSecondaryFailures,
   ChangeFleetError,
   invariant,
   preserveSecondaryFailure,
@@ -655,8 +656,8 @@ export class GithubDeliveryService {
             1_024,
           ),
           details: error?.details ?? null,
-          secondary_failures: structuredClone(
-            error?.secondary_failures ?? [],
+          secondary_failures: boundedSecondaryFailures(
+            error?.secondary_failures,
           ),
         },
       },
@@ -693,8 +694,8 @@ export class GithubDeliveryService {
           0,
           1_024,
         ),
-        secondary_failures: structuredClone(
-          error?.secondary_failures ?? [],
+        secondary_failures: boundedSecondaryFailures(
+          error?.secondary_failures,
         ),
       };
       deriveAggregateDeliveryState(state);

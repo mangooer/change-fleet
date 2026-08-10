@@ -1,37 +1,19 @@
 # Current State
 
-Updated: 2026-08-07
+Updated: 2026-08-10
 
 This project's accepted direction, implementation, active gaps, and the next task. `SPEC.md` owns
 the contract; Decisions own rationale; WorkItems and Git own implementation evidence.
 
 ## Current Baseline
 
-- WI-0001 through WI-0018 are complete. Abandoned predecessor attempts remain audit history rather
-  than current authority.
-- Local `main` at `20b2b9c` includes WI-0019 through WI-0021 and their selected gates. Decision
-  0025 replaces operation-specific repair states with coarse phases, generic Runs, Feedback, Gates,
-  and one recovery path.
-- Branch-local [WI-0022](work-items/WI-0022-control-kernel-debt-cleanup.md) is `done` but unlanded;
-  it removes private migration/recovery, consolidates Run/Bundle mechanics, and retains lifecycle
-  reserves.
-- Branch-local [WI-0023](work-items/WI-0023-shared-run-record-and-workspace-helpers.md) is `done`
-  but unlanded; it shares Run record, Run reference, secondary-failure, and detached-worktree
-  helpers without changing persisted shapes.
-- Branch-local [WI-0024](work-items/WI-0024-recovery-skeleton-and-store-array-assertions.md) is
-  `done` but unlanded; it generalizes the five recovery reconciles into one skeleton and requires
-  current-schema ChangeSet arrays at the store boundary.
-- Branch-local [WI-0025](work-items/WI-0025-shared-run-command-and-workspace-helpers.md) is `done`
-  but unlanded; it extracts shared Run, command, and workspace helpers under Proposal 0026.
-- Branch-local [WI-0026](work-items/WI-0026-supervision-orchestrator.md) is `done` but unlanded;
-  it moves the supervision command surface and autonomous loop into a bounded
-  `SupervisionOrchestrator`.
-- Branch-local [WI-0027](work-items/WI-0027-verification-execution-boundary.md) is `done` but
-  unlanded; it moves requested, repository, and combined validation execution into a bounded
-  `VerificationOrchestrator`.
-- Branch-local [WI-0028](work-items/WI-0028-verification-dispatch-boundary.md) is `done` but
-  unlanded; it moves verification admission and independent-review dispatch into
-  `VerificationOrchestrator`, completing the verification slice.
+- Commit `20b2b9c` is the accepted baseline through WI-0021. Decision 0025 replaces
+  operation-specific repair states with coarse phases, generic Runs, Feedback, Gates, and one
+  recovery path; abandoned attempts remain audit history.
+- This history adds completed WI-0022 through
+  [WI-0029](work-items/WI-0029-bundle-review-orchestration-boundary.md): private compatibility debt
+  is removed and Proposal 0026's internal split is complete. WorkItems and Git retain slice-level
+  evidence; landing this exact history requires no Harness-status follow-up.
 - Agent Runtimes own semantic work. ChangeFleet owns cross-repository authorization, revisions,
   scheduling, exact Git and Bundle subjects, evidence, recovery, and human gates.
 
@@ -82,30 +64,16 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 
 ## Accepted Decisions
 
-- The [Decision Index](decisions/README.md) owns the complete rationale map. Latest accepted
-  Decision 0028 records the internal application orchestration boundary; Decision 0027 adds
-  Bundle-level independent quality review without changing Decision 0025's coarse phases or
-  common Run status lifecycle.
+- The [Decision Index](decisions/README.md) owns rationale. Decision 0028 records the internal
+  orchestration boundary without changing Decision 0025's lifecycle or Decision 0027's review.
 
 ## Repository Design Proposals
 
 - The [Proposal Index](proposals/INDEX.md) owns chronology; Decisions retain superseded, rejected,
   and deferred boundaries.
-- Accepted Proposals through 0021 are landed through WI-0015. Accepted
-  [0022](proposals/0022-risk-adaptive-candidate-verification.md) is recorded by Decision 0024 and
-  has its first three slices completed through WI-0016, WI-0017, and WI-0018.
-- Accepted [0023](proposals/0023-unified-stage-and-run-lifecycle.md) is recorded by Decision 0025.
-  Atomic replacement [WI-0019](work-items/WI-0019-unified-stage-and-run-lifecycle.md) is landed.
-- Accepted [0024](proposals/0024-policy-governed-agentic-supervision.md) is recorded by Decision
-  0026. Its first single-Candidate autonomous vertical slice is confirmed as
-  [WI-0020](work-items/WI-0020-plan-confirmed-agentic-supervision-vertical-slice.md), `done`.
-- Accepted [0025](proposals/0025-bundle-level-independent-quality-review.md) is recorded by Decision
-  0027. Its unique implementation slice is confirmed as
-  [WI-0021](work-items/WI-0021-bundle-level-independent-quality-review.md), `done` and landed.
-- Accepted [0026](proposals/0026-shared-application-orchestration-boundary.md) is recorded by
-  Decision 0028. It splits only internal application boundaries; branch-local
-  [WI-0025](work-items/WI-0025-shared-run-command-and-workspace-helpers.md) extracts the shared
-  leaf service first.
+- Accepted Proposals through 0025 are landed through WI-0021. Accepted
+  [0026](proposals/0026-shared-application-orchestration-boundary.md) is recorded by Decision 0028;
+  its implementation is complete through WI-0029 in this history.
 
 ## Open Questions
 
@@ -132,9 +100,10 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 
 ## Next Recommended Task
 
-Discuss a bounded alternative-AgentProfile trial and comparative-audit proposal. Preserve exact
-isolated Candidates and raw cost, duration, retry, and review evidence; defer normalized scoring and
-automatic model routing until those comparisons are proven useful.
+After this history is canonical, discuss a bounded alternative-AgentProfile trial and
+comparative-audit proposal. Preserve exact isolated Candidates and raw cost, duration, retry, and
+review evidence; defer normalized scoring and automatic model routing until those comparisons are
+proven useful.
 
 ## Maintenance Contract
 

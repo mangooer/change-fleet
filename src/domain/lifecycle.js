@@ -203,14 +203,17 @@ export function createRunReference({
   status = "running",
   ...extra
 }) {
-  return {
+  // 扩展字段先写入，随后由权威身份和生命周期字段覆盖，调用者不能伪造 Run 引用。
+  const reference = {
+    ...extra,
     run_id: runId,
     operation,
     trigger,
     ...(attempt === undefined ? {} : { attempt }),
     status,
-    ...extra,
   };
+  assertAgentRunLifecycle(reference);
+  return reference;
 }
 
 export function createAgentRunRecord({
@@ -229,7 +232,9 @@ export function createAgentRunRecord({
   createdAt,
   extra = {},
 }) {
-  return {
+  // operation 专属字段可以扩展记录，但不得覆盖通用 Run 身份、状态或证据槽位。
+  const run = {
+    ...extra,
     schema_version: 1,
     run_id: runId,
     change_set_id: changeSetId,
@@ -248,8 +253,9 @@ export function createAgentRunRecord({
     created_at: createdAt,
     completed_at: null,
     outcome: null,
-    ...extra,
   };
+  assertAgentRunLifecycle(run);
+  return run;
 }
 
 export function assertAgentRunTransition(previous, next) {

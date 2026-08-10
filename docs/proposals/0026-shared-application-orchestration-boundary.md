@@ -51,21 +51,22 @@ operation names, CLI routes, or local console routes:
 `ChangeFleetService` keeps:
 
 - idempotent command lifecycle and command audit authority;
-- ChangeSet aggregate transitions (`transactChangeSet` closures, phase, disposition, blocker,
-  Gate, and Bundle decision persistence);
+- cross-operation transitions plus human Bundle decision and delivery authority;
 - the top-level `executeChangeSet` state machine that drives planning, execution, verification,
   Bundle assembly, review, and delivery;
 - the public API shape consumed by `OperatorApplication`, the CLI, and the local console.
 
 Each extracted orchestrator receives its dependencies through the `ChangeFleetService`
-constructor (single composition root) and never owns a second copy of aggregate authority. All
-orchestrators reuse the shared leaf service from stage 1.
+constructor (single composition root). An orchestrator owns only the transaction closures for its
+operation; it shares the same `ControlStore`, domain lifecycle rules, and leaf services rather than
+maintaining a second aggregate model.
 
 ## Boundaries
 
 - Orchestrators may read and mutate persisted Run, evidence, and ChangeSet state only through the
-  shared stores, the leaf service, and the aggregate transition closures owned by
-  `ChangeFleetService`.
+  shared stores, lifecycle functions, and leaf services assembled by `ChangeFleetService`.
+- Each orchestrator may write only facts owned by its operation. Cross-operation command identity,
+  human Bundle decisions, delivery authority, schema, and lifecycle rules remain outside it.
 - No orchestrator may redefine command identity, idempotency, or command failure semantics.
 - No orchestrator may start a Provider invocation except through `RunCoordinator`.
 - No orchestrator may change workspace cleanup, verification admission, or Bundle authority rules.
@@ -87,11 +88,20 @@ gate is not affected because no Provider boundary code changes.
 
 ## Consequences
 
-- `ChangeFleetService` shrinks to command routing, aggregate transitions, and the top-level
-  state machine; large method bodies become orchestrator responsibilities.
+- `ChangeFleetService` shrinks to command routing, cross-operation authority, and the top-level
+  state machine; operation-scoped transactions move with their orchestrator methods.
 - New files are added; no public API, persisted schema, CLI, or console behavior changes.
 - Each stage is one confirmed WorkItem with its own evidence; proposal and Decision history is
   preserved.
+
+## Implementation Clarification (2026-08-10)
+
+The original wording said that every aggregate transaction closure remained in
+`ChangeFleetService`. That was too broad: moving an orchestration method while leaving all of its
+state transitions behind would replace one monolith with a large callback surface. The accepted
+implementation instead moves each operation's transaction closures with that operation while
+retaining one store, one lifecycle contract, one composition root, and the cross-operation and
+human authorities listed above. This clarification changes no persisted or product behavior.
 
 ## Open Questions
 

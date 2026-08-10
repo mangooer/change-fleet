@@ -1,6 +1,10 @@
 import { runCommand } from "../filesystem/command-runner.js";
 import { sha256 } from "../../domain/canonical-json.js";
-import { ChangeFleetError, invariant } from "../../domain/errors.js";
+import {
+  attachSecondaryFailure,
+  ChangeFleetError,
+  invariant,
+} from "../../domain/errors.js";
 import {
   branchNameFromTargetRef,
   normalizeGithubDeliveryBindingRequest,
@@ -100,12 +104,11 @@ export class GhPullRequestAdapter {
         });
       } catch (recoveryError) {
         // 恢复查询失败不能覆盖首次创建错误，但必须随主错误返回给审计边界。
-        error.secondary_failures ??= [];
-        error.secondary_failures.push({
-          stage: "github_pull_request_recovery",
-          code: recoveryError?.code ?? "UNEXPECTED_ERROR",
-          message: recoveryError?.message ?? String(recoveryError),
-        });
+        attachSecondaryFailure(
+          error,
+          "github_pull_request_recovery",
+          recoveryError,
+        );
       }
       if (recovered) return recovered;
       throw error;

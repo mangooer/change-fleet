@@ -51,8 +51,8 @@ invocation, disposition persistence, supervision Feedback, and supervision Gate 
 - Supervision methods exist only in `SupervisionOrchestrator`; `ChangeFleetService` delegates the
   public supervision surface.
 - Supervision-only module helpers no longer exist in `ChangeFleetService`.
-- The orchestrator never duplicates aggregate authority and invokes Providers only through
-  `RunCoordinator`.
+- The orchestrator owns only supervision-scoped transactions, shares the existing aggregate model,
+  and invokes Providers only through `RunCoordinator`.
 - Unit, supervision, and affected application integration suites pass; `git diff --check`
   exits 0.
 
