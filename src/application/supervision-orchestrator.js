@@ -28,6 +28,8 @@ import {
   deriveSupervisionActionSet,
   deriveSupervisionProgress,
   normalizeSupervisorDecisionProposal,
+  startSupervisionClock,
+  stopSupervisionClock,
 } from "../domain/supervision.js";
 import { runTerminalStatusForError } from "./run-coordinator.js";
 
@@ -206,6 +208,14 @@ export class SupervisionOrchestrator {
     assertAutonomousPlanCurrent(initial, this.currentPlan);
     await this.reconcileInterruptedRuns(changeSetId, {
       project: this.requireProject(catalog, initial.project_id),
+    });
+    await this.controlStore.transactChangeSet(changeSetId, (state) => {
+      assertAutonomousPlanCurrent(state, this.currentPlan);
+      const startedAt = this.now();
+      startSupervisionClock(state.supervision_control, startedAt);
+      state.supervision_control.last_stop_reason = null;
+      state.supervision_control.updated_at = startedAt;
+      state.updated_at = startedAt;
     });
 
     let previousFailure = null;
@@ -647,6 +657,7 @@ export class SupervisionOrchestrator {
         created_at: createdAt,
       };
       state.gates.push(gate);
+      stopSupervisionClock(state.supervision_control, createdAt);
       if (!bundleReviewFailure) {
         state.supervision_control.hold = {
           hold_id: this.idFactory("hold"),
@@ -665,9 +676,11 @@ export class SupervisionOrchestrator {
   async recordSupervisionStop(changeSetId, reason) {
     await this.controlStore.transactChangeSet(changeSetId, (state) => {
       if (!state.supervision_control) return;
+      const stoppedAt = this.now();
+      stopSupervisionClock(state.supervision_control, stoppedAt);
       state.supervision_control.last_stop_reason = reason;
-      state.supervision_control.updated_at = this.now();
-      state.updated_at = this.now();
+      state.supervision_control.updated_at = stoppedAt;
+      state.updated_at = stoppedAt;
     });
   }
 
@@ -740,7 +753,7 @@ function createSupervisionProjection(
 ) {
   // Supervisor 只看当前控制快照和有界失败摘要；日志、diff、transcript、成本总量均留在审计面。
   return {
-    schema_version: 1,
+    schema_version: 2,
     operation: "supervision",
     change_set_id: state.change_set_id,
     projection_digest: actionSet.projection_digest,

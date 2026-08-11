@@ -614,6 +614,8 @@ export class ChangeFleetService {
       supervision_control: {
         plan_revision: null,
         authorized_at: null,
+        active_elapsed_ms: 0,
+        active_started_at: null,
         hold: null,
         last_stop_reason: null,
         updated_at: now,
@@ -2083,6 +2085,8 @@ export class ChangeFleetService {
           state.supervision_control = {
             plan_revision: planRevision,
             authorized_at: this.now(),
+            active_elapsed_ms: 0,
+            active_started_at: null,
             hold: null,
             last_stop_reason: null,
             updated_at: this.now(),

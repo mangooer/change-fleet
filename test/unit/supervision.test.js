@@ -4,9 +4,12 @@ import { describe, test } from "node:test";
 import {
   actionRequiresSupervisor,
   deriveSupervisionActionSet,
+  deriveSupervisionProgress,
   normalizePlanSupervision,
   normalizeSupervisorDecisionProposal,
   normalizeSupervisionPolicy,
+  startSupervisionClock,
+  stopSupervisionClock,
 } from "../../src/domain/supervision.js";
 
 describe("deterministic supervision authority", () => {
@@ -218,6 +221,73 @@ describe("deterministic supervision authority", () => {
     );
   });
 
+  test("counts only active supervision intervals across a human wait and resume", () => {
+    const state = createState();
+    assert.equal(
+      deriveSupervisionProgress(state, {
+        now: "2026-08-07T00:00:05.000Z",
+      }).elapsed.used_ms,
+      5_000,
+    );
+
+    stopSupervisionClock(
+      state.supervision_control,
+      "2026-08-07T00:00:05.000Z",
+    );
+    assert.equal(
+      deriveSupervisionProgress(state, {
+        now: "2026-08-07T01:00:00.000Z",
+      }).elapsed.used_ms,
+      5_000,
+    );
+
+    startSupervisionClock(
+      state.supervision_control,
+      "2026-08-07T01:00:00.000Z",
+    );
+    assert.equal(
+      deriveSupervisionProgress(state, {
+        now: "2026-08-07T01:00:02.000Z",
+      }).elapsed.used_ms,
+      7_000,
+    );
+  });
+
+  test("projects Feedback as blocked when its total execution capacity is exhausted", () => {
+    const state = createState();
+    const unit = state.work_units[0];
+    state.plans[0].supervision.execution_attempt_limit_per_work_unit = 1;
+    state.plans[0].supervision.feedback_cycle_limit_per_work_unit = 1;
+    unit.phase = "verification";
+    unit.candidate_checkpoint_id = "checkpoint-1";
+    unit.run_references = [
+      {
+        run_id: "run-initial",
+        operation: "execution",
+        trigger: "initial",
+        status: "completed",
+      },
+    ];
+    unit.validation_attempt_ids = ["validation-1"];
+    unit.last_error = {
+      code: "REPOSITORY_VALIDATION_FAILED",
+      validation_attempt_id: "validation-1",
+    };
+
+    const actionSet = deriveSupervisionActionSet(state, {
+      now: "2026-08-07T00:00:02.000Z",
+    });
+    const budget = actionSet.progress.work_units[0];
+    assert.equal(budget.feedback.remaining, 1);
+    assert.equal(budget.feedback.effective_remaining, 0);
+    assert.equal(budget.feedback.effective_exhausted, true);
+    assert.equal(budget.feedback.blocked_by, "execution_attempt");
+    assert.deepEqual(
+      actionSet.actions.map((action) => action.type),
+      ["retry_validation", "open_gate"],
+    );
+  });
+
   test("projects holds, elapsed exhaustion, and Bundle review as stop facts instead of phases", () => {
     const held = createState();
     held.supervision_control.hold = {
@@ -348,6 +418,8 @@ function createState() {
     supervision_control: {
       plan_revision: 1,
       authorized_at: "2026-08-07T00:00:00.000Z",
+      active_elapsed_ms: 0,
+      active_started_at: "2026-08-07T00:00:00.000Z",
       hold: null,
       last_stop_reason: null,
       updated_at: "2026-08-07T00:00:00.000Z",

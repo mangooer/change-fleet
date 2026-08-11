@@ -148,6 +148,43 @@ export function normalizePlanSupervision(input, projectPolicy = null) {
   return normalized;
 }
 
+// 监督时钟只累计控制器真实处于自主循环中的区间；人工审查、Gate 和暂停等待不消耗该预算。
+export function startSupervisionClock(control, now) {
+  const startedAt = supervisionTimestamp("active_started_at", now);
+  control.active_elapsed_ms = accumulatedSupervisionTime(control);
+  if (
+    control.active_started_at === null ||
+    control.active_started_at === undefined
+  ) {
+    control.active_started_at = startedAt;
+  } else {
+    supervisionTimestamp("active_started_at", control.active_started_at);
+  }
+  return control;
+}
+
+// 停止操作必须先固化当前区间，再清空起点；重复停止不会重复累计同一段时间。
+export function stopSupervisionClock(control, now) {
+  const stoppedAt = supervisionTimestamp("stopped_at", now);
+  const accumulated = accumulatedSupervisionTime(control);
+  if (
+    control.active_started_at === null ||
+    control.active_started_at === undefined
+  ) {
+    control.active_elapsed_ms = accumulated;
+    control.active_started_at = null;
+    return control;
+  }
+  const startedAt = supervisionTimestamp(
+    "active_started_at",
+    control.active_started_at,
+  );
+  control.active_elapsed_ms =
+    accumulated + Math.max(0, Date.parse(stoppedAt) - Date.parse(startedAt));
+  control.active_started_at = null;
+  return control;
+}
+
 // 该纯函数只读取权威快照并给出下一组合法动作；它不读取文件、时间或 Runtime。
 export function deriveSupervisionActionSet(changeSet, { now }) {
   const plan = currentPlan(changeSet);
@@ -295,7 +332,7 @@ export function deriveSupervisionActionSet(changeSet, { now }) {
         }),
       );
     }
-    if (!budget.feedback.exhausted) {
+    if (!budget.feedback.effective_exhausted) {
       actions.push(
         envelope("submit_feedback", subject, {
           feedback: validationFailureFeedback(validationFailure),
@@ -428,14 +465,7 @@ export function deriveSupervisionActionSet(changeSet, { now }) {
 export function deriveSupervisionProgress(changeSet, { now, plan = null } = {}) {
   const current = plan ?? currentPlan(changeSet);
   const limits = current?.supervision ?? normalizePlanSupervision(null);
-  const start = Date.parse(
-    changeSet.supervision_control?.authorized_at ?? current?.confirmed_at ?? now,
-  );
-  const finish = Date.parse(now);
-  const elapsedMs =
-    Number.isFinite(start) && Number.isFinite(finish) && finish >= start
-      ? finish - start
-      : 0;
+  const elapsedMs = activeSupervisionTime(changeSet.supervision_control, now);
   const combinedAttempts = (changeSet.validation_attempts ?? []).filter(
     (attempt) => attempt.kind === "combined_validation",
   );
@@ -489,25 +519,76 @@ export function deriveSupervisionProgress(changeSet, { now, plan = null } = {}) 
           (reference) => reference.operation === "verification",
         ).length + (unit.validation_attempt_ids ?? []).length;
       const feedbackCycles = unit.run_references.filter(
-        (reference) => reference.operation === "execution" && reference.trigger === "feedback",
+        (reference) =>
+          reference.operation === "execution" &&
+          reference.trigger === "feedback",
       ).length;
+      const execution = budgetCounter(
+        executionAttempts,
+        limits.execution_attempt_limit_per_work_unit,
+      );
+      const feedback = budgetCounter(
+        feedbackCycles,
+        limits.feedback_cycle_limit_per_work_unit,
+      );
       return {
         work_unit_id: unit.work_unit_id,
-        execution: budgetCounter(
-          executionAttempts,
-          limits.execution_attempt_limit_per_work_unit,
-        ),
+        execution,
         verification: budgetCounter(
           verificationAttempts,
           limits.verification_attempt_limit_per_work_unit,
         ),
-        feedback: budgetCounter(
-          feedbackCycles,
-          limits.feedback_cycle_limit_per_work_unit,
-        ),
+        // Feedback Run 同时属于 execution Run；有效容量取两个独立上限的交集。
+        feedback: {
+          ...feedback,
+          effective_remaining: Math.min(
+            feedback.remaining,
+            execution.remaining,
+          ),
+          effective_exhausted: feedback.exhausted || execution.exhausted,
+          blocked_by: feedback.exhausted
+            ? "feedback_cycle"
+            : execution.exhausted
+              ? "execution_attempt"
+              : null,
+        },
       };
     }),
   };
+}
+
+function activeSupervisionTime(control, now) {
+  const accumulated = accumulatedSupervisionTime(control);
+  if (
+    control?.active_started_at === null ||
+    control?.active_started_at === undefined
+  ) {
+    return accumulated;
+  }
+  const startedAt = Date.parse(
+    supervisionTimestamp("active_started_at", control.active_started_at),
+  );
+  const observedAt = Date.parse(supervisionTimestamp("observed_at", now));
+  return accumulated + Math.max(0, observedAt - startedAt);
+}
+
+function accumulatedSupervisionTime(control) {
+  const elapsed = control?.active_elapsed_ms ?? 0;
+  invariant(
+    Number.isSafeInteger(elapsed) && elapsed >= 0,
+    "INVALID_SUPERVISION_CLOCK",
+    "Accumulated supervision time must be a non-negative integer",
+  );
+  return elapsed;
+}
+
+function supervisionTimestamp(label, value) {
+  invariant(
+    typeof value === "string" && Number.isFinite(Date.parse(value)),
+    "INVALID_SUPERVISION_CLOCK",
+    `Supervision ${label} must be an ISO timestamp`,
+  );
+  return value;
 }
 
 export function normalizeSupervisorDecisionProposal(

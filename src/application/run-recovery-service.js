@@ -5,6 +5,7 @@ import {
   setChangeSetPhase,
   setWorkUnitPhase,
 } from "../domain/lifecycle.js";
+import { stopSupervisionClock } from "../domain/supervision.js";
 
 // RunRecoveryService 统一解释控制器丢失；不同 operation 只提供资源清理适配。
 export class RunRecoveryService {
@@ -249,8 +250,10 @@ export class RunRecoveryService {
           );
         }
         if (current.supervision_control) {
+          const recoveredAt = this.now();
+          stopSupervisionClock(current.supervision_control, recoveredAt);
           current.supervision_control.last_stop_reason = "controller_restart";
-          current.supervision_control.updated_at = this.now();
+          current.supervision_control.updated_at = recoveredAt;
         }
       },
     });

@@ -103,6 +103,64 @@ describe("Plan-confirmed autonomous supervision", () => {
     assert.equal(fixture.runtime.supervisionInvocationCount, 0);
   });
 
+  test("does not spend elapsed supervision budget while Bundle review waits for a human", async (t) => {
+    let observedAt = Date.parse("2026-08-11T00:00:00.000Z");
+    const fixture = await createAutonomousFixture(
+      t,
+      "changefleet-auto-human-wait-clock-",
+      {
+        clock: () => new Date(observedAt),
+        runtimeFactory: (plan) =>
+          new ScriptedRuntime({
+            plan,
+            feedbackExecutionOutcome: {
+              type: "implementation_completed",
+              summary: "Assessed the human finding without changing the Candidate.",
+              changed_paths: [],
+              blocker: null,
+            },
+          }),
+      },
+    );
+    await confirmAutonomousPlan(fixture.service, fixture.changeSetId);
+    const stopped = await fixture.service.readChangeSet(fixture.changeSetId);
+    assert.equal(stopped.phase, "review");
+    assert.equal(stopped.supervision_control.active_started_at, null);
+    const usedAtReview = stopped.supervision_control.active_elapsed_ms;
+
+    observedAt += 60 * 60 * 1_000;
+    const afterHumanWait = await fixture.service.readSupervisionProgress({
+      change_set_id: fixture.changeSetId,
+    });
+    assert.equal(afterHumanWait.progress.elapsed.used_ms, usedAtReview);
+    assert.equal(afterHumanWait.progress.elapsed.exhausted, false);
+
+    const bundle = stopped.bundles.at(-1);
+    await fixture.service.recordBundleDecision({
+      idempotency_key: "request-revision-after-human-wait",
+      change_set_id: fixture.changeSetId,
+      bundle_revision: bundle.revision,
+      bundle_hash: bundle.bundle_hash,
+      decision: "request_revision",
+      feedback: {
+        summary: "Assess one finding after a long human review wait",
+        findings: [
+          {
+            finding_id: "human-wait-finding",
+            text: "Determine whether the current Candidate needs a correction",
+          },
+        ],
+      },
+    });
+    const resumed = await fixture.service.resumeSupervision({
+      idempotency_key: "resume-after-human-wait",
+      change_set_id: fixture.changeSetId,
+    });
+    assert.equal(resumed.status, "review_ready");
+    assert.equal(resumed.progress.elapsed.used_ms, usedAtReview);
+    assert.equal(resumed.progress.elapsed.exhausted, false);
+  });
+
   test("dispatches one exact independent Bundle review without a Supervisor decision", async (t) => {
     const fixture = await createAutonomousFixture(
       t,
@@ -886,6 +944,11 @@ describe("Plan-confirmed autonomous supervision", () => {
       ).length,
       1,
     );
+    assert.equal(recovered.supervision_control.active_started_at, null);
+    assert.equal(
+      Number.isSafeInteger(recovered.supervision_control.active_elapsed_ms),
+      true,
+    );
   });
 
   test("stops after an explicit operator interruption instead of retrying it automatically", async (t) => {
@@ -1006,6 +1069,7 @@ async function createAutonomousFixture(
     supervisionMode = "autonomous_until_review",
     idFactory = undefined,
     longTrackedRelativePath = null,
+    clock = undefined,
   } = {},
 ) {
   const root = await createFixtureRoot(t, prefix);
@@ -1074,6 +1138,7 @@ async function createAutonomousFixture(
     supervisionRuntime: supervisionRuntime ?? runtime,
     agentProfile: TEST_AGENT_PROFILE,
     idFactory,
+    clock,
   });
   await service.registerProject({
     idempotency_key: "register",

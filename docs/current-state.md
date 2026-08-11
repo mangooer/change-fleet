@@ -19,7 +19,12 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 
 - Completed [WI-0037](work-items/WI-0037-persistent-task-workspaces-and-semantic-plans.md) implements
   accepted Proposal 0028 and Decision 0030 on this branch as one atomic workspace and
-  Planner-contract replacement; the user accepted it and the exact branch commit is ready to land.
+  Planner-contract replacement; the user accepted it at exact commit `48af9ab`.
+- Completed and user-accepted
+  [WI-0038](work-items/WI-0038-active-supervision-time-and-effective-feedback-budget.md) corrects a
+  bounded real self-iteration finding: clean human review waits no longer consume elapsed autonomous
+  supervision time, and Feedback capacity exposes its effective intersection with the total
+  execution-Run ceiling. Its final deterministic gate passes branch-locally.
 
 ## Accepted Product Direction
 
@@ -105,8 +110,8 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 
 ## Next Recommended Task
 
-After WI-0037 lands, run one bounded real self-iteration using its semantic Plan and persistent
-TaskWorkspace contract; tracker adapters, templates, and Candidate lanes remain deferred.
+Commit and land the accepted WI-0037 replacement and WI-0038 follow-up, then select the next
+vertical slice without expanding into tracker adapters, templates, or Candidate lanes by default.
 
 ## Maintenance Contract
 
