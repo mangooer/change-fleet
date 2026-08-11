@@ -10,6 +10,12 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 - Completed WI-0022 through [WI-0036](work-items/WI-0036-candidate-bound-feedback-repair.md) leave no
   compatibility path: verification and feedback bind exact Candidates, clean retry survives restart,
   and Core does not parse target-project Harness formats.
+- Completed [WI-0037](work-items/WI-0037-persistent-task-workspaces-and-semantic-plans.md) implements
+  accepted Proposal 0028 and Decision 0030 as one atomic workspace and Planner-contract
+  replacement.
+- Completed [WI-0038](work-items/WI-0038-active-supervision-time-and-effective-feedback-budget.md)
+  corrects autonomous elapsed-time accounting and exposes effective Feedback capacity under the
+  total execution-Run ceiling.
 - Structural preflight is mandatory. Project semantic commands are optional Plan selections;
   commandless validation records real attempts without fake command metadata.
 - Agent Runtimes own semantic work. ChangeFleet owns cross-repository authorization, revisions,
@@ -17,14 +23,8 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 
 ## Branch-Local Work
 
-- Completed [WI-0037](work-items/WI-0037-persistent-task-workspaces-and-semantic-plans.md) implements
-  accepted Proposal 0028 and Decision 0030 on this branch as one atomic workspace and
-  Planner-contract replacement; the user accepted it at exact commit `48af9ab`.
-- Completed and user-accepted
-  [WI-0038](work-items/WI-0038-active-supervision-time-and-effective-feedback-budget.md) corrects a
-  bounded real self-iteration finding: clean human review waits no longer consume elapsed autonomous
-  supervision time, and Feedback capacity exposes its effective intersection with the total
-  execution-Run ceiling. Its final deterministic gate passes branch-locally.
+- No additional unaccepted implementation is projected here. Git owns exact landing and delivery
+  history.
 
 ## Accepted Product Direction
 
@@ -83,7 +83,7 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 - Accepted [0027](proposals/0027-optional-project-semantic-checks.md) is recorded by Decision 0029
   and implemented by completed WI-0035 in this history.
 - Accepted [0028](proposals/0028-persistent-task-workspaces-and-linked-repositories.md) is recorded by
-  Decision 0030 and implemented branch-locally by completed WI-0037.
+  Decision 0030 and implemented by completed WI-0037.
 
 ## Open Questions
 
@@ -110,8 +110,8 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 
 ## Next Recommended Task
 
-Commit and land the accepted WI-0037 replacement and WI-0038 follow-up, then select the next
-vertical slice without expanding into tracker adapters, templates, or Candidate lanes by default.
+Discuss a minimal ChangeSet intake vertical slice without expanding into tracker adapters,
+templates, or Candidate comparison lanes by default.
 
 ## Maintenance Contract
 

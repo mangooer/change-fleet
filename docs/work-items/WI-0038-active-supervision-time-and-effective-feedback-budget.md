@@ -75,10 +75,11 @@ does not introduce a new supervision model.
 
 ## Current Projection
 
-- Current subject: branch `codex/wi-0037-persistent-task-workspaces` at `48af9ab`.
+- Current subject: accepted implementation commit `008eadf`, based on the WI-0037 replacement at
+  `48af9ab`.
 - Last verified state: active interval accounting, restart closure, and effective Feedback capacity
   passed the selected deterministic gates and the user accepted WI-0038 on 2026-08-11.
-- Next step: commit this isolated follow-up, then land the branch.
+- Next step: none for this completed WorkItem; Git owns its exact landing history.
 - Active blocker or decision: none.
 
 ## Implementation Evidence
