@@ -54,13 +54,13 @@ const CODEX_REASONING_EFFORTS = new Set([
 // 各语义阶段只约束“交付结果满足项目自身约定”，不把任何具体 Harness 文件或状态提升为 Core 契约。
 const REPOSITORY_HARNESS_COMPLETENESS_INSTRUCTIONS = Object.freeze({
   planning:
-    "Treat repository-native instructions as semantic requirements rather than controller state. Determine whether this change requires tracked maintenance, governance, documentation, or status artifacts to be updated; when required, include them in the same Repository WorkUnit and its check or completion evidence. Do not invent an artifact or assume a universal format when the repository has no applicable requirement.",
+    "Treat repository-native instructions as project-owned semantic requirements rather than controller state. Read and apply only the requirements that are applicable to this change, and include their completion in the same Repository WorkUnit and evidence. Do not invent requirements, artifacts, commands, or formats that the repository does not establish.",
   execution:
-    "Apply the repository-native instructions to the whole deliverable. When they require tracked maintenance, governance, documentation, or status artifacts to reflect the completed change, update them in this same Candidate before reporting completion. Do not invent an artifact or update an optional convention merely because one might exist elsewhere.",
+    "Read and apply the applicable repository-native instructions to the complete deliverable. Ensure this Candidate satisfies those project-owned requirements before reporting completion. Do not create or update Harness, artifacts, commands, or formats unless the repository or confirmed task requires it.",
   verification:
-    "Assess the Candidate against applicable repository-native instructions, including any required tracked maintenance, governance, documentation, or status update. A proven omission is a blocking finding; an absent, optional, stylistic, or unknown convention is not.",
+    "Assess the exact Candidate against only applicable repository-native requirements. A repository-evidenced violation is a blocking finding; an absent, optional, unsupported, stylistic, or unknown convention is not.",
   review:
-    "Assess the complete Bundle against each applicable repository-native instruction, including required tracked maintenance, governance, documentation, or status updates in its exact Candidate. A proven omission is blocking; an absent, optional, stylistic, or unknown convention is not.",
+    "Assess the complete Bundle against only applicable repository-native requirements in each exact Candidate. A repository-evidenced violation is blocking; an absent, optional, unsupported, stylistic, or unknown convention is not.",
 });
 
 export class CodexSdkRuntime {

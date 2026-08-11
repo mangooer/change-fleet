@@ -70,8 +70,14 @@ Documentation-only changes require this command plus targeted link and eager-siz
 git diff --check
 ```
 
+When the diff changes this repository's `AGENTS.md`, `WORKFLOW.md`, `docs/current-state.md`, or a
+Development WorkItem, also run `npm run check:harness` under Node.js 24. This is ChangeFleet
+repository tooling; it is not a product command and does not impose a command or format on a
+registered repository.
+
 | Package command | Scope |
 | --- | --- |
+| `npm run check:harness` | ChangeFleet WorkItem frontmatter and eager repository-Harness limits |
 | `npm test` | Pure domain and application tests |
 | `npm run test:integration` | Filesystem, locks, recovery, real-Git workspaces, and Candidate identity |
 | `npm run test:acceptance` | Serial real two-repository flow |
@@ -107,9 +113,10 @@ are selected when browser assets, view models, HTTP behavior, or local-browser s
 Missing Playwright packages or browser binaries fail a selected gate closed; generated screenshots,
 traces, reports, and browser binaries stay outside Git and control state.
 
-For Harness documentation, inspect the byte sizes of `AGENTS.md`, `WORKFLOW.md`, and
-`docs/current-state.md` against `docs/harness.md`. This is a maintenance observation, not proof of
-Provider token usage or the 70-percent Runtime target.
+For Harness documentation, `npm run check:harness` verifies the mechanical WorkItem metadata and
+the byte sizes of `AGENTS.md`, `WORKFLOW.md`, and `docs/current-state.md`. Still inspect affected
+links and semantic authority projections. This repository check is not proof of Provider token
+usage or the 70-percent Runtime target.
 
 ## Acceptance Evidence
 

@@ -153,12 +153,13 @@ describe("Codex SDK Runtime protocol", () => {
     );
     assert.match(
       prompts[0],
-      /include them in the same Repository WorkUnit and its check or completion evidence/u,
+      /include their completion in the same Repository WorkUnit and evidence/u,
     );
     assert.match(
       prompts[0],
-      /Do not invent an artifact or assume a universal format/u,
+      /Do not invent requirements, artifacts, commands, or formats/u,
     );
+    assert.doesNotMatch(prompts[0], /maintenance, governance|documentation, or status/u);
     assert.match(prompts[0], /using adopt, adapt, or decline/u);
     assert.equal(turnOptions[0].outputSchema.additionalProperties, false);
     assert.equal(
@@ -274,8 +275,9 @@ describe("Codex SDK Runtime protocol", () => {
     assert.match(prompts[0], /Every item in findings is blocking/u);
     assert.match(
       prompts[0],
-      /A proven omission is a blocking finding; an absent, optional, stylistic, or unknown convention is not/u,
+      /A repository-evidenced violation is a blocking finding; an absent, optional, unsupported, stylistic, or unknown convention is not/u,
     );
+    assert.doesNotMatch(prompts[0], /maintenance, governance|documentation, or status/u);
     assert.match(prompts[0], /scheduled_later_checks are controller-owned future gates/u);
   });
 
@@ -362,12 +364,13 @@ describe("Codex SDK Runtime protocol", () => {
     assert.match(prompts[0], /assess every finding exactly once/u);
     assert.match(
       prompts[0],
-      /update them in this same Candidate before reporting completion/u,
+      /Ensure this Candidate satisfies those project-owned requirements before reporting completion/u,
     );
     assert.match(
       prompts[0],
-      /Do not invent an artifact or update an optional convention/u,
+      /Do not create or update Harness, artifacts, commands, or formats unless the repository or confirmed task requires it/u,
     );
+    assert.doesNotMatch(prompts[0], /maintenance, governance|documentation, or status/u);
   });
 
   test("runs exact Bundle review with read-only repositories and a strict assessment", async () => {
@@ -418,8 +421,9 @@ describe("Codex SDK Runtime protocol", () => {
     assert.match(prompts[0], /exact CandidateBundle across all supplied/u);
     assert.match(
       prompts[0],
-      /A proven omission is blocking; an absent, optional, stylistic, or unknown convention is not/u,
+      /A repository-evidenced violation is blocking; an absent, optional, unsupported, stylistic, or unknown convention is not/u,
     );
+    assert.doesNotMatch(prompts[0], /maintenance, governance|documentation, or status/u);
     assert.match(prompts[0], /A passage recommendation is not Bundle acceptance/u);
   });
 

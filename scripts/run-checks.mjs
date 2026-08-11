@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import { unsupportedNodeVersionDiagnostic } from "./node-version-guard.mjs";
 
 const checks = [
+  ["scripts/check-harness.mjs"],
   ["--test", "test/unit/**/*.test.js"],
   // Real-Git 文件级并发有界，避免 Windows 进程树停止测试被大量同时启动的 Git 子进程饿死。
   ["--test", "--test-concurrency=4", "test/integration/**/*.test.js"],

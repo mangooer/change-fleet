@@ -262,8 +262,9 @@ scripts distinct:
 - product commands live under the one `changefleet` root and carry explicit `experimental` or
   `stable` maturity;
 - debug commands are bounded maintained diagnostics without public compatibility;
-- `npm test`, `npm run check`, and related validation commands belong to this repository's
-  development Harness rather than the product CLI;
+- `npm test`, `npm run check:harness`, `npm run check`, and related validation commands belong to
+  this repository's development Harness rather than the product CLI or a registered-repository
+  requirement;
 - temporary scripts live only under `scripts/` or test support, use `dev:` or `test:` aliases when
   needed, and contain no unique lifecycle or authorization logic.
 

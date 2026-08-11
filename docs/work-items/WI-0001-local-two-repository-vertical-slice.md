@@ -1,7 +1,7 @@
 ---
 artifact_type: development_work_item
 id: WI-0001
-status: complete
+status: done
 title: Implement the deterministic local variable-repository vertical slice
 source: "User request: 正式接受 Proposal 0001 当前版本，更新权威状态并创建唯一的 todo Development WorkItem"
 confirmed_by: user

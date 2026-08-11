@@ -8,17 +8,17 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 ## Current Baseline
 
 - This history includes completed WI-0022 through
-  [WI-0033](work-items/WI-0033-generic-repository-harness-completeness-review.md): private
+  [WI-0034](work-items/WI-0034-repository-owned-harness-boundary-and-self-check.md): private
   compatibility debt is removed, Proposal 0026's internal split is complete, verification verdicts
   match their strict Runtime contract, exact clean execution retry survives controller restart, and
-  disposable reviews use path-safe identities. Agents now receive a generic obligation to complete
-  and review applicable repository-native delivery maintenance without Core parsing its format.
+  disposable reviews use path-safe identities. Agents apply only project-owned repository-native
+  requirements; ChangeFleet Core neither defines nor parses target-project Harness formats.
 - Agent Runtimes own semantic work. ChangeFleet owns cross-repository authorization, revisions,
   scheduling, exact Git and Bundle subjects, evidence, recovery, and human gates.
 
 ## Branch-Local Work
 
-- None after WI-0033 adoption; unlanded real-trial Candidates are audit artifacts, not authority.
+- None after WI-0034 adoption; an unmerged branch remains distinct from canonical `main` in Git.
 
 ## Accepted Product Direction
 
@@ -98,15 +98,14 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
   still advances exact eligible units serially.
 - Runtime Kit, Codex App Server, another Provider, Linear, pricing, dashboards, and continuous
   context enforcement are deferred.
-- WI-0033's real trial reached Bundle review but both semantic reviewers missed an invalid
-  repository-defined status. Human Feedback was recorded; an operator-interrupted correction then
-  exhausted its exact execution budget and stopped without an accepted replacement Candidate.
+- Target repositories without their own deterministic Harness checks continue to rely on Agent
+  semantic review. ChangeFleet does not invent a checker or project convention for them.
 
 ## Next Recommended Task
 
-Discuss one narrow follow-up for exact repository-native contract checking during semantic review.
-Keep format knowledge with the Agent and frozen repository instructions, not Core; separately test
-the normal long-running CLI invocation path before attributing operator interruption to Runtime.
+Discuss whether every WorkUnit must always carry a repository check and whether a combined check is
+necessary for single-Repository or documentation-only tasks. Keep this validation-topology question
+separate from optional, project-owned Repository Harness.
 
 ## Maintenance Contract
 
