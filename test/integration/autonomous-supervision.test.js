@@ -42,6 +42,67 @@ describe("Plan-confirmed autonomous supervision", () => {
     );
   });
 
+  test("resumes human Bundle feedback from the current checkpoint", async (t) => {
+    const fixture = await createAutonomousFixture(
+      t,
+      "changefleet-auto-human-bundle-feedback-",
+      {
+        runtimeFactory: (plan) => new ScriptedRuntime({
+          plan,
+          feedbackExecutionOutcome: {
+            type: "implementation_completed",
+            summary: "Declined the finding without changing the exact Candidate.",
+            changed_paths: [],
+            blocker: null,
+          },
+        }),
+      },
+    );
+    await confirmAutonomousPlan(fixture.service, fixture.changeSetId);
+    const initial = await fixture.service.readChangeSet(fixture.changeSetId);
+    const sourceCheckpointId = initial.work_units[0].candidate_checkpoint_id;
+    const sourceCandidateSha = initial.work_units[0].candidate.candidate_sha;
+    const bundle = initial.bundles.at(-1);
+
+    await fixture.service.recordBundleDecision({
+      idempotency_key: "request-human-bundle-revision",
+      change_set_id: fixture.changeSetId,
+      bundle_revision: bundle.revision,
+      bundle_hash: bundle.bundle_hash,
+      decision: "request_revision",
+      feedback: {
+        summary: "Assess one exact human finding",
+        findings: [
+          {
+            finding_id: "human-finding",
+            text: "Determine whether the exact Candidate needs a correction",
+          },
+        ],
+      },
+    });
+    const resumed = await fixture.service.resumeSupervision({
+      idempotency_key: "resume-human-bundle-revision",
+      change_set_id: fixture.changeSetId,
+    });
+    const state = await fixture.service.readChangeSet(fixture.changeSetId);
+    const feedbackReference = state.work_units[0].run_references.find(
+      (reference) =>
+        reference.operation === "execution" &&
+        reference.trigger === "feedback",
+    );
+    const feedbackRun = await fixture.service.runStore.read(
+      feedbackReference.run_id,
+    );
+
+    assert.equal(resumed.status, "review_ready");
+    assert.equal(state.bundles.length, 2);
+    assert.equal(state.work_units[0].candidate_checkpoint_id, sourceCheckpointId);
+    assert.equal(state.work_units[0].candidate.candidate_sha, sourceCandidateSha);
+    assert.equal(feedbackRun.outcome.no_change, true);
+    assert.deepEqual(feedbackRun.outcome.actual_changed_paths, []);
+    assert.equal(fixture.runtime.supervisionInvocationCount, 0);
+  });
+
   test("dispatches one exact independent Bundle review without a Supervisor decision", async (t) => {
     const fixture = await createAutonomousFixture(
       t,

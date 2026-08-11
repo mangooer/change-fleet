@@ -153,6 +153,14 @@ describe("Codex SDK Runtime protocol", () => {
       prompts[0],
       /either select one applicable non-interactive argv-style project command or return null/u,
     );
+    assert.match(
+      prompts[0],
+      /after publishing the exact Candidate commit in an otherwise clean workspace where HEAD is that Candidate/u,
+    );
+    assert.match(
+      prompts[0],
+      /a command whose default behavior inspects only uncommitted changes does not cover the Candidate diff/u,
+    );
     assert.match(prompts[0], /never invent a command merely to fill the slot/u);
     assert.match(
       prompts[0],
@@ -369,6 +377,23 @@ describe("Codex SDK Runtime protocol", () => {
     assert.equal(threadOptions[0].sandboxMode, "workspace-write");
     assert.match(prompts[0], /Feedback is review input rather than independent authority/u);
     assert.match(prompts[0], /assess every finding exactly once/u);
+    assert.match(
+      prompts[0],
+      /selected repository_check becomes authoritative only when ChangeFleet reruns its frozen argv after Candidate publication/u,
+    );
+    assert.match(
+      prompts[0],
+      /distinguish local execution-time diagnostics from the later controller-owned Candidate-bound attempt/u,
+    );
+    assert.match(
+      prompts[0],
+      /workspace starts at the current Candidate when candidate_sha is supplied/u,
+    );
+    assert.match(
+      prompts[0],
+      /fully assessed feedback execution that needs no Git change is valid/u,
+    );
+    assert.match(prompts[0], /do not rewrite unrelated Plan work/u);
     assert.match(
       prompts[0],
       /Ensure this Candidate satisfies those project-owned requirements before reporting completion/u,

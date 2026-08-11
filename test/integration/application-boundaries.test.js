@@ -7,6 +7,7 @@ import { ChangeFleetService } from "../../src/application/change-fleet-service.j
 import {
   createFixtureRoot,
   createGitRepository,
+  git,
   writeCombinedCheckScript,
 } from "../support/git-fixture.js";
 import {
@@ -133,12 +134,32 @@ describe("application failure and revision boundaries", () => {
 
   test("requires bounded request-revision feedback in only the current Runtime projection", async (t) => {
     const fixture = await createApplicationFixture(t, "revision-feedback");
-    const runtime = new ScriptedRuntime({ plan: fixture.plan });
+    const runtime = new ScriptedRuntime({
+      plan: fixture.plan,
+      feedbackExecutionOutcome: {
+        type: "implementation_completed",
+        summary: "Assessed the bounded feedback without changing the Candidate.",
+        changed_paths: [],
+        blocker: null,
+      },
+    });
     const service = await openBootstrappedService(fixture, runtime);
     const first = await service.executeChangeSet({
       idempotency_key: "execute-1",
       change_set_id: "change-1",
     });
+    const initialState = await service.readChangeSet("change-1");
+    const initialSubjects = new Map(
+      initialState.work_units.map((unit) => [
+        unit.work_unit_id,
+        {
+          checkpoint_id: unit.candidate_checkpoint_id,
+          candidate_sha: unit.candidate.candidate_sha,
+          workspace_id: unit.workspace.workspace_id,
+          validation_attempt_ids: [...unit.validation_attempt_ids],
+        },
+      ]),
+    );
     await assert.rejects(
       service.recordBundleDecision({
         idempotency_key: "revision-without-feedback",
@@ -163,12 +184,30 @@ describe("application failure and revision boundaries", () => {
       decision: "request_revision",
       feedback,
     });
-    const second = await service.executeChangeSet({
+    const feedbackState = await service.readChangeSet("change-1");
+    for (const unit of feedbackState.work_units) {
+      const initial = initialSubjects.get(unit.work_unit_id);
+      assert.equal(unit.phase, "execution");
+      assert.equal(unit.candidate, null);
+      assert.equal(unit.candidate_checkpoint_id, initial.checkpoint_id);
+      assert.equal(unit.workspace.workspace_id, initial.workspace_id);
+      assert.deepEqual(
+        unit.validation_attempt_ids,
+        initial.validation_attempt_ids,
+      );
+    }
+    const resumedService = await ChangeFleetService.open({
+      controlRoot: fixture.controlRoot,
+      workspaceRoot: fixture.workspaceRoot,
+      runtime,
+      agentProfile: TEST_AGENT_PROFILE,
+    });
+    const second = await resumedService.executeChangeSet({
       idempotency_key: "execute-2",
       change_set_id: "change-1",
     });
     assert.equal(second.bundle_revision, 2);
-    const correctedState = await service.readChangeSet("change-1");
+    const correctedState = await resumedService.readChangeSet("change-1");
     assert.equal(correctedState.current_plan_revision, 1);
     assert.equal(correctedState.plans.length, 1);
     assert.equal(correctedState.current_feedback_id, null);
@@ -182,12 +221,105 @@ describe("application failure and revision boundaries", () => {
     assert.deepEqual(executionProjection.feedback.findings, feedback.findings);
     assert.equal("candidate_checkpoint_id" in executionProjection.work_unit, false);
     assert.equal("workspace" in executionProjection.work_unit, false);
-    const feedbackExecution = runtime.invocations.filter(
+    const feedbackExecutions = runtime.invocations.filter(
       (invocation) =>
         invocation.operation === "execution" &&
         invocation.context_projection.feedback !== null,
-    )[0];
-    assert.equal(feedbackExecution.control_contract.plan_revision, 1);
+    );
+    assert.equal(feedbackExecutions.length, 2);
+    for (const invocation of feedbackExecutions) {
+      const initial = initialSubjects.get(
+        invocation.context_projection.work_unit.work_unit_id,
+      );
+      assert.equal(invocation.control_contract.plan_revision, 1);
+      assert.equal(
+        invocation.context_projection.repositories[0].candidate_sha,
+        initial.candidate_sha,
+      );
+    }
+    assert.equal(
+      correctedState.candidate_checkpoints.length,
+      initialState.candidate_checkpoints.length,
+    );
+    for (const unit of correctedState.work_units) {
+      const initial = initialSubjects.get(unit.work_unit_id);
+      assert.equal(unit.candidate_checkpoint_id, initial.checkpoint_id);
+      assert.equal(unit.candidate.candidate_sha, initial.candidate_sha);
+      const feedbackReference = unit.run_references.find(
+        (reference) =>
+          reference.operation === "execution" &&
+          reference.trigger === "feedback",
+      );
+      const feedbackRun = await resumedService.runStore.read(
+        feedbackReference.run_id,
+      );
+      assert.equal(feedbackRun.outcome.no_change, true);
+      assert.deepEqual(feedbackRun.outcome.actual_changed_paths, []);
+    }
+  });
+
+  test("publishes changed Bundle feedback as descendants of current checkpoints", async (t) => {
+    const fixture = await createApplicationFixture(t, "revision-feedback-descendant");
+    const runtime = new ScriptedRuntime({
+      plan: fixture.plan,
+      feedbackFileContent: "api web corrected after Bundle review\n",
+      feedbackExecutionOutcome: {
+        type: "implementation_completed",
+        summary: "Applied the bounded Bundle feedback.",
+        changed_paths: ["feature.txt"],
+        blocker: null,
+      },
+    });
+    const service = await openBootstrappedService(fixture, runtime);
+    const first = await service.executeChangeSet({
+      idempotency_key: "execute-descendant-1",
+      change_set_id: "change-1",
+    });
+    const initialState = await service.readChangeSet("change-1");
+    const initialCandidates = new Map(
+      initialState.work_units.map((unit) => [
+        unit.work_unit_id,
+        unit.candidate.candidate_sha,
+      ]),
+    );
+
+    await service.recordBundleDecision({
+      idempotency_key: "revision-with-descendant-change",
+      change_set_id: "change-1",
+      bundle_revision: first.bundle_revision,
+      bundle_hash: first.bundle_hash,
+      decision: "request_revision",
+      feedback: {
+        summary: "Apply the exact reviewed correction",
+        findings: [
+          { finding_id: "finding-descendant", text: "Correct feature.txt" },
+        ],
+      },
+    });
+    const second = await service.executeChangeSet({
+      idempotency_key: "execute-descendant-2",
+      change_set_id: "change-1",
+    });
+    const correctedState = await service.readChangeSet("change-1");
+
+    assert.equal(second.bundle_revision, 2);
+    assert.equal(correctedState.candidate_checkpoints.length, 4);
+    for (const unit of correctedState.work_units) {
+      const sourceSha = initialCandidates.get(unit.work_unit_id);
+      assert.notEqual(unit.candidate.candidate_sha, sourceSha);
+      assert.equal(
+        (await git(unit.workspace.workspace_path, ["rev-parse", "HEAD^"])).trim(),
+        sourceSha,
+      );
+      const feedbackReference = unit.run_references.find(
+        (reference) =>
+          reference.operation === "execution" &&
+          reference.trigger === "feedback",
+      );
+      const feedbackRun = await service.runStore.read(feedbackReference.run_id);
+      assert.equal(feedbackRun.outcome.no_change, false);
+      assert.deepEqual(feedbackRun.outcome.actual_changed_paths, ["feature.txt"]);
+    }
   });
 
   test("allocates a later Plan revision only after typed execution invalidation and exact approval", async (t) => {

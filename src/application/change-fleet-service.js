@@ -2400,15 +2400,10 @@ export class ChangeFleetService {
               : null;
           if (feedbackRecord === null) this.feedbackService.clear(state);
           if (normalizedDecision === "request_revision") {
-            // Bundle 反馈沿用已确认 Plan；它与验证反馈都进入普通 execution Run。
+            // Bundle 反馈从当前精确 checkpoint 继续；只撤销 Candidate 的当前审查资格。
             for (const workUnit of unitsForCurrentPlan(state)) {
               setWorkUnitPhase(workUnit, "execution");
-              workUnit.workspace = null;
-              workUnit.candidate_checkpoint_id = null;
-              workUnit.verification_admission_id = null;
-              workUnit.verification_review_id = null;
               workUnit.pending_feedback_id = feedbackRecord.feedback_id;
-              workUnit.validation_attempt_ids = [];
               workUnit.candidate = null;
               workUnit.last_error = null;
             }

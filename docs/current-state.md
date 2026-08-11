@@ -20,7 +20,8 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 
 ## Branch-Local Work
 
-- None after WI-0035 adoption; remote publication remains a separate Git fact.
+- Completed [WI-0036](work-items/WI-0036-candidate-bound-feedback-repair.md) makes selected-check
+  timing explicit and preserves the current checkpoint/workspace through Bundle feedback.
 
 ## Accepted Product Direction
 
@@ -111,10 +112,8 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 
 ## Next Recommended Task
 
-Run one bounded real self-iteration whose single-Repository Plan selects applicable project checks
-and omits an inapplicable combined command. Verify planning through Bundle review and cost audit
-without adding product features. Defer multiple baseline commands and project-specific enforcement
-until demonstrated need exists.
+After WI-0036 adoption, consider one smaller real Provider trial; do not repeat the 732,091-token
+failed trial merely to duplicate deterministic evidence.
 
 ## Maintenance Contract
 
