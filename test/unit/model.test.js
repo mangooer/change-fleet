@@ -34,6 +34,7 @@ function planInput(overrides = {}) {
         task: "Change API",
         dependencies: [],
         repository_check: { ...command, command_id: "api-check" },
+        repository_check_rationale: "The API change has a focused check",
       },
       {
         work_unit_id: "web",
@@ -41,9 +42,11 @@ function planInput(overrides = {}) {
         task: "Change web",
         dependencies: ["api"],
         repository_check: { ...command, command_id: "web-check" },
+        repository_check_rationale: "The web change has a focused check",
       },
     ],
     combined_check: { ...command, command_id: "combined" },
+    combined_check_rationale: "The repositories share one contract",
     verification_expectation: {
       mode: "deterministic",
       rationale: "The behavioral checks cover this plan.",
@@ -111,6 +114,65 @@ describe("domain model", () => {
     assert.equal(plan.status, "confirmed");
     assert.deepEqual(plan.work_units[1].dependencies, ["api"]);
     assert.equal(plan.work_units[0].base_sha, "a".repeat(40));
+  });
+
+  test("accepts explicit commandless validation selections and binds their rationale", () => {
+    const input = planInput({
+      combined_check: null,
+      combined_check_rationale: "One Repository has no cross-Repository invariant",
+    });
+    input.work_units = input.work_units.map((unit) => ({
+      ...unit,
+      repository_check: null,
+      repository_check_rationale: "No project semantic command applies to this change",
+    }));
+    const plan = normalizePlanContent(input, {
+      project,
+      bases,
+      intentRevision: 1,
+      repositorySelectionRevision: 1,
+      repositoryHarnessSelectionRevision: 1,
+    });
+
+    assert.equal(plan.work_units[0].repository_check, null);
+    assert.equal(plan.combined_check, null);
+    plan.revision = 1;
+    const changedRationale = structuredClone(plan);
+    changedRationale.combined_check_rationale = "A different explicit selection reason";
+    const changeSet = { change_set_id: "change", candidates: [] };
+    const candidates = [
+      {
+        repository_id: "api",
+        target_ref: "refs/heads/main",
+        base_sha: "a".repeat(40),
+        candidate_sha: "c".repeat(40),
+      },
+      {
+        repository_id: "web",
+        target_ref: "refs/heads/main",
+        base_sha: "b".repeat(40),
+        candidate_sha: "d".repeat(40),
+      },
+    ];
+    assert.notEqual(
+      createValidationSubject(changeSet, plan, candidates)
+        .validation_subject_hash,
+      createValidationSubject(changeSet, changedRationale, candidates)
+        .validation_subject_hash,
+    );
+
+    delete input.work_units[0].repository_check_rationale;
+    assert.throws(
+      () =>
+        normalizePlanContent(input, {
+          project,
+          bases,
+          intentRevision: 1,
+          repositorySelectionRevision: 1,
+          repositoryHarnessSelectionRevision: 1,
+        }),
+      { code: "INVALID_STRING" },
+    );
   });
 
   test("rejects repository expansion and dependency cycles", () => {
@@ -434,6 +496,54 @@ describe("domain model", () => {
     });
     assert.equal(attempt.subject_id, checkpoint.checkpoint_id);
     assert.equal(attempt.status, "failed");
+
+    const structuralAttempt = createValidationAttempt({
+      kind: "repository_validation",
+      subjectId: checkpoint.checkpoint_id,
+      attempt: 2,
+      status: "passed",
+      evidence: {
+        evidence_id: "evidence-structural",
+        evidence_hash: "d".repeat(64),
+      },
+      checkIdentity: null,
+      requestedBudget: null,
+      effectiveBudget: null,
+      budgetSource: null,
+      budgetLimit: null,
+      environmentIdentity: {
+        platform: "test",
+        architecture: "test",
+        controller_node_version: "test",
+      },
+      startedAt: "2026-08-04T00:00:01.000Z",
+      completedAt: "2026-08-04T00:00:02.000Z",
+    });
+    assert.equal(structuralAttempt.check_identity, null);
+    assert.equal(structuralAttempt.effective_budget, null);
+    assert.equal(structuralAttempt.budget_source, null);
+    assert.throws(
+      () =>
+        createValidationAttempt({
+          kind: "repository_validation",
+          subjectId: checkpoint.checkpoint_id,
+          attempt: 3,
+          status: "passed",
+          evidence: {
+            evidence_id: "evidence-invalid-structural",
+            evidence_hash: "e".repeat(64),
+          },
+          checkIdentity: null,
+          requestedBudget: { timeout_ms: null },
+          effectiveBudget: null,
+          budgetSource: null,
+          budgetLimit: null,
+          environmentIdentity: structuralAttempt.environment_identity,
+          startedAt: "2026-08-04T00:00:02.000Z",
+          completedAt: "2026-08-04T00:00:03.000Z",
+        }),
+      { code: "INVALID_VALIDATION_ATTEMPT" },
+    );
 
     assert.deepEqual(
       normalizeRevisionFeedback({

@@ -765,15 +765,23 @@ function createSupervisionProjection(
         repository_id: unit.repository_id,
         task: unit.task,
         dependencies: [...unit.dependencies],
-        repository_check: {
-          command_id: unit.repository_check.command_id,
-          coverage_rationale: unit.repository_check.coverage_rationale,
-        },
+        repository_check:
+          unit.repository_check === null
+            ? null
+            : {
+                command_id: unit.repository_check.command_id,
+                coverage_rationale: unit.repository_check.coverage_rationale,
+              },
+        repository_check_rationale: unit.repository_check_rationale,
       })),
-      combined_check: {
-        command_id: plan.combined_check.command_id,
-        coverage_rationale: plan.combined_check.coverage_rationale,
-      },
+      combined_check:
+        plan.combined_check === null
+          ? null
+          : {
+              command_id: plan.combined_check.command_id,
+              coverage_rationale: plan.combined_check.coverage_rationale,
+            },
+      combined_check_rationale: plan.combined_check_rationale,
     },
     repository_selection: {
       revision: repositorySelection.revision,

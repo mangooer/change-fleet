@@ -212,19 +212,28 @@ function projectExactChangeSet(state, project, planningMessage) {
               dependencies: [...unit.dependencies],
               target_ref: unit.target_ref,
               base_sha: unit.base_sha,
-                repository_check: {
-                  command_id: unit.repository_check.command_id,
-                  coverage_rationale:
-                    unit.repository_check.coverage_rationale,
-                  timeout_ms: unit.repository_check.timeout_ms,
-              },
+                repository_check:
+                  unit.repository_check === null
+                    ? null
+                    : {
+                        command_id: unit.repository_check.command_id,
+                        coverage_rationale:
+                          unit.repository_check.coverage_rationale,
+                        timeout_ms: unit.repository_check.timeout_ms,
+                      },
+                repository_check_rationale:
+                  unit.repository_check_rationale,
             })),
-            combined_check: {
-              command_id: currentPlan.combined_check.command_id,
-              coverage_rationale:
-                currentPlan.combined_check.coverage_rationale,
-              timeout_ms: currentPlan.combined_check.timeout_ms,
-            },
+            combined_check:
+              currentPlan.combined_check === null
+                ? null
+                : {
+                    command_id: currentPlan.combined_check.command_id,
+                    coverage_rationale:
+                      currentPlan.combined_check.coverage_rationale,
+                    timeout_ms: currentPlan.combined_check.timeout_ms,
+                  },
+            combined_check_rationale: currentPlan.combined_check_rationale,
           },
     bundle:
       currentBundle === null
@@ -315,17 +324,25 @@ function projectPlanContent(plan) {
       dependencies: [...unit.dependencies],
       target_ref: unit.target_ref,
       base_sha: unit.base_sha,
-      repository_check: {
-        command_id: unit.repository_check.command_id,
-        coverage_rationale: unit.repository_check.coverage_rationale,
-        timeout_ms: unit.repository_check.timeout_ms,
-      },
+      repository_check:
+        unit.repository_check === null
+          ? null
+          : {
+              command_id: unit.repository_check.command_id,
+              coverage_rationale: unit.repository_check.coverage_rationale,
+              timeout_ms: unit.repository_check.timeout_ms,
+            },
+      repository_check_rationale: unit.repository_check_rationale,
     })),
-    combined_check: {
-      command_id: plan.combined_check.command_id,
-      coverage_rationale: plan.combined_check.coverage_rationale,
-      timeout_ms: plan.combined_check.timeout_ms,
-    },
+    combined_check:
+      plan.combined_check === null
+        ? null
+        : {
+            command_id: plan.combined_check.command_id,
+            coverage_rationale: plan.combined_check.coverage_rationale,
+            timeout_ms: plan.combined_check.timeout_ms,
+          },
+    combined_check_rationale: plan.combined_check_rationale,
   };
 }
 

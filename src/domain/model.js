@@ -243,6 +243,15 @@ export function normalizeCommand(
   return command;
 }
 
+export function normalizeOptionalCommand(
+  input,
+  label = "command",
+  options = {},
+) {
+  // null 表示计划明确判定当前没有适用的项目语义命令；不能用空对象或空命令冒充验证。
+  return input === null ? null : normalizeCommand(input, label, options);
+}
+
 export function normalizePlanContent(
   input,
   {
@@ -328,13 +337,17 @@ export function normalizePlanContent(
       repository_selection_revision: repositorySelectionRevision,
       repository_harness_selection_revision:
         repositoryHarnessSelectionRevision,
-      repository_check: normalizeCommand(
+      repository_check: normalizeOptionalCommand(
         workUnit.repository_check,
         `${workUnitId}.repository_check`,
         {
           defaultTimeoutMs: verificationPolicy.default_attempt_timeout_ms,
           maxTimeoutMs: verificationPolicy.max_attempt_timeout_ms,
         },
+      ),
+      repository_check_rationale: requireString(
+        `${workUnitId}.repository_check_rationale`,
+        workUnit.repository_check_rationale,
       ),
     };
   });
@@ -361,10 +374,18 @@ export function normalizePlanContent(
       revisionFeedback,
     ),
     work_units: workUnits,
-    combined_check: normalizeCommand(input.combined_check, "combined_check", {
-      defaultTimeoutMs: verificationPolicy.default_attempt_timeout_ms,
-      maxTimeoutMs: verificationPolicy.max_attempt_timeout_ms,
-    }),
+    combined_check: normalizeOptionalCommand(
+      input.combined_check,
+      "combined_check",
+      {
+        defaultTimeoutMs: verificationPolicy.default_attempt_timeout_ms,
+        maxTimeoutMs: verificationPolicy.max_attempt_timeout_ms,
+      },
+    ),
+    combined_check_rationale: requireString(
+      "combined_check_rationale",
+      input.combined_check_rationale,
+    ),
     verification_expectation: normalizeVerificationExpectation(
       input.verification_expectation,
     ),
@@ -438,8 +459,12 @@ export function createValidationSubject(changeSet, plan, candidates) {
     change_set_id: changeSet.change_set_id,
     plan_revision: plan.revision,
     candidates: exactCandidates,
-    // 尝试超时不属于语义检查身份，因此预算变化不会制造新的验证主体。
-    required_check: createCheckIdentity(plan.combined_check),
+    // 尝试超时不属于语义检查身份；未选择命令时，显式理由仍属于本次精确选择。
+    required_check:
+      plan.combined_check === null
+        ? null
+        : createCheckIdentity(plan.combined_check),
+    check_selection_rationale: plan.combined_check_rationale,
   };
   return {
     ...subject,
@@ -572,19 +597,33 @@ export function createValidationAttempt({
   validateEvidenceReference(evidence, "validation attempt evidence");
   const normalizedAttempt = requirePositiveInteger("attempt", attempt);
   const normalizedSubjectId = normalizeId("validation_subject_id", subjectId);
-  invariant(
-    checkIdentity?.check_identity_hash ===
-      createCheckIdentity(checkIdentity).check_identity_hash,
-    "INVALID_VALIDATION_ATTEMPT",
-    "Validation attempt check identity is invalid",
-  );
-  validateAttemptBudgetMetadata({
-    requestedBudget,
-    effectiveBudget,
-    budgetSource,
-    budgetLimit,
-    environmentIdentity,
-  });
+  const hasSemanticCheck = checkIdentity !== null;
+  if (hasSemanticCheck) {
+    invariant(
+      checkIdentity?.check_identity_hash ===
+        createCheckIdentity(checkIdentity).check_identity_hash,
+      "INVALID_VALIDATION_ATTEMPT",
+      "Validation attempt check identity is invalid",
+    );
+    validateAttemptBudgetMetadata({
+      requestedBudget,
+      effectiveBudget,
+      budgetSource,
+      budgetLimit,
+      environmentIdentity,
+    });
+  } else {
+    // 结构预检是真实的验证尝试，但没有项目命令，因此不能伪造命令身份或进程预算。
+    invariant(
+      requestedBudget === null &&
+        effectiveBudget === null &&
+        budgetSource === null &&
+        budgetLimit === null,
+      "INVALID_VALIDATION_ATTEMPT",
+      "Structural validation cannot carry semantic command budget metadata",
+    );
+    validateValidationEnvironmentIdentity(environmentIdentity);
+  }
   const startedMs = Date.parse(requireString("started_at", startedAt));
   const completedMs = Date.parse(requireString("completed_at", completedAt));
   invariant(
@@ -592,15 +631,20 @@ export function createValidationAttempt({
     "INVALID_VALIDATION_ATTEMPT",
     "Validation attempt timestamps are invalid",
   );
+  const identity = {
+    kind,
+    subject_id: normalizedSubjectId,
+    attempt: normalizedAttempt,
+    evidence_id: evidence.evidence_id,
+    ...(hasSemanticCheck
+      ? {
+          check_identity_hash: checkIdentity.check_identity_hash,
+          effective_budget: effectiveBudget,
+        }
+      : {}),
+  };
   return {
-    validation_attempt_id: stableId("validation-attempt", {
-      kind,
-      subject_id: normalizedSubjectId,
-      attempt: normalizedAttempt,
-      evidence_id: evidence.evidence_id,
-      check_identity_hash: checkIdentity.check_identity_hash,
-      effective_budget: effectiveBudget,
-    }),
+    validation_attempt_id: stableId("validation-attempt", identity),
     kind,
     subject_id: normalizedSubjectId,
     attempt: normalizedAttempt,
@@ -609,7 +653,10 @@ export function createValidationAttempt({
     check_identity: structuredClone(checkIdentity),
     requested_budget: structuredClone(requestedBudget),
     effective_budget: structuredClone(effectiveBudget),
-    budget_source: requireString("budget_source", budgetSource),
+    budget_source:
+      budgetSource === null
+        ? null
+        : requireString("budget_source", budgetSource),
     budget_limit: structuredClone(budgetLimit),
     environment_identity: structuredClone(environmentIdentity),
     started_at: startedAt,
@@ -663,6 +710,10 @@ function validateAttemptBudgetMetadata({
     "INVALID_VALIDATION_ATTEMPT",
     "Validation attempt budget limit is invalid",
   );
+  validateValidationEnvironmentIdentity(environmentIdentity);
+}
+
+function validateValidationEnvironmentIdentity(environmentIdentity) {
   invariant(
     environmentIdentity &&
       ["platform", "architecture", "controller_node_version"].every(

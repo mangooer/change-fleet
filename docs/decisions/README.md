@@ -11,7 +11,7 @@ projection.
 | [0003](0003-minimal-repository-catalog.md) | Minimal Project catalog and local Repository materialization | Accepted for initial bootstrap |
 | [0004](0004-concurrency-delivery-and-compensation.md) | Parallel execution, delivery serialization, and compensation | Accepted for initial bootstrap |
 | [0005](0005-runtime-context-harness-and-capabilities.md) | Runtime context projection, Harness ownership, Agent Profiles, and capability dispatch | Accepted |
-| [0006](0006-first-vertical-slice-implementation-boundary.md) | First local two-repository implementation stack, store, ports, validation, and reuse boundary | Accepted |
+| [0006](0006-first-vertical-slice-implementation-boundary.md) | First local two-repository implementation stack, store, ports, validation, and reuse boundary | Accepted; fixed command presence revised by 0029 |
 | [0007](0007-variable-scope-and-localized-diagnostics.md) | Variable Repository scope and localized diagnostics | Accepted |
 | [0008](0008-change-set-repository-selection.md) | ChangeSet Repository selection, branch freezing, and revision | Accepted |
 | [0009](0009-runtime-observability-evidence-boundary.md) | Runtime invocation, usage, coverage, and out-of-context audit evidence | Accepted |
@@ -34,6 +34,7 @@ projection.
 | [0026](0026-policy-governed-agentic-supervision.md) | Policy-governed Agentic supervision within deterministic action authority | Accepted |
 | [0027](0027-bundle-level-independent-quality-review.md) | Bundle-level independent quality review before human acceptance | Accepted |
 | [0028](0028-shared-application-orchestration-boundary.md) | Shared application orchestration boundary | Accepted |
+| [0029](0029-optional-project-semantic-checks.md) | Optional project semantic checks with mandatory structural preflight | Accepted |
 
 Changing one of these boundaries requires a proposal. When a decision is superseded, preserve this
 record and point to the later accepted authority.

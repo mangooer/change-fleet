@@ -32,7 +32,11 @@ export class CombinedValidator {
     checkIdentity,
     attemptBudget,
     environmentIdentity,
+    selectionRationale,
   }) {
+    // 组合验证始终生成精确 manifest；命令为空时它只承载结构证据和选择理由。
+    const effectiveSelectionRationale =
+      selectionRationale ?? command?.coverage_rationale ?? null;
     const validationDirectory = path.join(
       this.validationsRoot,
       subject.validation_subject_hash,
@@ -69,7 +73,8 @@ export class CombinedValidator {
 
     let commandResult = null;
     let commandError = null;
-    if (!preflightError) {
+    // 无语义命令时不启动进程，但所有 Candidate 的结构预检仍是强制门禁。
+    if (!preflightError && command !== null) {
       try {
         commandResult = await runCommand(command, {
           cwd: validationDirectory,
@@ -107,19 +112,22 @@ export class CombinedValidator {
         check_identity: checkIdentity,
         attempt_budget: attemptBudget,
         environment_identity: environmentIdentity,
+        check_selection_rationale: effectiveSelectionRationale,
         manifest_hash: sha256(manifestBytes),
         manifest: canonicalize(manifest),
         preflight: errorProjection(preflightError),
         command:
-          commandResult ?? {
-            status: "not_run",
-            requested: canonicalize(command),
-          },
+          command === null
+            ? { status: "not_applicable" }
+            : commandResult ?? {
+                status: "not_run",
+                requested: canonicalize(command),
+              },
         command_error: commandError
           ? errorProjection(commandError)
           : commandResult
             ? { status: "passed" }
-            : { status: "not_run" },
+            : { status: command === null ? "not_applicable" : "not_run" },
         postflight: postflightError
           ? {
               status: "failed",
@@ -128,7 +136,7 @@ export class CombinedValidator {
             }
           : commandResult
             ? { status: "passed" }
-            : { status: "not_run" },
+            : { status: command === null ? "not_applicable" : "not_run" },
       },
       createdAt: this.clock().toISOString(),
     });
@@ -136,10 +144,11 @@ export class CombinedValidator {
     if (
       preflightError ||
       commandError ||
-      commandResult.exit_code !== 0 ||
-      commandResult.timed_out ||
-      commandResult.cancelled ||
-      commandResult.output_overflow ||
+      (commandResult !== null &&
+        (commandResult.exit_code !== 0 ||
+          commandResult.timed_out ||
+          commandResult.cancelled ||
+          commandResult.output_overflow)) ||
       postflightError
     ) {
       const code =

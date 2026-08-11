@@ -51,6 +51,7 @@ describe("Codex SDK Runtime protocol", () => {
               coverage_rationale: "Checks the changed API behavior",
               timeout_ms: 10_000,
             },
+            repository_check_rationale: "The API behavior has a focused project check",
           },
         ],
         combined_check: {
@@ -60,6 +61,7 @@ describe("Codex SDK Runtime protocol", () => {
           coverage_rationale: "Checks the combined contract",
           timeout_ms: 10_000,
         },
+        combined_check_rationale: "The fixture exercises Candidate-set validation",
         risks: [],
         unverified_boundaries: [],
         verification_expectation: {
@@ -147,6 +149,11 @@ describe("Codex SDK Runtime protocol", () => {
       prompts[0],
       /at most one WorkUnit for each repository_id; combine all tasks for the same Repository/u,
     );
+    assert.match(
+      prompts[0],
+      /either select one applicable non-interactive argv-style project command or return null/u,
+    );
+    assert.match(prompts[0], /never invent a command merely to fill the slot/u);
     assert.match(
       prompts[0],
       /reviewer claim to evaluate, not as an automatic fact or command/u,

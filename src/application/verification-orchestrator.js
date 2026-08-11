@@ -207,16 +207,21 @@ export class VerificationOrchestrator {
     projectPolicy,
     attemptBudgetRequests,
   }) {
-    const checkIdentity = createCheckIdentity(workUnit.repository_check);
+    const command = workUnit.repository_check;
+    const checkIdentity = command === null ? null : createCheckIdentity(command);
     const latestState = await this.controlStore.readChangeSet(changeSetId);
-    const passedAttempt = latestState.validation_attempts.find(
-      (attempt) =>
-        attempt.kind === "repository_validation" &&
-        attempt.subject_id === checkpoint.checkpoint_id &&
-        attempt.status === "passed" &&
-        attempt.check_identity?.check_identity_hash ===
-          checkIdentity.check_identity_hash,
-    );
+    // 项目命令身份不变时可复用昂贵证据；结构预检没有命令身份，晋升前必须重新执行。
+    const passedAttempt =
+      checkIdentity === null
+        ? null
+        : latestState.validation_attempts.find(
+            (attempt) =>
+              attempt.kind === "repository_validation" &&
+              attempt.subject_id === checkpoint.checkpoint_id &&
+              attempt.status === "passed" &&
+              attempt.check_identity?.check_identity_hash ===
+                checkIdentity.check_identity_hash,
+          );
     if (passedAttempt) {
       // Checkpoint 与 check identity 都未改变时复用不可变证据，不因后续验证失败而重复昂贵命令。
       return structuredClone(passedAttempt.evidence);
@@ -228,19 +233,22 @@ export class VerificationOrchestrator {
           attempt.kind === "repository_validation" &&
           attempt.subject_id === checkpoint.checkpoint_id,
       ).length + 1;
-    const budgetRequest = selectValidationAttemptBudgetRequest(
-      attemptBudgetRequests,
-      {
-        kind: "repository_validation",
-        workUnitId,
-        commandId: workUnit.repository_check.command_id,
-      },
-    );
-    const attemptBudget = resolveValidationAttemptBudget({
-      command: workUnit.repository_check,
-      projectPolicy,
-      request: budgetRequest,
-    });
+    const budgetRequest =
+      command === null
+        ? null
+        : selectValidationAttemptBudgetRequest(attemptBudgetRequests, {
+            kind: "repository_validation",
+            workUnitId,
+            commandId: command.command_id,
+          });
+    const attemptBudget =
+      command === null
+        ? null
+        : resolveValidationAttemptBudget({
+            command,
+            projectPolicy,
+            request: budgetRequest,
+          });
     const environmentIdentity = validationEnvironmentIdentity();
     const startedAt = this.now();
 
@@ -249,13 +257,17 @@ export class VerificationOrchestrator {
       repositoryEvidence = await this.repositoryValidator.validate({
         repository,
         candidate: checkpoint,
-        command: {
-          ...workUnit.repository_check,
-          timeout_ms: attemptBudget.effective.timeout_ms,
-        },
+        command:
+          command === null
+            ? null
+            : {
+                ...command,
+                timeout_ms: attemptBudget.effective.timeout_ms,
+              },
         checkIdentity,
         attemptBudget,
         environmentIdentity,
+        selectionRationale: workUnit.repository_check_rationale,
       });
     } catch (error) {
       const completedAt = this.now();
@@ -270,10 +282,10 @@ export class VerificationOrchestrator {
             evidence,
             errorCode,
             checkIdentity,
-            requestedBudget: attemptBudget.requested,
-            effectiveBudget: attemptBudget.effective,
-            budgetSource: attemptBudget.source,
-            budgetLimit: attemptBudget.limit,
+            requestedBudget: attemptBudget?.requested ?? null,
+            effectiveBudget: attemptBudget?.effective ?? null,
+            budgetSource: attemptBudget?.source ?? null,
+            budgetLimit: attemptBudget?.limit ?? null,
             environmentIdentity,
             startedAt,
             completedAt,
@@ -316,10 +328,10 @@ export class VerificationOrchestrator {
       status: "passed",
       evidence: repositoryEvidence,
       checkIdentity,
-      requestedBudget: attemptBudget.requested,
-      effectiveBudget: attemptBudget.effective,
-      budgetSource: attemptBudget.source,
-      budgetLimit: attemptBudget.limit,
+      requestedBudget: attemptBudget?.requested ?? null,
+      effectiveBudget: attemptBudget?.effective ?? null,
+      budgetSource: attemptBudget?.source ?? null,
+      budgetLimit: attemptBudget?.limit ?? null,
       environmentIdentity,
       startedAt,
       completedAt,
@@ -354,7 +366,9 @@ export class VerificationOrchestrator {
     command,
     projectPolicy,
     budgetRequest,
+    selectionRationale,
   }) {
+    const hasCommand = command !== null;
     const before = await this.controlStore.readChangeSet(changeSetId);
     const attemptNumber =
       before.validation_attempts.filter(
@@ -362,12 +376,15 @@ export class VerificationOrchestrator {
           attempt.kind === "combined_validation" &&
           attempt.subject_id === subject.validation_subject_hash,
       ).length + 1;
-    const checkIdentity = createCheckIdentity(command);
-    const attemptBudget = resolveValidationAttemptBudget({
-      command,
-      projectPolicy,
-      request: budgetRequest,
-    });
+    const checkIdentity = hasCommand ? createCheckIdentity(command) : null;
+    // 结构尝试参与统一失败预算，但不携带并不存在的进程超时预算。
+    const attemptBudget = hasCommand
+      ? resolveValidationAttemptBudget({
+          command,
+          projectPolicy,
+          request: budgetRequest,
+        })
+      : null;
     const environmentIdentity = validationEnvironmentIdentity();
     const startedAt = this.now();
     try {
@@ -375,15 +392,17 @@ export class VerificationOrchestrator {
         subject,
         candidates,
         repositories,
-        command: {
-          ...command,
-          timeout_ms: attemptBudget.effective.timeout_ms,
-        },
+        command: hasCommand
+          ? {
+              ...command,
+              timeout_ms: attemptBudget.effective.timeout_ms,
+            }
+          : null,
         checkIdentity,
         attemptBudget,
         environmentIdentity,
+        selectionRationale,
       });
-      const completedAt = this.now();
       const attempt = createValidationAttempt({
         kind: "combined_validation",
         subjectId: subject.validation_subject_hash,
@@ -391,13 +410,13 @@ export class VerificationOrchestrator {
         status: "passed",
         evidence,
         checkIdentity,
-        requestedBudget: attemptBudget.requested,
-        effectiveBudget: attemptBudget.effective,
-        budgetSource: attemptBudget.source,
-        budgetLimit: attemptBudget.limit,
+        requestedBudget: attemptBudget?.requested ?? null,
+        effectiveBudget: attemptBudget?.effective ?? null,
+        budgetSource: attemptBudget?.source ?? null,
+        budgetLimit: attemptBudget?.limit ?? null,
         environmentIdentity,
         startedAt,
-        completedAt,
+        completedAt: this.now(),
       });
       await this.controlStore.transactChangeSet(changeSetId, (state) => {
         state.validation_attempts.push(attempt);
@@ -421,10 +440,10 @@ export class VerificationOrchestrator {
             evidence,
             errorCode,
             checkIdentity,
-            requestedBudget: attemptBudget.requested,
-            effectiveBudget: attemptBudget.effective,
-            budgetSource: attemptBudget.source,
-            budgetLimit: attemptBudget.limit,
+            requestedBudget: attemptBudget?.requested ?? null,
+            effectiveBudget: attemptBudget?.effective ?? null,
+            budgetSource: attemptBudget?.source ?? null,
+            budgetLimit: attemptBudget?.limit ?? null,
             environmentIdentity,
             startedAt,
             completedAt,
@@ -958,7 +977,7 @@ export class VerificationOrchestrator {
       },
       requiredEvidence: [
         "exact_candidate_diff",
-        "repository_check_evidence",
+        "repository_validation_evidence",
         "structured_verification_outcome",
         ...(focus === null ? [] : ["current_feedback"]),
         ...(focus?.feedbackRun ? ["feedback_execution_lineage"] : []),
@@ -982,22 +1001,40 @@ export class VerificationOrchestrator {
           reported_changed_paths:
             sourceRun.outcome?.reported_changed_paths ?? [],
         },
-        completed_checks: [
-          {
-            check: structuredClone(workUnit.repository_check),
-            status: "passed",
-            evidence: structuredClone(repositoryEvidence),
-          },
-        ],
+        repository_validation: {
+          mode:
+            workUnit.repository_check === null
+              ? "structural_preflight"
+              : "project_command",
+          selection_rationale: workUnit.repository_check_rationale,
+          evidence: structuredClone(repositoryEvidence),
+        },
+        completed_checks:
+          workUnit.repository_check === null
+            ? []
+            : [
+                {
+                  check: structuredClone(workUnit.repository_check),
+                  status: "passed",
+                  evidence: structuredClone(repositoryEvidence),
+                },
+              ],
         // combined check 只有全部仓库 Candidate 就绪后才能执行；显式标为未来门禁，
         // 避免只读 verifier 把控制器尚未到达的阶段误判成证据缺失。
-        scheduled_later_checks: [
-          {
-            stage: "candidate_bundle_assembly",
-            status: "scheduled",
-            check: structuredClone(plan.combined_check),
-          },
-        ],
+        combined_check_selection: {
+          selection_rationale: plan.combined_check_rationale,
+          scheduled: plan.combined_check !== null,
+        },
+        scheduled_later_checks:
+          plan.combined_check === null
+            ? []
+            : [
+                {
+                  stage: "candidate_bundle_assembly",
+                  status: "scheduled",
+                  check: structuredClone(plan.combined_check),
+                },
+              ],
         focus:
           focus?.sourceReview && focus?.feedbackRun
             ? {
@@ -1076,10 +1113,10 @@ export class VerificationOrchestrator {
         projectPolicy: state.verification_policy,
         existingCommandIds: [
           ...plan.work_units.map(
-            (item) => item.repository_check.command_id,
+            (item) => item.repository_check?.command_id,
           ),
-          plan.combined_check.command_id,
-        ],
+          plan.combined_check?.command_id,
+        ].filter(Boolean),
       });
       await this.repositoryWorker.preflightVerificationWorkspace({
         repository,

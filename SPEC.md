@@ -290,7 +290,7 @@ a previously confirmed execution contract is deliberately replaced.
 - the current RepositorySelectionRevision and its control-owned target refs and frozen base SHAs;
 - WorkUnits and dependency ordering;
 - expected file, API, schema, or behavior boundaries;
-- repository and combined validation;
+- repository and Candidate-set validation, including explicit optional project-check selections;
 - a preliminary Candidate verification expectation, rationale, and typed escalation triggers;
 - effective `none | independent` Bundle quality-review admission, Review AgentProfile, and bounded
   attempt ceiling within Project policy;
@@ -399,18 +399,19 @@ A `CandidateCheckpoint` is the durable exact Git subject published after Provide
 before repository validation. It binds the current ChangeSet, revisions, WorkUnit, Repository,
 target, base and candidate SHAs, workspace ownership, changed paths, source Run, and creation time.
 
-A checkpoint is not a Candidate or review and delivery authority. Each validation attempt appends
-bounded immutable evidence. A passing current attempt creates the ordinary Candidate; a failed or
-interrupted attempt leaves the checkpoint available for exact preflight and resume without another
-Runtime invocation.
+A checkpoint is not a Candidate or review and delivery authority. Every validation records exact
+structural evidence; each selected project-command attempt additionally appends bounded immutable
+attempt evidence. Passing current validation creates the ordinary Candidate. Failure or
+interruption leaves the checkpoint available for exact preflight and resume without another Runtime
+invocation.
 
 Before repository validation, ChangeFleet records one immutable admission decision for the exact
 checkpoint. The deterministic first implementation resolves `basic`, `deterministic`, or
 `independent_review` from the frozen Project policy, confirmed Plan expectation, optional
 operator elevation, reported-path divergence, and explicit unverified boundaries. `basic` and
-`deterministic` proceed without another Runtime. `independent_review` first requires the exact
-Plan-bound repository check to pass, then dispatches one read-only Verification Runtime over a
-disposable exact-Candidate worktree.
+`deterministic` proceed without another Runtime. `independent_review` first requires exact
+repository validation, including the Plan-bound project command when one was selected, then
+dispatches one read-only Verification Runtime over a disposable exact-Candidate worktree.
 
 The Verification Runtime returns one bounded `triage` or `deep_review` result with exactly one
 verdict: `pass`, `pass_with_notes`, `changes_required`, or `human_decision_required`. It may request
@@ -463,24 +464,31 @@ failure, or exhausted budget retries safely or opens a Gate.
 
 ### Deterministic Validation Invocation
 
-A confirmed ChangePlan defines repository and combined checks using a stable command id,
-executable, argument array, coverage rationale, and a default attempt timeout. Command id,
-executable, arguments, and coverage rationale form semantic check identity; timeout is an
-attempt-scoped resource and is excluded from that identity. Native executables are invoked directly
-from the repository workspace or a control-owned combined-validation directory. On Windows only,
-an exactly resolved `.cmd` or `.bat` may use the accepted argv-preserving adapter; callers never
-supply a command string or generic shell mode. ChangeFleet supplies one immutable JSON manifest
-through `CHANGEFLEET_VALIDATION_MANIFEST` for combined validation.
+A confirmed ChangePlan records one explicit repository-check selection for every WorkUnit and one
+combined-check selection for the Candidate set. Each selection contains either one applicable
+project semantic command or `null`, plus a concise rationale. ChangeFleet never invents a command
+to fill an empty slot.
+
+A selected command uses a stable command id, executable, argument array, coverage rationale, and a
+default attempt timeout. Command id, executable, arguments, and coverage rationale form semantic
+check identity; timeout is an attempt-scoped resource and is excluded from that identity. Native
+executables are invoked directly from the repository workspace or a control-owned combined-
+validation directory. On Windows only, an exactly resolved `.cmd` or `.bat` may use the accepted
+argv-preserving adapter; callers never supply a command string or generic shell mode. ChangeFleet
+supplies one immutable JSON manifest through `CHANGEFLEET_VALIDATION_MANIFEST` for combined
+validation whether or not a combined semantic command was selected.
 
 The manifest contains the ChangeSet and plan revision, exact Candidate identities, host workspace
 locators, and a canonical validation-subject hash. The subject hash excludes host paths and binds
-the sorted Candidate identities plus required check definition. The manifest bytes receive their
-own evidence hash.
+the sorted Candidate identities plus the optional check selection and its rationale. The manifest
+bytes receive their own evidence hash.
 
-ChangeFleet mechanically revalidates each Candidate workspace before and after the command. A
-passing combined result requires exit code zero, clean workspaces, and unchanged exact Candidate
-SHAs. CandidateBundle assembly occurs only after bounded command evidence is finalized, so Bundle
-identity includes validation evidence without circularly requiring a Bundle hash before execution.
+ChangeFleet mechanically validates each Candidate workspace before promotion and before any
+selected command, then revalidates it after command execution. A selected command passes only with
+exit code zero and unchanged exact Candidate state. With no command, passing structural preflight
+is recorded without a command attempt. CandidateBundle assembly occurs only after exact validation
+evidence is finalized, so Bundle identity includes that evidence without circularly requiring a
+Bundle hash before execution.
 
 ### DeliveryTarget
 
@@ -681,6 +689,9 @@ Validation has two levels:
 - repository validation for each exact Candidate;
 - combined validation for the exact CandidateBundle.
 
+Both levels always perform ChangeFleet-owned structural preflight. Their project semantic command
+is optional and Plan-selected; absence requires an explicit rationale and is not semantic proof.
+
 Combined validation may include:
 
 - contract compatibility;
@@ -694,8 +705,8 @@ Core records structure, identity, command, exit status, evidence reference, and 
 boundaries. Agent Runtimes and repository Harness select semantically appropriate checks.
 
 Final deterministic admission binds each exact CandidateCheckpoint. `basic` and `deterministic`
-continue without another Runtime. `independent_review` requires a passing Plan-bound repository
-check and one passing read-only VerificationReview for the exact unchanged checkpoint. The Plan
+continue without another Runtime. `independent_review` requires passing exact repository
+validation and one passing read-only VerificationReview for the exact unchanged checkpoint. The Plan
 expectation is preliminary and cannot waive a Project minimum or an explicit operator elevation.
 The verifier may request bounded additional checks; only Runner-produced immutable evidence can
 satisfy them.
@@ -844,7 +855,7 @@ The first implementation should prove:
 - two isolated WorkUnits;
 - sequential or parallel execution according to a simple dependency DAG;
 - exact repository Candidates;
-- repository checks and one combined validation command;
+- selected repository commands and one combined command in the multi-Repository fixture;
 - one CandidateBundle;
 - one human review decision;
 - process-restart-safe current state.
@@ -984,12 +995,13 @@ human merge, and cleanup authority must be confirmed separately.
 ## 18. Post-Provider Candidate Finalization And Recovery Stage
 
 After a Provider completes semantic implementation, ChangeFleet publishes the exact Git subject
-and persists a CandidateCheckpoint before repository validation starts. Validation attempts are
-immutable evidence even when process creation fails. A new idempotent execution attempt may resume
+and persists a CandidateCheckpoint before repository validation starts. Structural and selected-
+command validation attempts are immutable evidence; commandless attempts carry no command identity
+or process budget. A new idempotent execution attempt may resume
 repository validation from the unchanged checkpoint, or combined validation from unchanged current
 Candidates, after exact deterministic preflight and without repeating execution. If independent
 verification was interrupted after repository validation passed, recovery abandons its incomplete
-Run and disposable workspace, reuses the exact passing check evidence, and starts one fresh
+Run and disposable workspace, reuses the exact passing validation evidence, and starts one fresh
 verification Run.
 
 One generic Run reconciler handles planning, execution, verification, supervision, and Bundle-review

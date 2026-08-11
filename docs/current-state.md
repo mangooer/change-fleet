@@ -1,6 +1,6 @@
 # Current State
 
-Updated: 2026-08-10
+Updated: 2026-08-11
 
 This project's accepted direction, implementation, active gaps, and the next task. `SPEC.md` owns
 the contract; Decisions own rationale; WorkItems and Git own implementation evidence.
@@ -18,7 +18,11 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 
 ## Branch-Local Work
 
-- None after WI-0034 adoption; an unmerged branch remains distinct from canonical `main` in Git.
+- Accepted Proposal 0027 and Decision 0029 revise the first-slice fixed validation-command shape.
+  Confirmed [WI-0035](work-items/WI-0035-optional-project-semantic-checks.md) has implemented and
+  verified optional project semantic commands with mandatory exact structural-preflight evidence
+  on branch `codex/wi-0035-optional-project-checks`; it remains in review and distinct from
+  canonical `main`.
 
 ## Accepted Product Direction
 
@@ -55,9 +59,11 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
   CandidateCheckpoint and cannot enter validation or review.
 - Candidate verification freezes policy and exact-checkpoint admission. Its optional read-only
   Runtime binds requested-check evidence and separate usage, and can retry without repeating a
-  passed repository check. Decision 0025 models actionable review as Feedback: the WorkUnit returns
-  to execution, another exact checkpoint returns it to verification, and Gates or Blockers remain
-  separate from lifecycle phase.
+  passed selected project command. Repository and Candidate-set structural preflight is always
+  required; a Plan may explicitly omit an inapplicable semantic command with a rationale. Decision
+  0025 models actionable review as Feedback: the WorkUnit returns to execution, another exact
+  checkpoint returns it to verification, and Gates or Blockers remain separate from lifecycle
+  phase.
 - Decision 0026 defines Plan-confirmed Agentic supervision: the
   deterministic kernel offers exact authorized actions, forced actions avoid a model call, and a
   read-only Supervisor Agent selects only when bounded semantic alternatives remain.
@@ -68,7 +74,9 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 ## Accepted Decisions
 
 - The [Decision Index](decisions/README.md) owns rationale. Decision 0028 records the internal
-  orchestration boundary without changing Decision 0025's lifecycle or Decision 0027's review.
+  orchestration boundary. Decision 0029 separates mandatory structural preflight from optional
+  project-selected semantic commands without changing Decision 0025's lifecycle or Decision 0027's
+  review.
 
 ## Repository Design Proposals
 
@@ -77,6 +85,8 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 - Accepted Proposals through 0025 are landed through WI-0021. Accepted
   [0026](proposals/0026-shared-application-orchestration-boundary.md) is recorded by Decision 0028;
   its implementation is complete through WI-0029 in this history.
+- Accepted [0027](proposals/0027-optional-project-semantic-checks.md) is recorded by Decision 0029
+  and implemented branch-locally by WI-0035.
 
 ## Open Questions
 
@@ -103,9 +113,10 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 
 ## Next Recommended Task
 
-Discuss whether every WorkUnit must always carry a repository check and whether a combined check is
-necessary for single-Repository or documentation-only tasks. Keep this validation-topology question
-separate from optional, project-owned Repository Harness.
+Review and adopt WI-0035. After adoption, run one bounded real self-iteration whose single-
+Repository Plan selects only applicable project checks and explicitly omits an inapplicable
+combined command. Keep multiple baseline Plan commands and project-specific policy enforcement
+deferred until a demonstrated need exists.
 
 ## Maintenance Contract
 

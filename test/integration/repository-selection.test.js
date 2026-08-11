@@ -363,6 +363,7 @@ function oneRepositoryPlan(repositoryId, combinedCheckScript) {
           coverage_rationale: `Checks the ${repositoryId} change`,
           timeout_ms: 10_000,
         },
+        repository_check_rationale: `The ${repositoryId} change has a focused check`,
       },
     ],
     combined_check: {
@@ -372,6 +373,7 @@ function oneRepositoryPlan(repositoryId, combinedCheckScript) {
       coverage_rationale: "Checks the combined contract",
       timeout_ms: 10_000,
     },
+    combined_check_rationale: "The fixture exercises exact Candidate-set validation",
     risks: [],
     unverified_boundaries: [],
     verification_expectation: {

@@ -322,7 +322,7 @@ function buildPrompt(invocation) {
           "Return either conversation_message with message populated and request null, or repository_selection_change_request with request populated and message null.",
           // 领域内核允许授权仓库的非空子集，但同一仓库只能形成一个 WorkUnit；仓库内任务必须在规划阶段合并。
           "A plan may use a non-empty subset of authorized repositories, but it must return at most one WorkUnit for each repository_id; combine all tasks for the same Repository into that single WorkUnit.",
-          "Commands in checks must be non-interactive argv-style commands that can run in the supplied repository or combined validation environment. Give every check a concise coverage_rationale; timeout_ms is an attempt default rather than check identity.",
+          "For every repository_check and the combined_check, either select one applicable non-interactive argv-style project command or return null. Always provide the corresponding selection rationale; never invent a command merely to fill the slot. Give every selected check a concise coverage_rationale; timeout_ms is an attempt default rather than check identity.",
           "Set verification_expectation to basic only for an obvious low-risk deterministic fast path, deterministic for selected behavioral checks, or independent_review when semantic uncertainty already requires it. Include concise rationale and only typed escalation_triggers.",
           "Set bundle_review.mode from the supplied Project policy. Use independent only with its exact authorized agent_profile_id, agent_profile_revision, and attempt limit; use none with null AgentProfile fields when Bundle-level semantic review is not authorized.",
           "Set supervision.mode to manual or autonomous_until_review and keep every requested supervision limit within the supplied Project supervision policy. Autonomous mode only authorizes progress to the exact Bundle and any Plan-required quality recommendation before final human review.",
@@ -336,7 +336,7 @@ function buildPrompt(invocation) {
           "Implement this exact task in the supplied writable workspace; do not stop after inspection or merely describe the change.",
           "You must inspect the current working directory and use your filesystem tools to make the requested repository changes before returning a terminal result.",
           "Use apply_patch or an equivalent available editing tool; a JSON response alone does not implement the WorkUnit.",
-          "Verify the requested files exist in the writable workspace and run the WorkUnit repository check before completion.",
+          "Verify the requested files exist in the writable workspace. Run the WorkUnit repository_check before completion when the Plan selected one; when it is null, follow the recorded rationale and do not invent a command.",
           "Do not commit, change Git refs, or modify ChangeFleet control state.",
           "Return implementation_completed with blocker null after the repository files are ready for controller-owned publication, including revision_feedback_assessments.",
           "If unavailable tools, permissions, missing information, or another blocker prevents inspection, editing, or verification, return implementation_blocked with a bounded blocker code and message; never label an unchanged workspace implementation_completed.",

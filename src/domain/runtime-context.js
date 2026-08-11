@@ -139,6 +139,7 @@ function projectWorkUnit(workUnit) {
       "repository_selection_revision",
       "repository_harness_selection_revision",
       "repository_check",
+      "repository_check_rationale",
       "plan_revision",
       "phase",
       "disposition",

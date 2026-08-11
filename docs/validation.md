@@ -12,8 +12,8 @@ Status: Active policy
 - Do not treat Agent prose as deterministic execution evidence.
 - Do not rerun an expensive exact check solely to duplicate evidence.
 - A changed base or Candidate SHA invalidates subject binding even when the patch appears equivalent.
-- Combined validation identifies the exact Candidate set and required check definition. Finalized
-  evidence becomes part of the CandidateBundle.
+- Combined validation identifies the exact Candidate set and explicit optional project-check
+  selection. Finalized structural or command-backed evidence becomes part of the CandidateBundle.
 
 ## Tiers
 

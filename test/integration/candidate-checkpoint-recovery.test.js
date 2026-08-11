@@ -201,6 +201,71 @@ describe("post-Provider Candidate finalization recovery", () => {
     );
   });
 
+  test("records structural evidence without fabricating semantic command attempts", async (t) => {
+    const fixture = await createFixture(t, "structural-only");
+    fixture.plan.work_units[0].repository_check = null;
+    fixture.plan.work_units[0].repository_check_rationale =
+      "No project semantic command applies to this bounded fixture change";
+    fixture.plan.combined_check = null;
+    fixture.plan.combined_check_rationale =
+      "A single Repository has no cross-Repository invariant";
+    fixture.plan.verification_expectation = {
+      mode: "basic",
+      rationale: "Exact Git structural preflight is sufficient for this fixture.",
+      escalation_triggers: ["scope_divergence"],
+    };
+    const runtime = new ScriptedRuntime({ plan: fixture.plan });
+    const service = await bootstrap(fixture, runtime);
+
+    const result = await service.executeChangeSet({
+      idempotency_key: "execute-structural-only",
+      change_set_id: "change-1",
+    });
+    const state = await service.readChangeSet("change-1");
+    const repositoryEvidence = await service.evidenceStore.read(
+      state.candidates[0].repository_evidence.evidence_id,
+    );
+    const combinedEvidence = await service.evidenceStore.read(
+      state.bundles[0].combined_validation_evidence.evidence_id,
+    );
+    const audit = await new RuntimeAuditQueryService({
+      controlStore: service.controlStore,
+      runStore: service.runStore,
+      evidenceStore: service.evidenceStore,
+    }).getChangeSetAudit("change-1");
+
+    assert.equal(result.bundle_revision, 1);
+    assert.deepEqual(
+      state.validation_attempts.map((attempt) => [
+        attempt.kind,
+        attempt.check_identity,
+        attempt.effective_budget,
+      ]),
+      [
+        ["repository_validation", null, null],
+        ["combined_validation", null, null],
+      ],
+    );
+    assert.equal(repositoryEvidence.payload.preflight.status, "passed");
+    assert.equal(repositoryEvidence.payload.command.status, "not_applicable");
+    assert.equal(repositoryEvidence.payload.check_identity, null);
+    assert.equal(repositoryEvidence.payload.attempt_budget, null);
+    assert.equal(combinedEvidence.payload.preflight.status, "passed");
+    assert.equal(combinedEvidence.payload.command.status, "not_applicable");
+    assert.equal(combinedEvidence.payload.check_identity, null);
+    assert.equal(combinedEvidence.payload.attempt_budget, null);
+    assert.deepEqual(audit.payload.outcomes.validation, { passed: 2 });
+    assert.equal(
+      audit.payload.validation.rows.every(
+        (row) =>
+          row.validation_mode === "structural_preflight" &&
+          row.attempt?.check_identity === null &&
+          row.attempt?.effective_budget === null,
+      ),
+      true,
+    );
+  });
+
   test("persists a passing independent review before Candidate promotion", async (t) => {
     const fixture = await createFixture(t, "independent-admission");
     const runtime = new ScriptedRuntime({ plan: fixture.plan });

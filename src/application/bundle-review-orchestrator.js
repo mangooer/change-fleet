@@ -115,6 +115,7 @@ export class BundleReviewOrchestrator {
       candidates,
       repositories,
       command: plan.combined_check,
+      selectionRationale: plan.combined_check_rationale,
       projectPolicy: beforeValidation.verification_policy,
       budgetRequest,
     });

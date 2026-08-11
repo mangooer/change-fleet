@@ -283,6 +283,7 @@ export function createTwoRepositoryPlan(combinedCheckScript) {
         task: "Implement API behavior",
         dependencies: [],
         repository_check: repositoryCheck("api"),
+        repository_check_rationale: "The API behavior has a focused project check",
       },
       {
         work_unit_id: "web-unit",
@@ -290,6 +291,7 @@ export function createTwoRepositoryPlan(combinedCheckScript) {
         task: "Implement web behavior",
         dependencies: ["api-unit"],
         repository_check: repositoryCheck("web"),
+        repository_check_rationale: "The web behavior has a focused project check",
       },
     ],
     combined_check: {
@@ -299,6 +301,7 @@ export function createTwoRepositoryPlan(combinedCheckScript) {
       coverage_rationale: "Checks the combined repository contract",
       timeout_ms: 10_000,
     },
+    combined_check_rationale: "The two repositories share a compatibility contract",
     risks: ["The repositories must remain coherent"],
     unverified_boundaries: [],
     verification_expectation: {
@@ -338,9 +341,11 @@ export function createOneRepositoryPlan(combinedCheckScript) {
           coverage_rationale: "Checks the delivered API behavior",
           timeout_ms: 10_000,
         },
+        repository_check_rationale: "The API behavior has a focused project check",
       },
     ],
     combined_check: { command_id: "combined-check", executable: process.execPath, argv: [combinedCheckScript], coverage_rationale: "Checks the combined repository contract", timeout_ms: 10_000 },
+    combined_check_rationale: "The fixture exercises exact Candidate-set validation",
     risks: [],
     unverified_boundaries: [],
     verification_expectation: {

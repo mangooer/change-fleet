@@ -46,7 +46,7 @@ Repository Execution
   AgentProfile and capability dispatch
   Agent Runtime invocation
   repository Candidate publication
-  repository check evidence
+  exact repository validation evidence
 
 Infrastructure
   durable stores and locks
@@ -370,11 +370,11 @@ types, workspace names, review lifecycle, or `ProjectRuntime`.
 ### CandidateFinalizer
 
 After Provider implementation completes, `CandidateFinalizer` removes and verifies frozen Harness
-overlays, publishes the exact Git subject, and persists a CandidateCheckpoint before starting a
-repository check. It records one immutable deterministic admission for that checkpoint from the
+overlays, publishes the exact Git subject, and persists a CandidateCheckpoint before starting
+repository validation. It records one immutable deterministic admission for that checkpoint from the
 frozen Project policy, confirmed Plan expectation, optional operator elevation, and exact final
 facts. `basic` or `deterministic` admission continues without another Runtime. For
-`independent_review`, a passed Plan-bound repository check starts one separately recorded read-only
+`independent_review`, passing exact repository validation starts one separately recorded read-only
 verification Run over a disposable exact-Candidate worktree. A bounded passing VerificationReview
 and any requested Runner check evidence create the ordinary Candidate. `changes_required` records
 Feedback and returns the same WorkUnit to execution. Every source finding receives an explicit
@@ -385,11 +385,12 @@ Mutation, malformed output, blocking findings, or an unresolved human decision f
 validation attempt, checkpoint, review, Feedback record, and Run remains immutable history.
 
 Resume is a deterministic application operation with a new caller idempotency key. It rechecks
-current revisions, source Run, workspace ownership, clean exact HEAD, ancestry, changed paths, and
-the unchanged semantic check before repository or combined validation. A caller may change only an
-attempt timeout within the frozen Project maximum; requested and effective budgets remain immutable
-attempt evidence. Resume never calls the Agent Runtime. Obsolete private pre-checkpoint records are
-not imported or rewritten by the current baseline.
+current revisions, source Run, workspace ownership, clean exact HEAD, ancestry, and changed paths
+before repository or combined validation. When the Plan selected a semantic command, resume also
+requires its unchanged identity; a caller may change only an attempt timeout within the frozen
+Project maximum. Requested and effective budgets remain immutable attempt evidence. Resume never
+calls the Agent Runtime. Obsolete private pre-checkpoint records are not imported or rewritten by
+the current baseline.
 
 ### BundleAssembler
 
@@ -398,8 +399,8 @@ Builds an immutable CandidateBundle from:
 - the exact plan revision;
 - expected WorkUnits;
 - exact repository Candidates;
-- repository checks;
-- combined validation;
+- exact repository validation evidence;
+- exact Candidate-set validation evidence;
 - missing, blocked, excluded, or superseded units.
 
 A bundle hash changes whenever any subject or required evidence identity changes.
@@ -550,9 +551,9 @@ An exact current CandidateCheckpoint may resume repository validation, and an un
 Candidate set may resume combined validation, without repeating execution. Interrupted verification
 or Bundle review abandons its incomplete Run and disposable read-only resources, reuses matching
 passed deterministic evidence, and starts one fresh same-purpose Run only for the unchanged exact
-subject. Failed attempts remain immutable evidence. An operational retry may use a different bounded
-timeout while preserving the same semantic check and exact subject. Obsolete private pre-checkpoint
-records are not imported or rewritten by the current baseline.
+subject. Failed selected-command attempts remain immutable evidence. An operational retry may use a
+different bounded timeout while preserving the same selected semantic check and exact subject.
+Obsolete private pre-checkpoint records are not imported or rewritten by the current baseline.
 
 One generic reconciler handles all persisted running Runs. It records an unprovable invocation as
 `interrupted`, retains the owning ChangeSet and WorkUnit phase, then applies the bounded workspace

@@ -762,6 +762,7 @@ function deduplicateEvidence(records) {
 
 function validationRow(record, attempt = null) {
   const command = record.payload?.command ?? null;
+  const preflight = record.payload?.preflight ?? null;
   const postflight = record.payload?.postflight ?? null;
   invariant(
     command?.duration_ms === undefined ||
@@ -771,8 +772,13 @@ function validationRow(record, attempt = null) {
     "Validation duration must be null or a non-negative integer",
     { evidence_id: record.evidence_id },
   );
-  const status =
-    command === null
+  // 结构预检通过不等于项目命令通过；审计单独标记模式，但都保留真实结果。
+  const structuralOnly = command?.status === "not_applicable";
+  const status = structuralOnly
+    ? preflight?.status === "passed"
+      ? "passed"
+      : "failed"
+    : command === null
       ? "unavailable"
       : command.exit_code === 0 &&
           command.timed_out === false &&
@@ -785,6 +791,11 @@ function validationRow(record, attempt = null) {
     evidence_hash: record.evidence_hash,
     kind: record.kind,
     subject: structuredClone(record.subject),
+    validation_mode: structuralOnly
+      ? "structural_preflight"
+      : "project_command",
+    check_selection_rationale:
+      record.payload?.check_selection_rationale ?? null,
     status,
     duration_ms:
       Number.isSafeInteger(attempt?.duration_ms) && attempt.duration_ms >= 0

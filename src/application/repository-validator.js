@@ -16,8 +16,12 @@ export class RepositoryValidator {
     checkIdentity,
     attemptBudget,
     environmentIdentity,
+    selectionRationale,
     evidenceKind = "repository_validation",
   }) {
+    // 计划命令使用选择理由；验证 Agent 追加的命令没有独立选择字段时复用覆盖理由。
+    const effectiveSelectionRationale =
+      selectionRationale ?? command?.coverage_rationale ?? null;
     let preflightError = null;
     try {
       await this.repositoryWorker.preflightCandidate({ repository, candidate });
@@ -26,7 +30,8 @@ export class RepositoryValidator {
     }
     let commandResult = null;
     let commandError = null;
-    if (!preflightError) {
+    // null 是显式的“无适用项目命令”，结构预检仍必须执行，且不会启动空进程。
+    if (!preflightError && command !== null) {
       try {
         commandResult = await runCommand(command, {
           cwd: candidate.workspace_path,
@@ -56,32 +61,36 @@ export class RepositoryValidator {
         check_identity: checkIdentity,
         attempt_budget: attemptBudget,
         environment_identity: environmentIdentity,
+        check_selection_rationale: effectiveSelectionRationale,
         preflight: errorProjection(preflightError),
         command:
-          commandResult ?? {
-            status: "not_run",
-            requested: structuredClone(command),
-          },
+          command === null
+            ? { status: "not_applicable" }
+            : commandResult ?? {
+                status: "not_run",
+                requested: structuredClone(command),
+              },
         command_error: commandError
           ? errorProjection(commandError)
           : commandResult
             ? { status: "passed" }
-            : { status: "not_run" },
+            : { status: command === null ? "not_applicable" : "not_run" },
         postflight: postflightError
           ? errorProjection(postflightError)
           : commandResult
             ? { status: "passed" }
-            : { status: "not_run" },
+            : { status: command === null ? "not_applicable" : "not_run" },
       },
       createdAt: this.now(),
     });
     if (
       preflightError ||
       commandError ||
-      commandResult.exit_code !== 0 ||
-      commandResult.timed_out ||
-      commandResult.cancelled ||
-      commandResult.output_overflow ||
+      (commandResult !== null &&
+        (commandResult.exit_code !== 0 ||
+          commandResult.timed_out ||
+          commandResult.cancelled ||
+          commandResult.output_overflow)) ||
       postflightError
     ) {
       const code =

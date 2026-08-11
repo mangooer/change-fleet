@@ -148,10 +148,18 @@ describe("Runtime identity and evidence", () => {
       PLANNING_OUTCOME_SCHEMA.properties.message.anyOf[0].properties.plan.anyOf[0];
     assert.equal(planSchema.required.includes("verification_expectation"), true);
     assert.equal(planSchema.required.includes("supervision"), true);
+    const combinedCommandSchema =
+      planSchema.properties.combined_check.anyOf[0];
     assert.equal(
-      planSchema.properties.combined_check.required.includes(
-        "coverage_rationale",
-      ),
+      combinedCommandSchema.required.includes("coverage_rationale"),
+      true,
+    );
+    assert.equal(
+      planSchema.properties.combined_check.anyOf[1].type,
+      "null",
+    );
+    assert.equal(
+      planSchema.required.includes("combined_check_rationale"),
       true,
     );
     assertStrictObjectSchemas(PLANNING_OUTCOME_SCHEMA);

@@ -2261,13 +2261,16 @@ export class ChangeFleetService {
         await this.bundleReviewOrchestrator.finalizeCurrentBundle(
           change_set_id,
           {
-            budgetRequest: selectValidationAttemptBudgetRequest(
-              attemptBudgetRequests,
-              {
-                kind: "combined_validation",
-                commandId: plan.combined_check.command_id,
-              },
-            ),
+            budgetRequest:
+              plan.combined_check === null
+                ? null
+                : selectValidationAttemptBudgetRequest(
+                    attemptBudgetRequests,
+                    {
+                      kind: "combined_validation",
+                      commandId: plan.combined_check.command_id,
+                    },
+                  ),
           },
         );
       let reviewBoundary = { assessment: null, gate: null };
@@ -2837,9 +2840,9 @@ export class ChangeFleetService {
             "structured_outcome",
             "finding_assessments",
             "candidate",
-            "repository_check",
+            "applicable_project_check_results",
           ]
-        : ["structured_outcome", "candidate", "repository_check"],
+        : ["structured_outcome", "candidate", "applicable_project_check_results"],
       feedback: feedbackRecord,
       historyReferences: isFeedbackExecution
         ? []
@@ -3216,15 +3219,23 @@ function createBundleReviewProjection({
         repository_id: unit.repository_id,
         task: unit.task,
         dependencies: [...unit.dependencies],
-        repository_check: {
-          command_id: unit.repository_check.command_id,
-          coverage_rationale: unit.repository_check.coverage_rationale,
-        },
+        repository_check:
+          unit.repository_check === null
+            ? null
+            : {
+                command_id: unit.repository_check.command_id,
+                coverage_rationale: unit.repository_check.coverage_rationale,
+              },
+        repository_check_rationale: unit.repository_check_rationale,
       })),
-      combined_check: {
-        command_id: plan.combined_check.command_id,
-        coverage_rationale: plan.combined_check.coverage_rationale,
-      },
+      combined_check:
+        plan.combined_check === null
+          ? null
+          : {
+              command_id: plan.combined_check.command_id,
+              coverage_rationale: plan.combined_check.coverage_rationale,
+            },
+      combined_check_rationale: plan.combined_check_rationale,
     },
     bundle: {
       bundle_id: bundle.bundle_id,
