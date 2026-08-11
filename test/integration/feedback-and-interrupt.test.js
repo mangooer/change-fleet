@@ -120,11 +120,7 @@ describe("stage-neutral feedback and interruption", () => {
 
   test("queues feedback during verification and re-verifies the same exact Candidate", async (t) => {
     const fixture = await createFixture(t, "verification-feedback");
-    fixture.plan.verification_expectation = {
-      mode: "independent_review",
-      rationale: "Exercise feedback delivery to an active verifier.",
-      escalation_triggers: ["scope_divergence"],
-    };
+    fixture.verificationMode = "independent_review";
     const runtime = new ScriptedRuntime({ plan: fixture.plan });
     const verificationRuntime = new PausingVerificationRuntime({
       plan: fixture.plan,
@@ -189,11 +185,7 @@ describe("stage-neutral feedback and interruption", () => {
 
   test("resolves a human Gate into feedback and continues verification", async (t) => {
     const fixture = await createFixture(t, "gate");
-    fixture.plan.verification_expectation = {
-      mode: "independent_review",
-      rationale: "Exercise one explicit verification choice.",
-      escalation_triggers: ["scope_divergence"],
-    };
+    fixture.verificationMode = "independent_review";
     const runtime = new ScriptedRuntime({
       plan: fixture.plan,
       verificationOutcomes: [
@@ -407,6 +399,10 @@ async function bootstrap(fixture, runtime, verificationRuntime = runtime) {
     idempotency_key: "register",
     project: {
       project_id: "project",
+      verification_policy:
+        fixture.verificationMode === "independent_review"
+          ? { minimum_mode: "independent_review" }
+          : undefined,
       repositories: [
         {
           repository_id: "api",

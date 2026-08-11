@@ -13,7 +13,6 @@ export class RunRecoveryService {
     runStore,
     harnessSnapshotStore,
     repositoryWorker,
-    cleanupPlanningWorkspaces,
     recordRuntimeEvidence,
     idFactory,
     now,
@@ -22,7 +21,6 @@ export class RunRecoveryService {
     this.runStore = runStore;
     this.harnessSnapshotStore = harnessSnapshotStore;
     this.repositoryWorker = repositoryWorker;
-    this.cleanupPlanningWorkspaces = cleanupPlanningWorkspaces;
     this.recordRuntimeEvidence = recordRuntimeEvidence;
     this.idFactory = idFactory;
     this.now = now;
@@ -70,12 +68,6 @@ export class RunRecoveryService {
       project,
       label: "Planning",
       prepare: (state) => {
-        const projectRepositories = new Map(
-          project.repositories.map((repository) => [
-            repository.repository_id,
-            repository,
-          ]),
-        );
         return {
           references: state.run_references
             .filter(
@@ -87,11 +79,8 @@ export class RunRecoveryService {
               run_id: reference.run_id,
               work_unit_id: null,
             })),
-          cleanup: ({ run }) =>
-            this.cleanupPlanningWorkspaces({
-              planningWorkspaces: run.planning_workspaces ?? [],
-              projectRepositories,
-            }),
+          // 规划 Run 只借用 ChangeSet 的持久 TaskWorkspace；控制器中断不能删除它。
+          cleanup: null,
         };
       },
       applyResults: (current, results) => {

@@ -35,7 +35,7 @@ Change Control
   ChangeIntent and ChangePlan revisions
   RepositorySelectionRevision history
   ChangeSet lifecycle
-  WorkUnit DAG scheduler
+  Core-compiled WorkUnit scheduler
   CandidateBundle and validation matrix
   GitHub delivery requests, reconciliation, and aggregate completion
 
@@ -170,13 +170,15 @@ It receives:
 It returns typed proposals:
 
 - normalized ChangeIntent;
-- conversation message with an optional exact structured plan payload;
+- conversation message with an optional concise semantic plan payload;
 - repository scope expansion;
 - decision request;
 - typed requirement to replace an invalidated confirmed plan;
 - explicit blocker.
 
-Core validates identity and policy, not whether the semantic plan is clever.
+Core validates the semantic payload and binds a separately generated workspace-control digest. It
+creates WorkUnits and effective execution policy only after confirmation; it does not ask the
+Planner to reproduce control configuration.
 
 ### Policy-Governed Agentic Supervisor
 
@@ -193,8 +195,8 @@ WorkUnits, Runs, Evidence, Feedback, Gates, holds, and remaining budget.
 
 The Supervisor cannot read or write the Control Store directly, mutate repository workspaces, grant
 scope, raise ceilings, satisfy checks, accept a Bundle, or authorize delivery. Repository commands
-remain behind evidence-producing validation operations. Project policy supplies ceilings; the exact
-confirmed Plan records `manual | autonomous_until_review` and its effective bounded limits.
+remain behind evidence-producing validation operations. Project and task configuration supply the
+mode and ceilings; Core binds their exact effective values to the confirmed Plan control digest.
 
 Normal failed checks and material review findings may become Feedback and continue through the same
 Plan. When the Plan requires independent Bundle quality review, its forced dispatch and bounded
@@ -208,9 +210,9 @@ specific aggregate phase.
 Builds a disposable current projection for one planning, execution, verification, supervision,
 review, or recovery operation from durable ChangeSet and Run state. It includes:
 
-- exact operation, ChangeSet, plan, WorkUnit, repository, base, and workspace identity;
+- exact operation, ChangeSet, semantic Plan, WorkUnit, repository, base, and workspace identity;
 - current Repository Harness selection identity and bounded discovery references;
-- confirmed intent summary and the relevant current plan slice;
+- confirmed intent summary, the current semantic Plan, and separately projected control facts;
 - capability boundary, blockers, decisions, gates, and typed outcomes;
 - bounded current request-revision feedback when present;
 - the current Plan's bounded per-finding feedback assessments after planning;
@@ -332,11 +334,10 @@ analytics interface.
 
 The scheduler:
 
-- evaluates explicit dependency edges;
 - enforces project and repository concurrency;
 - dispatches ready WorkUnits;
 - persists holds, cancellation, and recovery facts;
-- never infers semantic dependencies from prose;
+- leaves semantic implementation ordering to the Agent;
 - never lets an Agent directly authorize the next repository.
 
 Execution capacity and destination serialization are separate concerns.
@@ -353,9 +354,10 @@ Conceptual interface:
 inspect_current_branch(repository)
 resolve_branch(repository, branch_ref)
 resolve_harness(repository, base_sha, workspace_policy_revision)
-prepare(repository, target_ref, base_sha, work_unit)
+prepare_task_repository(repository, target_ref, base_sha, task_workspace)
 materialize_harness(workspace, harness_selection_revision)
-execute(work_unit, workspace, intent, plan)
+inspect_task_repository(workspace)
+prepare_verification(repository, candidate)
 verify_and_remove_harness(workspace, harness_selection_revision)
 publish(workspace, exact_expected_head)
 inspect(candidate)
@@ -367,12 +369,17 @@ human Bundle review. Its initial implementation uses explicit repository id, reg
 target ref, base SHA, workspace id, and workspace root inputs and must not import Conductor state
 types, workspace names, review lifecycle, or `ProjectRuntime`.
 
+`TaskWorkspaceManager` coordinates the atomic preparation, read-only snapshot comparison, and
+terminal physical cleanup of the RepositoryWorker resources owned by one ChangeSet. It does not
+create another lifecycle, interpret project semantics, dispatch Agents, or own Candidate authority.
+
 ### CandidateFinalizer
 
 After Provider implementation completes, `CandidateFinalizer` removes and verifies frozen Harness
 overlays, publishes the exact Git subject, and persists a CandidateCheckpoint before starting
 repository validation. It records one immutable deterministic admission for that checkpoint from the
-frozen Project policy, confirmed Plan expectation, optional operator elevation, and exact final
+frozen Project and task policy bound to the confirmed Plan control digest, optional operator
+elevation, and exact final
 facts. `basic` or `deterministic` admission continues without another Runtime. For
 `independent_review`, passing exact repository validation starts one separately recorded read-only
 verification Run over a disposable exact-Candidate worktree. A bounded passing VerificationReview
@@ -455,9 +462,10 @@ Operation-scoped Runtime Skill
   optional execution method
 ```
 
-Planning receives read-only access to authorized repository bases. WorkUnit execution receives write
-access only to its isolated workspace. Review is read-only over exact Bundle subjects and evidence.
-Control mutations use typed application commands.
+Planning receives read-only access to every linked TaskWorkspace repository. WorkUnit execution may
+read all links but receives write authority for only its assigned RepositoryWorkspace; Core verifies
+the remaining Git subjects did not change. Review is read-only over exact Bundle subjects and
+evidence. Control mutations use typed application commands.
 
 Complete history remains in ChangeSetStore, RunStore, Git, and linked artifacts. Provider context
 and compaction may optimize a Run but never replace durable state.
@@ -479,16 +487,16 @@ Registered repository
   source and Harness
   Git history
 
-Planning workspace
-  detached exact-base checkout for one selected Repository
-  immutable selected Harness overlay
-  read-only Agent access
-
 Task workspace
-  isolated checkout for one WorkUnit
-  immutable selected Harness overlay, removed before publication
-  Agent changes
-  repository Candidate
+  stable one-to-one ChangeSet operational identity
+  linked RepositoryWorkspaces prepared before planning
+  persistent planning, execution, feedback, review, and delivery context
+
+RepositoryWorkspace
+  exact base, target, local branch, and owned worktree
+  immutable selected Harness overlay, removed before Candidate publication
+  at most one assigned writer; other task Runs receive read-only context
+  independently derived Candidate and delivery subject
 ```
 
 Agents do not edit raw control state through repository workspaces. Typed outcomes cross the
@@ -524,7 +532,7 @@ Planning:
   one current plan revision per ChangeSet
 
 Execution:
-  parallel when WorkUnit dependencies and configured capacity permit
+  independently dispatchable by RepositoryWorkspace when configured capacity permits
 
 Bundle assembly:
   only from terminal or explicitly excluded WorkUnits for the current plan
@@ -633,7 +641,7 @@ The first Codex snapshotter admits only contained regular Git-ignored files unde
 ordinary untracked files, links that may escape, tracked collisions, Provider configuration,
 credentials, environment files, caches, and general workspace seeds.
 
-`RepositoryWorker` reconstructs the snapshot in owned planning and WorkUnit workspaces without
+`RepositoryWorker` reconstructs the snapshot in owned RepositoryWorkspaces without
 rereading the registered checkout. It verifies immutability, removes every overlay path before
 Candidate publication, and fails closed on mutation or requested non-Git Harness delivery. It never
 writes overlay content back to the registered checkout.
@@ -644,12 +652,13 @@ separately. Detailed inventories and bytes remain linked artifacts outside defau
 ## Explicit ChangeSet Closure Boundary
 
 One shared human operation may close an unfinished quiescent pre-delivery ChangeSet as
-`abandoned`. It appends a bounded decision and changes only the aggregate's current terminal
-projection. Existing Runs, evidence, usage, repository authority, checkpoints, Candidates, Bundles,
-commands, decisions, and blockers remain immutable history and exact reads continue to work.
+`abandoned`. It appends a bounded decision, changes the aggregate's terminal projection, and then
+idempotently releases only the task's owned replaceable worktrees. Existing Runs, evidence, usage,
+repository authority, checkpoints, Candidates, Bundles, commands, decisions, and blockers remain
+immutable history and exact reads continue to work.
 
-Close does not invoke Runtime, Git, validation, workspace cleanup, delivery, or another external
-adapter. It neither creates nor links a successor. The user creates a later task through the
+Close does not invoke Runtime, validation, delivery, or another external adapter. It neither creates
+nor links a successor. The user creates a later task through the
 ordinary creation operation, which resolves and freezes its branch and base independently.
 
 The initial operation rejects active lifecycle work and any begun delivery. Generic resume,

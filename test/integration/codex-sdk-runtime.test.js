@@ -36,52 +36,12 @@ describe("Codex SDK Runtime protocol", () => {
       message: {
         text: "The exact plan is ready for approval.",
         plan: {
-        rationale: null,
-        revision_feedback_assessments: [],
-        work_units: [
-          {
-            work_unit_id: "api-unit",
-            repository_id: "api",
-            task: "Implement the change",
-            dependencies: [],
-            repository_check: {
-              command_id: "api-check",
-              executable: "node",
-              argv: ["check.mjs"],
-              coverage_rationale: "Checks the changed API behavior",
-              timeout_ms: 10_000,
-            },
-            repository_check_rationale: "The API behavior has a focused project check",
-          },
-        ],
-        combined_check: {
-          command_id: "combined-check",
-          executable: "node",
-          argv: ["combined-check.mjs"],
-          coverage_rationale: "Checks the combined contract",
-          timeout_ms: 10_000,
-        },
-        combined_check_rationale: "The fixture exercises Candidate-set validation",
-        risks: [],
-        unverified_boundaries: [],
-        verification_expectation: {
-          mode: "deterministic",
-          rationale: "The selected behavioral checks cover the change.",
-          escalation_triggers: ["scope_divergence"],
-        },
-        bundle_review: {
-          mode: "none",
-          agent_profile_id: null,
-          agent_profile_revision: null,
-          attempt_limit: 2,
-        },
-        supervision: {
-          mode: "manual",
-          execution_attempt_limit_per_work_unit: 3,
-          verification_attempt_limit_per_work_unit: 3,
-          feedback_cycle_limit_per_work_unit: 2,
-          elapsed_time_limit_ms: 1_800_000,
-        },
+          summary: "Implement the requested API behavior.",
+          steps: ["Update the API implementation."],
+          validation: ["Run the relevant project-native checks."],
+          risks: [],
+          assumptions: [],
+          revision_feedback_assessments: [],
         },
       },
       request: null,
@@ -147,21 +107,21 @@ describe("Codex SDK Runtime protocol", () => {
     assert.equal(threadOptions[0].approvalPolicy, "never");
     assert.match(
       prompts[0],
-      /at most one WorkUnit for each repository_id; combine all tasks for the same Repository/u,
+      /A ready plan contains only summary, steps, validation, risks, assumptions/u,
     );
     assert.match(
       prompts[0],
-      /either select one applicable non-interactive argv-style project command or return null/u,
+      /Do not echo WorkUnit ids, Git SHAs or refs, AgentProfile, budgets/u,
     );
     assert.match(
       prompts[0],
-      /after publishing the exact Candidate commit in an otherwise clean workspace where HEAD is that Candidate/u,
+      /ChangeFleet owns those facts in workspace_control/u,
     );
     assert.match(
       prompts[0],
-      /a command whose default behavior inspects only uncommitted changes does not cover the Candidate diff/u,
+      /Validation describes what should be proven semantically/u,
     );
-    assert.match(prompts[0], /never invent a command merely to fill the slot/u);
+    assert.match(prompts[0], /do not manufacture argv commands/u);
     assert.match(
       prompts[0],
       /reviewer claim to evaluate, not as an automatic fact or command/u,

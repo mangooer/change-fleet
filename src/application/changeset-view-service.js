@@ -134,6 +134,7 @@ function projectListEntry(state) {
     work_units: projectCurrentWorkUnits(state),
     gates: projectOpenGates(state),
     supervision: projectSupervision(state),
+    task_workspace: projectTaskWorkspace(state.task_workspace),
     bundle: currentBundleSummary(state),
     delivery: {
       phase: delivery.phase,
@@ -190,6 +191,9 @@ function projectExactChangeSet(state, project, planningMessage) {
             content_digest: planningMessage.content_digest,
             text: planningMessage.text,
             plan: projectPlanContent(planningMessage.plan_content),
+            workspace_control: projectWorkspaceControl(
+              planningMessage.workspace_control_summary,
+            ),
           },
     plan:
       currentPlan === null
@@ -197,43 +201,7 @@ function projectExactChangeSet(state, project, planningMessage) {
         : {
             revision: currentPlan.revision,
             status: currentPlan.status,
-            rationale: currentPlan.rationale,
-            risks: [...currentPlan.risks],
-            unverified_boundaries: [...currentPlan.unverified_boundaries],
-            verification_expectation: structuredClone(
-              currentPlan.verification_expectation,
-            ),
-            bundle_review: structuredClone(currentPlan.bundle_review),
-            supervision: structuredClone(currentPlan.supervision),
-            work_units: currentPlan.work_units.map((unit) => ({
-              work_unit_id: unit.work_unit_id,
-              repository_id: unit.repository_id,
-              task: unit.task,
-              dependencies: [...unit.dependencies],
-              target_ref: unit.target_ref,
-              base_sha: unit.base_sha,
-                repository_check:
-                  unit.repository_check === null
-                    ? null
-                    : {
-                        command_id: unit.repository_check.command_id,
-                        coverage_rationale:
-                          unit.repository_check.coverage_rationale,
-                        timeout_ms: unit.repository_check.timeout_ms,
-                      },
-                repository_check_rationale:
-                  unit.repository_check_rationale,
-            })),
-            combined_check:
-              currentPlan.combined_check === null
-                ? null
-                : {
-                    command_id: currentPlan.combined_check.command_id,
-                    coverage_rationale:
-                      currentPlan.combined_check.coverage_rationale,
-                    timeout_ms: currentPlan.combined_check.timeout_ms,
-                  },
-            combined_check_rationale: currentPlan.combined_check_rationale,
+            ...projectPlanContent(currentPlan.semantic_plan),
           },
     bundle:
       currentBundle === null
@@ -311,38 +279,47 @@ function projectExactChangeSet(state, project, planningMessage) {
 function projectPlanContent(plan) {
   if (plan === null) return null;
   return {
-    rationale: plan.rationale,
+    summary: plan.summary,
+    steps: [...plan.steps],
+    validation: [...plan.validation],
     risks: [...plan.risks],
-    unverified_boundaries: [...plan.unverified_boundaries],
-    verification_expectation: structuredClone(plan.verification_expectation),
-    bundle_review: structuredClone(plan.bundle_review),
-    supervision: structuredClone(plan.supervision),
-    work_units: plan.work_units.map((unit) => ({
-      work_unit_id: unit.work_unit_id,
-      repository_id: unit.repository_id,
-      task: unit.task,
-      dependencies: [...unit.dependencies],
-      target_ref: unit.target_ref,
-      base_sha: unit.base_sha,
-      repository_check:
-        unit.repository_check === null
-          ? null
-          : {
-              command_id: unit.repository_check.command_id,
-              coverage_rationale: unit.repository_check.coverage_rationale,
-              timeout_ms: unit.repository_check.timeout_ms,
-            },
-      repository_check_rationale: unit.repository_check_rationale,
+    assumptions: [...plan.assumptions],
+    revision_feedback_assessments: structuredClone(
+      plan.revision_feedback_assessments,
+    ),
+  };
+}
+
+function projectWorkspaceControl(summary) {
+  if (!summary) return null;
+  return {
+    control_digest: summary.control_digest,
+    task_workspace_id: summary.task_workspace_id,
+    repository_selection_revision: summary.repository_selection_revision,
+    repository_harness_selection_revision:
+      summary.repository_harness_selection_revision,
+    repositories: structuredClone(summary.repositories),
+    agent_profile: structuredClone(summary.agent_profile),
+    verification_expectation: structuredClone(
+      summary.verification_expectation,
+    ),
+    supervision: structuredClone(summary.supervision),
+    bundle_review: structuredClone(summary.bundle_review),
+  };
+}
+
+function projectTaskWorkspace(workspace) {
+  if (!workspace) return null;
+  return {
+    task_workspace_id: workspace.task_workspace_id,
+    resources_released_at: workspace.resources_released_at,
+    repositories: workspace.repositories.map((repository) => ({
+      repository_id: repository.repository_id,
+      base_sha: repository.base_sha,
+      target_ref: repository.target_ref,
+      branch_ref: repository.branch_ref,
+      repository_workspace_id: repository.workspace.workspace_id,
     })),
-    combined_check:
-      plan.combined_check === null
-        ? null
-        : {
-            command_id: plan.combined_check.command_id,
-            coverage_rationale: plan.combined_check.coverage_rationale,
-            timeout_ms: plan.combined_check.timeout_ms,
-          },
-    combined_check_rationale: plan.combined_check_rationale,
   };
 }
 

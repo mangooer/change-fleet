@@ -127,8 +127,10 @@ Every managed Agent operation receives four separately owned context layers:
 
 The Control Contract owns authorization, exact identity, allowed typed outcomes, evidence reporting,
 cancellation, and human gates. The current projection supplies only the confirmed intent summary,
-current plan and relevant WorkUnit slice, authorized repositories and SHAs, workspace capability,
-current blockers and decisions, required evidence, and references needed by that operation.
+semantic plan and relevant WorkUnit slice, linked RepositoryWorkspace access, current blockers and
+decisions, required evidence, and references needed by that operation. Core-owned profiles, budgets,
+attempt ceilings, reviewer configuration, and delivery bindings are not repeated in Agent Plan
+content.
 
 Superseded plans, unrelated WorkUnits, complete transcripts, diffs, logs, and private Agent
 reasoning are not default context. They remain durable structured records or linked artifacts. A
@@ -154,8 +156,8 @@ repository authority:
 
 | Operation | ChangeFleet acceptance boundary |
 | --- | --- |
-| Planning | Inspect explicitly authorized frozen repository bases; writes are non-authoritative |
-| WorkUnit execution | Publish only the assigned isolated repository workspace Git subject |
+| Planning | Inspect the linked TaskWorkspace repositories read-only; any write is rejected |
+| WorkUnit execution | Read linked repositories; publish only the assigned writable RepositoryWorkspace Git subject |
 | Bundle review | Read-only access to exact CandidateBundle subjects and evidence |
 | Control decision | Typed ChangeFleet command; no raw control-store or arbitrary filesystem access |
 
@@ -282,23 +284,15 @@ message carries an exact logical id, content digest, and structured plan content
 confirmed Plan revision. The first confirmed Plan is revision 1. A later revision exists only after
 a previously confirmed execution contract is deliberately replaced.
 
-`ChangePlan` is the versioned, code-informed confirmed execution contract containing:
+`ChangePlan` is concise semantic guidance for later Agents. It contains a summary, ordered
+implementation steps, semantic validation expectations, risks, assumptions, and any assessment of
+current human feedback. It does not contain WorkUnit ids, Git refs or SHAs, AgentProfile identities,
+timeouts, attempt ceilings, supervision mode, reviewer identity, or delivery bindings.
 
-- the ChangeIntent revision it implements;
-- selected repositories and components;
-- reason each repository is in scope;
-- the current RepositorySelectionRevision and its control-owned target refs and frozen base SHAs;
-- WorkUnits and dependency ordering;
-- expected file, API, schema, or behavior boundaries;
-- repository and Candidate-set validation, including explicit optional project-check selections;
-- a preliminary Candidate verification expectation, rationale, and typed escalation triggers;
-- effective `none | independent` Bundle quality-review admission, Review AgentProfile, and bounded
-  attempt ceiling within Project policy;
-- effective `manual | autonomous_until_review` supervision authorization and bounded limits within
-  Project ceilings;
-- delivery order;
-- discard, revert, rollout, or compensation expectations;
-- unresolved risks and required decisions.
+Before approval, Core displays a separate exact workspace-control summary. Approval binds both the
+semantic message and the digest of that summary. Core then compiles Repository-scoped WorkUnits and
+effective verification, supervision, and review policy from the already confirmed TaskWorkspace and
+Project configuration. The Planner does not author those control facts.
 
 A ChangePlan is not proof that the impact analysis is complete. Unknown or unverified impact must
 remain explicit.
@@ -310,8 +304,9 @@ A ChangeSet is the aggregate root for one confirmed intent. It owns:
 - ChangeIntent revisions;
 - RepositorySelectionRevisions;
 - RepositoryHarnessSelectionRevisions;
+- one stable logical TaskWorkspace and its RepositoryWorkspace generations;
 - confirmed ChangePlan revisions;
-- WorkUnits and their dependencies;
+- Core-derived Repository WorkUnits;
 - execution attempts;
 - post-Provider Candidate checkpoints and validation attempts;
 - immutable Candidate-bound verification admission decisions;
@@ -337,6 +332,23 @@ artifacts.
 Replanning continues the same ChangeSet. A new ChangeSet is created only for a distinct business
 intent, not merely because an earlier plan was wrong.
 
+### TaskWorkspace And RepositoryWorkspace
+
+Each ChangeSet owns one logical TaskWorkspace before its first planning Run. It links the explicitly
+selected repositories as independent RepositoryWorkspaces, each with an exact base, target, local
+branch, owned worktree, and Harness selection. The logical TaskWorkspace id survives physical
+workspace replacement and Repository or Harness selection revisions.
+
+Planning, execution, verification, feedback repair, review, and delivery belong to this same task
+container. An execution Run may read all linked repositories but receives write authority only for
+its assigned RepositoryWorkspace; Core compares non-assigned Git subjects before and after the Run.
+Independent business tasks always receive different TaskWorkspaces, branches, and worktrees even
+when they start from the same Repository and base.
+
+Physical worktrees remain available through Bundle review and delivery. Terminal delivery or an
+explicit abandonment releases current and retired physical RepositoryWorkspace generations while
+retaining TaskWorkspace identity, Git subjects, evidence, cost, and delivery facts.
+
 ### WorkUnit
 
 A WorkUnit is one repository-scoped unit of execution. It records:
@@ -344,8 +356,7 @@ A WorkUnit is one repository-scoped unit of execution. It records:
 - ChangeSet and plan revision;
 - Repository id;
 - target ref and base SHA;
-- workspace identity;
-- dependency WorkUnits;
+- RepositoryWorkspace identity;
 - Agent assignment and Run references;
 - current `execution | verification | complete` phase;
 - independent `current | superseded | excluded` disposition;
@@ -407,7 +418,8 @@ invocation.
 
 Before repository validation, ChangeFleet records one immutable admission decision for the exact
 checkpoint. The deterministic first implementation resolves `basic`, `deterministic`, or
-`independent_review` from the frozen Project policy, confirmed Plan expectation, optional
+`independent_review` from the frozen Project and task policy bound to the confirmed Plan control
+digest, optional
 operator elevation, reported-path divergence, and explicit unverified boundaries. `basic` and
 `deterministic` proceed without another Runtime. `independent_review` first requires exact
 repository validation, including the Plan-bound project command when one was selected, then
@@ -450,10 +462,11 @@ Human review and acceptance bind to the complete bundle manifest, not merely one
 
 ### BundleReviewAssessment
 
-A confirmed Plan records `none | independent` Bundle quality-review admission. `none` presents the
-exact Bundle directly for human review and spends no Review Runtime cost. `independent` requires one
-current `pass | feedback | gate` assessment from the selected Review AgentProfile before the Bundle
-is presented as quality-reviewed.
+Task configuration records `none | independent` Bundle quality-review admission before planning and
+Core binds it to the confirmed Plan's control digest. `none` presents the exact Bundle directly for
+human review and spends no Review Runtime cost. `independent` requires one current
+`pass | feedback | gate` assessment from the selected Review AgentProfile before the Bundle is
+presented as quality-reviewed.
 
 The assessment binds the exact Plan revision, Bundle revision and hash, every Candidate base and
 head SHA, required validation and verification evidence, and its Review Run. A changed Plan,
@@ -464,10 +477,11 @@ failure, or exhausted budget retries safely or opens a Gate.
 
 ### Deterministic Validation Invocation
 
-A confirmed ChangePlan records one explicit repository-check selection for every WorkUnit and one
-combined-check selection for the Candidate set. Each selection contains either one applicable
-project semantic command or `null`, plus a concise rationale. ChangeFleet never invents a command
-to fill an empty slot.
+Semantic Plan text may state what should be proven, but it does not carry executable commands.
+ChangeFleet always performs exact Git structural preflight. An independent verification Agent may
+request bounded structured checks against the exact Candidate; Core validates and executes those
+requests without treating the Agent as authorization. With no applicable command, the attempt is
+explicitly structural and carries no command identity or process budget.
 
 A selected command uses a stable command id, executable, argument array, coverage rationale, and a
 default attempt timeout. Command id, executable, arguments, and coverage rationale form semantic
@@ -533,6 +547,7 @@ They use one pipeline:
 raw request or discussion draft
   -> normalized ChangeIntent
   -> confirmed Repository selection and exact branch freeze
+  -> persistent TaskWorkspace and linked RepositoryWorkspaces
   -> authorized repository discovery
   -> planning conversation
   -> exact plan-message approval and ChangePlan
@@ -560,14 +575,15 @@ when it includes:
 An Agent's confidence score may inform a decision but is not the only gate. Deterministic risk
 triggers and standing human policy own authorization.
 
-A Project may default supervision to manual or autonomous, but the confirmed Plan records the
-effective mode and limits. `autonomous_until_review` is authority to continue ordinary work only
+A Project may default supervision to manual or autonomous; the bound workspace-control summary
+records the effective mode and limits. `autonomous_until_review` is authority to continue ordinary work only
 under the same exact Plan and selections; it never authorizes scope expansion, Bundle acceptance,
 external publication, merge, deployment, or an irreversible action.
 
 ## 8. Execution And Replanning
 
-A WorkUnit executes only after its repository, target ref, base SHA, and plan revision are frozen.
+A WorkUnit executes only after its RepositoryWorkspace, target ref, base SHA, and plan revision are
+frozen by Core at Plan confirmation.
 
 During execution:
 
@@ -587,7 +603,7 @@ remaining budget, and offered action ids. Its proposal is advisory until ChangeF
 performs it. Ordinary failed checks and actionable review findings may become Feedback and continue
 through execution and verification without another operator command.
 
-When the confirmed Plan requires independent Bundle review, deterministic supervision dispatches
+When task policy bound to the confirmed Plan requires independent Bundle review, deterministic supervision dispatches
 that Review Run after exact Bundle assembly without a Supervisor model call. Valid blocking
 Feedback may continue through the same-Plan repair route and produce a new Bundle revision.
 Autonomous supervision stops with the current required passage recommendation, a Gate, an authority
@@ -667,14 +683,15 @@ configured path
   -> readiness and authorization evidence
 ```
 
-Task execution freezes a commit SHA and creates an isolated workspace. Dirty files in the
+ChangeSet creation freezes commit SHAs and creates the linked isolated RepositoryWorkspaces before
+planning. Dirty files in the
 registered checkout are never silently copied. The only initial exception is a confirmed
 Repository Harness policy resolved and snapshotted no later than ChangeSet creation. It may admit
 contained Git-ignored semantic resources, never ordinary untracked files or Provider settings,
 credentials, environment files, caches, or general workspace seeds.
 
-Frozen Harness overlays are restored only inside ChangeFleet-owned planning and WorkUnit
-workspaces. They are immutable, verified and removed before Candidate publication, and excluded
+Frozen Harness overlays are restored only inside ChangeFleet-owned RepositoryWorkspaces. They are
+immutable, verified and removed before Candidate publication, and excluded
 from Git identity. ChangeFleet never writes them back to the registered checkout. Overlay mutation
 fails with `HARNESS_OVERLAY_MODIFIED`; a requested durable private Harness change fails with
 `NON_GIT_HARNESS_CHANGE_UNSUPPORTED`.
@@ -756,7 +773,7 @@ exact message is approved; raw feedback never becomes execution authority.
 ChangeFleet persists enough control state to recover after controller or Runtime process loss:
 
 - current ChangeSet and plan revision;
-- current WorkUnits and dependencies;
+- current Repository WorkUnits;
 - workspace ownership;
 - exact Runs, Candidate checkpoints, validation attempts, Candidates, and Bundle revisions;
 - pending human decisions;
@@ -852,10 +869,10 @@ The first implementation should prove:
 - one terse or discussed ChangeIntent;
 - read-only impact analysis;
 - one multi-repository ChangePlan confirmation;
-- two isolated WorkUnits;
-- sequential or parallel execution according to a simple dependency DAG;
+- two Core-derived Repository WorkUnits;
+- independent RepositoryWorkspace dispatch with semantic ordering left to the Agent;
 - exact repository Candidates;
-- selected repository commands and one combined command in the multi-Repository fixture;
+- mandatory structural preflight and optional project-native or verifier-requested checks;
 - one CandidateBundle;
 - one human review decision;
 - process-restart-safe current state.
@@ -888,11 +905,11 @@ locator, not durable ChangeFleet authority. Controller loss abandons an unfinish
 uses a fresh thread and rebuilt current projection rather than blindly resuming hidden Provider
 context.
 
-Before planning, ChangeFleet materializes each planning-visible Repository at its persisted
-`resolved_base_sha` in an owned detached planning worktree. Planning writes never become
-Candidates. WorkUnit execution can publish only one isolated Repository workspace Git subject.
-Dirty files and a later branch movement in the registered checkout cannot affect either exact view.
-These worktrees isolate development state; they are not an operating-system security sandbox.
+When the task is created, ChangeFleet materializes each selected Repository at its persisted
+`resolved_base_sha` as a branch-backed RepositoryWorkspace under one TaskWorkspace. Planning reuses
+these exact worktrees read-only; execution may publish only the RepositoryWorkspace assigned to its
+WorkUnit. Dirty files and later branch movement in the registered checkout cannot affect these exact
+views. Worktrees isolate development state; they are not an operating-system security sandbox.
 
 The adapter:
 
@@ -1006,9 +1023,9 @@ verification Run.
 
 One generic Run reconciler handles planning, execution, verification, supervision, and Bundle-review
 attempts. A persisted `running` Run that is not provably live becomes `interrupted` with recovery
-evidence. Planning workspaces, writable execution workspaces, disposable Candidate verification and
-Bundle-review workspaces, and read-only supervision projections have bounded operation-specific
-preflight and cleanup adapters, but retain the same owning phase. A fresh same-purpose Run may
+evidence. Planning and execution reuse the ChangeSet's persistent TaskWorkspace; disposable
+Candidate verification and Bundle-review workspaces retain bounded operation-specific preflight and
+cleanup adapters. A fresh same-purpose Run may
 continue only after exact authority and resource identity are proven. Completed checkpoints and
 passing checks are reused and completed Runtime invocations are never repeated.
 
@@ -1038,7 +1055,8 @@ Plans, WorkUnits, Runs, usage, evidence, checkpoints, validation attempts, Candi
 commands, decisions, and blockers.
 
 Closure does not create or link a successor, resolve another branch, revise a base, copy intent,
-invoke Runtime, retry validation, clean a workspace, delete content, or mutate GitHub. A user who
+invoke Runtime, retry validation, delete durable content, or mutate GitHub. After recording the
+terminal fact it idempotently releases only ChangeFleet-owned replaceable TaskWorkspace resources. A user who
 wants to restart from another branch uses ordinary ChangeSet creation and confirms the new exact
 base independently.
 

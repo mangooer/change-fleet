@@ -103,8 +103,9 @@ describe("read-only Runtime audit queries", () => {
     assert.equal(
       changeAudit.payload.validation.rows.every(
         (row) =>
-          row.attempt?.effective_budget?.timeout_ms === 10_000 &&
-          typeof row.attempt.check_identity?.check_identity_hash === "string",
+          row.validation_mode === "structural_preflight" &&
+          row.attempt?.effective_budget === null &&
+          row.attempt?.check_identity === null,
       ),
       true,
     );
@@ -386,22 +387,12 @@ class UsageRuntime extends ScriptedRuntime {
 
 class IndependentUsageRuntime extends UsageRuntime {
   constructor(options) {
-    options.plan.verification_expectation = {
-      mode: "independent_review",
-      rationale: "The audit fixture requires one independent semantic review.",
-      escalation_triggers: ["scope_divergence"],
-    };
     super(options);
   }
 }
 
 class FeedbackUsageRuntime extends UsageRuntime {
   constructor(options) {
-    options.plan.verification_expectation = {
-      mode: "independent_review",
-      rationale: "The audit fixture requires feedback execution and re-verification.",
-      escalation_triggers: ["scope_divergence"],
-    };
     super({
       ...options,
       verificationOutcomes: [
@@ -500,6 +491,11 @@ async function createAuditFixture(testContext, name, RuntimeClass) {
     idempotency_key: "register",
     project: {
       project_id: "project",
+      verification_policy:
+        RuntimeClass === IndependentUsageRuntime ||
+        RuntimeClass === FeedbackUsageRuntime
+          ? { minimum_mode: "independent_review" }
+          : undefined,
       repositories: [
         { repository_id: "api", locator: { path: repository.path } },
       ],

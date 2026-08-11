@@ -27,6 +27,7 @@ export class GithubDeliveryService {
     githubPullRequestAdapter,
     clock,
     controllerId,
+    releaseTaskWorkspaceResources = null,
   }) {
     this.controlStore = controlStore;
     this.evidenceStore = evidenceStore;
@@ -35,6 +36,7 @@ export class GithubDeliveryService {
     this.githubPullRequestAdapter = githubPullRequestAdapter;
     this.clock = clock;
     this.controllerId = controllerId;
+    this.releaseTaskWorkspaceResources = releaseTaskWorkspaceResources;
   }
 
   async configureGithubDelivery({
@@ -207,7 +209,10 @@ export class GithubDeliveryService {
         return { completed: false, bundle_id: bundle.bundle_id };
       },
     );
-    if (initial.completed) return initial.result;
+    if (initial.completed) {
+      await this.maybeReleaseTaskWorkspace(change_set_id);
+      return initial.result;
+    }
 
     try {
       const prepared = await this.loadCurrentDeliverySubjects(
@@ -230,13 +235,15 @@ export class GithubDeliveryService {
       for (const subject of prepared) {
         await this.publishSubject(change_set_id, subject, commandInput);
       }
-      return this.controlStore.transactChangeSet(change_set_id, (state) => {
+      const result = await this.controlStore.transactChangeSet(change_set_id, (state) => {
         deriveAggregateDeliveryState(state);
         const result = createDeliveryProjection(state);
         finishCommand(state, idempotency_key, result, this.now());
         state.updated_at = this.now();
         return result;
       });
+      await this.maybeReleaseTaskWorkspace(change_set_id);
+      return result;
     } catch (error) {
       if (error?.code !== "CONTROLLER_INTERRUPTED") {
         await preserveSecondaryFailure(
@@ -306,7 +313,10 @@ export class GithubDeliveryService {
         return { completed: false, bundle_id: bundle.bundle_id };
       },
     );
-    if (initial.completed) return initial.result;
+    if (initial.completed) {
+      await this.maybeReleaseTaskWorkspace(change_set_id);
+      return initial.result;
+    }
 
     try {
       const subjects = await this.loadCurrentDeliverySubjects(
@@ -317,13 +327,15 @@ export class GithubDeliveryService {
         if (subject.request.pull_request === null) continue;
         await this.refreshSubject(change_set_id, subject);
       }
-      return this.controlStore.transactChangeSet(change_set_id, (state) => {
+      const result = await this.controlStore.transactChangeSet(change_set_id, (state) => {
         deriveAggregateDeliveryState(state);
         const result = createDeliveryProjection(state);
         finishCommand(state, idempotency_key, result, this.now());
         state.updated_at = this.now();
         return result;
       });
+      await this.maybeReleaseTaskWorkspace(change_set_id);
+      return result;
     } catch (error) {
       if (error?.code !== "CONTROLLER_INTERRUPTED") {
         await preserveSecondaryFailure(
@@ -341,6 +353,14 @@ export class GithubDeliveryService {
     return createDeliveryProjection(
       await this.controlStore.readChangeSet(change_set_id),
     );
+  }
+
+  async maybeReleaseTaskWorkspace(changeSetId) {
+    if (!this.releaseTaskWorkspaceResources) return;
+    const state = await this.controlStore.readChangeSet(changeSetId);
+    if (state.phase === "terminal" && state.terminal_outcome === "done") {
+      await this.releaseTaskWorkspaceResources(changeSetId);
+    }
   }
 
   async loadCurrentDeliverySubjects(changeSetId, bundleId) {

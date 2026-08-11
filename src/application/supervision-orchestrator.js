@@ -753,35 +753,8 @@ function createSupervisionProjection(
     plan: {
       revision: plan.revision,
       status: plan.status,
-      supervision: structuredClone(plan.supervision),
-      verification_expectation: structuredClone(
-        plan.verification_expectation,
-      ),
-      bundle_review: structuredClone(plan.bundle_review),
-      risks: [...plan.risks],
-      unverified_boundaries: [...plan.unverified_boundaries],
-      work_units: plan.work_units.map((unit) => ({
-        work_unit_id: unit.work_unit_id,
-        repository_id: unit.repository_id,
-        task: unit.task,
-        dependencies: [...unit.dependencies],
-        repository_check:
-          unit.repository_check === null
-            ? null
-            : {
-                command_id: unit.repository_check.command_id,
-                coverage_rationale: unit.repository_check.coverage_rationale,
-              },
-        repository_check_rationale: unit.repository_check_rationale,
-      })),
-      combined_check:
-        plan.combined_check === null
-          ? null
-          : {
-              command_id: plan.combined_check.command_id,
-              coverage_rationale: plan.combined_check.coverage_rationale,
-            },
-      combined_check_rationale: plan.combined_check_rationale,
+      // Supervisor 只需语义目标和已过滤的 action_set，不必重复内部执行配置。
+      ...structuredClone(plan.semantic_plan),
     },
     repository_selection: {
       revision: repositorySelection.revision,

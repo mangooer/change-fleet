@@ -24,6 +24,7 @@ Status: Active policy
 | Pure model or state decision | affected unit tests |
 | Store, lock, restart, or recovery | affected deterministic integration tests |
 | Git workspace or Candidate | affected real-Git integration tests |
+| TaskWorkspace or semantic Plan contract | domain normalization, Core compilation, read/write boundary, cleanup, restart, and independent-task isolation tests |
 | Verification or Bundle review | exact-subject admission, check/review protocol, mutation rejection, feedback or Gate routing, restart, and audit tests |
 | Repository Harness overlay | selector and identity unit tests plus real-Git containment, restart, mutation, cleanup, and Candidate-exclusion integration tests |
 | Runtime adapter | deterministic protocol, evidence, failure, and context-boundary tests |

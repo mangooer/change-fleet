@@ -15,6 +15,10 @@ import {
   normalizeRevisionFeedback,
 } from "../../src/domain/model.js";
 import { createCheckIdentity } from "../../src/domain/verification.js";
+import {
+  compileConfirmedPlanContent,
+  createTaskWorkspaceRecord,
+} from "../../src/domain/task-workspace.js";
 
 const command = {
   command_id: "check",
@@ -24,34 +28,14 @@ const command = {
   timeout_ms: 1_000,
 };
 
-function planInput(overrides = {}) {
+function semanticPlanInput(overrides = {}) {
   return {
+    summary: "Coordinate the API and web behavior.",
+    steps: ["Implement the API behavior.", "Update the web integration."],
+    validation: ["Run the smallest relevant repository-native checks."],
+    risks: ["The repositories must remain coherent."],
+    assumptions: ["Both selected repositories participate."],
     revision_feedback_assessments: [],
-    work_units: [
-      {
-        work_unit_id: "api",
-        repository_id: "api",
-        task: "Change API",
-        dependencies: [],
-        repository_check: { ...command, command_id: "api-check" },
-        repository_check_rationale: "The API change has a focused check",
-      },
-      {
-        work_unit_id: "web",
-        repository_id: "web",
-        task: "Change web",
-        dependencies: ["api"],
-        repository_check: { ...command, command_id: "web-check" },
-        repository_check_rationale: "The web change has a focused check",
-      },
-    ],
-    combined_check: { ...command, command_id: "combined" },
-    combined_check_rationale: "The repositories share one contract",
-    verification_expectation: {
-      mode: "deterministic",
-      rationale: "The behavioral checks cover this plan.",
-      escalation_triggers: ["scope_divergence"],
-    },
     ...overrides,
   };
 }
@@ -68,153 +52,90 @@ const bases = {
   web: { target_ref: "refs/heads/main", base_sha: "b".repeat(40) },
 };
 
+function taskState() {
+  const repositorySelection = {
+    revision: 1,
+    repositories: [
+      { repository_id: "api", resolved_base_sha: bases.api.base_sha, target_ref: bases.api.target_ref },
+      { repository_id: "web", resolved_base_sha: bases.web.base_sha, target_ref: bases.web.target_ref },
+    ],
+  };
+  const harnessSelection = { revision: 1 };
+  return {
+    change_set_id: "change-1",
+    current_intent_revision: 1,
+    verification_policy: null,
+    supervision_policy: null,
+    bundle_review_policy: null,
+    task_workspace: createTaskWorkspaceRecord({
+      changeSetId: "change-1",
+      agentProfile: { profile_id: "profile", revision: 1, provider: "test", runtime: "scripted", model: "fixture", reasoning: "medium", permissions: "operation_scoped" },
+      repositorySelection,
+      repositoryHarnessSelection: harnessSelection,
+      repositoryWorkspaces: repositorySelection.repositories.map((repository) => ({
+        workspace_kind: "task_repository",
+        task_workspace_id: "ignored-by-normalizer",
+        workspace_id: `workspace-${repository.repository_id}`,
+        workspace_path: `D:/work/${repository.repository_id}`,
+        repository_id: repository.repository_id,
+        branch_ref: `refs/heads/changefleet/${repository.repository_id}`,
+        target_ref: repository.target_ref,
+        base_sha: repository.resolved_base_sha,
+      })),
+      createdAt: "2026-08-11T00:00:00.000Z",
+    }),
+  };
+}
+
+function confirmedCompiledPlan() {
+  const content = compileConfirmedPlanContent({
+    state: taskState(),
+    semanticPlan: normalizePlanContent(semanticPlanInput()),
+    planRevision: 1,
+  });
+  return createConfirmedPlan(content, {
+    revision: 1,
+    confirmedAt: "2026-08-11T00:00:00.000Z",
+    agentProfile: { profile_id: "profile" },
+    planningRunId: "run-1",
+    sourceMessageId: "message-1",
+    sourceContentDigest: "a".repeat(64),
+  });
+}
+
 describe("domain model", () => {
   test("keeps normalized planning content revision-free until exact confirmation", () => {
-    const content = normalizePlanContent(planInput(), {
-      project,
-      bases,
-      intentRevision: 1,
-      repositorySelectionRevision: 1,
-      repositoryHarnessSelectionRevision: 1,
-    });
+    const content = normalizePlanContent(semanticPlanInput());
     assert.equal("revision" in content, false);
     assert.equal("status" in content, false);
-    const plan = createConfirmedPlan(content, {
-      revision: 1,
-      confirmedAt: "2026-08-05T00:00:00.000Z",
-      agentProfile: { profile_id: "profile" },
-      planningRunId: "run-1",
-      sourceMessageId: "message-1",
-      sourceContentDigest: "a".repeat(64),
-    });
+    assert.deepEqual(content.steps, semanticPlanInput().steps);
+    const plan = confirmedCompiledPlan();
     assert.equal(plan.revision, 1);
     assert.equal(plan.status, "confirmed");
     assert.equal(plan.source_message_id, "message-1");
   });
 
-  test("normalizes the exact authorized two-node plan", () => {
-    const plan = createConfirmedPlan(
-      normalizePlanContent(planInput(), {
-        project,
-        bases,
-        intentRevision: 1,
-        repositorySelectionRevision: 1,
-        repositoryHarnessSelectionRevision: 1,
-      }),
-      {
-        revision: 1,
-        confirmedAt: "2026-07-30T00:00:00.000Z",
-        agentProfile: { profile_id: "profile" },
-        planningRunId: "run-1",
-        sourceMessageId: "message-1",
-        sourceContentDigest: "a".repeat(64),
-      },
+  test("Core compiles Repository-scoped WorkUnits from TaskWorkspace participation", () => {
+    const plan = confirmedCompiledPlan();
+    assert.deepEqual(
+      plan.work_units.map((unit) => unit.repository_id),
+      ["api", "web"],
     );
-
-    assert.equal(plan.status, "confirmed");
-    assert.deepEqual(plan.work_units[1].dependencies, ["api"]);
-    assert.equal(plan.work_units[0].base_sha, "a".repeat(40));
-  });
-
-  test("accepts explicit commandless validation selections and binds their rationale", () => {
-    const input = planInput({
-      combined_check: null,
-      combined_check_rationale: "One Repository has no cross-Repository invariant",
-    });
-    input.work_units = input.work_units.map((unit) => ({
-      ...unit,
-      repository_check: null,
-      repository_check_rationale: "No project semantic command applies to this change",
-    }));
-    const plan = normalizePlanContent(input, {
-      project,
-      bases,
-      intentRevision: 1,
-      repositorySelectionRevision: 1,
-      repositoryHarnessSelectionRevision: 1,
-    });
-
+    assert.notEqual(plan.work_units[0].work_unit_id, plan.work_units[1].work_unit_id);
     assert.equal(plan.work_units[0].repository_check, null);
     assert.equal(plan.combined_check, null);
-    plan.revision = 1;
-    const changedRationale = structuredClone(plan);
-    changedRationale.combined_check_rationale = "A different explicit selection reason";
-    const changeSet = { change_set_id: "change", candidates: [] };
-    const candidates = [
-      {
-        repository_id: "api",
-        target_ref: "refs/heads/main",
-        base_sha: "a".repeat(40),
-        candidate_sha: "c".repeat(40),
-      },
-      {
-        repository_id: "web",
-        target_ref: "refs/heads/main",
-        base_sha: "b".repeat(40),
-        candidate_sha: "d".repeat(40),
-      },
-    ];
-    assert.notEqual(
-      createValidationSubject(changeSet, plan, candidates)
-        .validation_subject_hash,
-      createValidationSubject(changeSet, changedRationale, candidates)
-        .validation_subject_hash,
-    );
-
-    delete input.work_units[0].repository_check_rationale;
-    assert.throws(
-      () =>
-        normalizePlanContent(input, {
-          project,
-          bases,
-          intentRevision: 1,
-          repositorySelectionRevision: 1,
-          repositoryHarnessSelectionRevision: 1,
-        }),
-      { code: "INVALID_STRING" },
-    );
+    assert.equal(plan.semantic_plan.summary, semanticPlanInput().summary);
   });
 
-  test("rejects repository expansion and dependency cycles", () => {
-    const expanded = planInput();
-    expanded.work_units[1].repository_id = "billing";
+  test("rejects Core-owned configuration and incomplete semantic plans", () => {
     assert.throws(
-      () =>
-        normalizePlanContent(expanded, {
-          project,
-          bases,
-          intentRevision: 1,
-          repositorySelectionRevision: 1,
-          repositoryHarnessSelectionRevision: 1,
-        }),
-      { code: "SCOPE_EXPANSION_REQUIRED" },
+      () => normalizePlanContent({ ...semanticPlanInput(), work_units: [] }),
+      { code: "INVALID_PLAN" },
     );
-
-    const cyclic = planInput();
-    cyclic.work_units[0].dependencies = ["web"];
     assert.throws(
-      () =>
-        normalizePlanContent(cyclic, {
-          project,
-          bases,
-          intentRevision: 1,
-          repositorySelectionRevision: 1,
-          repositoryHarnessSelectionRevision: 1,
-        }),
-      { code: "WORK_UNIT_DEPENDENCY_CYCLE" },
+      () => normalizePlanContent({ ...semanticPlanInput(), steps: [] }),
+      { code: "INVALID_PLAN" },
     );
-  });
-
-  test("accepts a plan that changes one explicitly registered Repository", () => {
-    const oneRepository = planInput({ work_units: [planInput().work_units[0]] });
-    const plan = normalizePlanContent(oneRepository, {
-      project,
-      bases,
-      intentRevision: 1,
-      repositorySelectionRevision: 1,
-      repositoryHarnessSelectionRevision: 1,
-    });
-    assert.deepEqual(plan.work_units.map((unit) => unit.repository_id), ["api"]);
   });
 
   test("requires one bounded Agent assessment for every current feedback finding", () => {
@@ -225,7 +146,7 @@ describe("domain model", () => {
         { finding_id: "task-state", text: "Complete project tracking" },
       ],
     };
-    const revised = planInput({
+    const revised = semanticPlanInput({
       revision_feedback_assessments: [
         {
           finding_id: "task-state",
@@ -239,14 +160,7 @@ describe("domain model", () => {
         },
       ],
     });
-    const options = {
-      project,
-      bases,
-      intentRevision: 1,
-      repositorySelectionRevision: 1,
-      repositoryHarnessSelectionRevision: 1,
-      revisionFeedback,
-    };
+    const options = { revisionFeedback };
 
     const plan = normalizePlanContent(revised, options);
     assert.deepEqual(
@@ -262,7 +176,7 @@ describe("domain model", () => {
     assert.throws(
       () =>
         normalizePlanContent(
-          planInput({ revision_feedback_assessments: [] }),
+          semanticPlanInput({ revision_feedback_assessments: [] }),
           options,
         ),
       { code: "INVALID_PLAN" },
@@ -270,7 +184,7 @@ describe("domain model", () => {
     assert.throws(
       () =>
         normalizePlanContent(
-          planInput({
+          semanticPlanInput({
             revision_feedback_assessments: [
               revised.revision_feedback_assessments[0],
               revised.revision_feedback_assessments[0],
@@ -292,23 +206,7 @@ describe("domain model", () => {
       ],
       verification_reviews: [],
     };
-    const plan = createConfirmedPlan(
-      normalizePlanContent(planInput(), {
-        project,
-        bases,
-        intentRevision: 1,
-        repositorySelectionRevision: 1,
-        repositoryHarnessSelectionRevision: 1,
-      }),
-      {
-        revision: 1,
-        confirmedAt: "2026-07-30T00:00:00.000Z",
-        agentProfile: { profile_id: "profile" },
-        planningRunId: "run-1",
-        sourceMessageId: "message-1",
-        sourceContentDigest: "a".repeat(64),
-      },
-    );
+    const plan = confirmedCompiledPlan();
     const candidates = [
       createCandidate({
         repositoryId: "web",

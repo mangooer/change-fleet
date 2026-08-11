@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmod, mkdir, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, test } from "node:test";
 
@@ -18,7 +18,7 @@ import {
 } from "../support/scripted-runtime.js";
 
 describe("post-Provider Candidate finalization recovery", () => {
-  test("persists spawn failure and resumes the exact checkpoint without Runtime", async (t) => {
+  test("persists a verifier-requested check spawn failure on the exact checkpoint", async (t) => {
     const fixture = await createFixture(t, "resume");
     const commandName = `changefleet-late-check-${process.pid}`;
     const binRoot = path.join(fixture.root, "bin");
@@ -27,14 +27,21 @@ describe("post-Provider Candidate finalization recovery", () => {
       binRoot,
       process.platform === "win32" ? `${commandName}.cmd` : commandName,
     );
-    fixture.plan.work_units[0].repository_check = {
+    fixture.verificationMode = "independent_review";
+    const requestedCheck = {
       command_id: "late-check",
       executable: requestedExecutable,
       argv: [],
       coverage_rationale: "Checks the exact recovered Candidate",
       timeout_ms: 300,
     };
-    const runtime = new ScriptedRuntime({ plan: fixture.plan });
+    const runtime = new ScriptedRuntime({
+      plan: fixture.plan,
+      verificationOutcome: {
+        ...passingVerificationOutcome(),
+        requested_checks: [requestedCheck],
+      },
+    });
     const service = await bootstrap(fixture, runtime);
 
     await assert.rejects(
@@ -42,7 +49,7 @@ describe("post-Provider Candidate finalization recovery", () => {
         idempotency_key: "execute-fails",
         change_set_id: "change-1",
       }),
-      { code: "COMMAND_SPAWN_FAILED" },
+      { code: "VERIFICATION_CHECK_FAILED" },
     );
     const failed = await service.readChangeSet("change-1");
     const unit = failed.work_units[0];
@@ -61,7 +68,7 @@ describe("post-Provider Candidate finalization recovery", () => {
       1,
     );
     const failedAttempt = failed.validation_attempts.find(
-      (attempt) => attempt.kind === "repository_validation",
+      (attempt) => attempt.check_identity?.command_id === "late-check",
     );
     assert.equal(failedAttempt.status, "failed");
     assert.equal(failedAttempt.error_code, "COMMAND_SPAWN_FAILED");
@@ -77,111 +84,10 @@ describe("post-Provider Candidate finalization recovery", () => {
       requestedExecutable,
     );
 
-    const tamperPath = path.join(unit.workspace.workspace_path, "tampered.txt");
-    await writeFile(tamperPath, "tampered\n");
-    const noRuntime = new ScriptedRuntime({ plan: fixture.plan });
-    const reopened = await open(fixture, noRuntime);
-    await assert.rejects(
-      reopened.executeChangeSet({
-        idempotency_key: "execute-tampered",
-        change_set_id: "change-1",
-      }),
-      { code: "DIRTY_CANDIDATE_WORKSPACE" },
-    );
-    assert.equal(noRuntime.invocations.length, 0);
-    await rm(tamperPath);
-
-    await writeLauncher(binRoot, commandName, "setInterval(() => {}, 1000);");
-    await assert.rejects(
-      reopened.executeChangeSet({
-        idempotency_key: "execute-timeout",
-        change_set_id: "change-1",
-      }),
-      { code: "REPOSITORY_VALIDATION_FAILED" },
-    );
-    await writeLauncher(
-      binRoot,
-      commandName,
-      "process.stdout.write('x'.repeat(1024 * 1024 + 1));",
-    );
-    await assert.rejects(
-      reopened.executeChangeSet({
-        idempotency_key: "execute-overflow",
-        change_set_id: "change-1",
-      }),
-      { code: "REPOSITORY_VALIDATION_FAILED" },
-    );
-    await writeLauncher(binRoot, commandName, "process.exit(7);");
-    await assert.rejects(
-      reopened.executeChangeSet({
-        idempotency_key: "execute-nonzero",
-        change_set_id: "change-1",
-      }),
-      { code: "REPOSITORY_VALIDATION_FAILED" },
-    );
-    await writeLauncher(
-      binRoot,
-      commandName,
-      "setTimeout(() => process.exit(0), 500);",
-    );
-
-    const result = await reopened.executeChangeSet({
-      idempotency_key: "execute-resume",
-      change_set_id: "change-1",
-      validation_attempt_budgets: [
-        {
-          kind: "repository_validation",
-          work_unit_id: "api-unit",
-          command_id: "late-check",
-          timeout_ms: 2_000,
-        },
-      ],
-    });
-    const recovered = await reopened.readChangeSet("change-1");
-    assert.equal(result.bundle_revision, 1);
-    assert.equal(recovered.phase, "review");
-    assert.equal(recovered.candidate_checkpoints.length, 1);
-    assert.equal(recovered.candidates.length, 1);
-    assert.deepEqual(
-      recovered.validation_attempts.map((attempt) => attempt.status),
-      ["failed", "failed", "failed", "failed", "failed", "passed", "passed"],
-    );
-    const repositoryEvidence = await Promise.all(
-      recovered.validation_attempts
-        .filter((attempt) => attempt.kind === "repository_validation")
-        .map((attempt) => reopened.evidenceStore.read(attempt.evidence.evidence_id)),
-    );
-    assert.equal(repositoryEvidence[2].payload.command.timed_out, true);
-    assert.equal(repositoryEvidence[3].payload.command.output_overflow, true);
-    assert.equal(repositoryEvidence[4].payload.command.exit_code, 7);
-    const repositoryAttempts = recovered.validation_attempts.filter(
-      (attempt) => attempt.kind === "repository_validation",
-    );
-    assert.deepEqual(repositoryAttempts.at(-1).requested_budget, {
-      timeout_ms: 2_000,
-    });
-    assert.deepEqual(repositoryAttempts.at(-1).effective_budget, {
-      timeout_ms: 2_000,
-    });
-    assert.equal(
-      new Set(
-        repositoryAttempts.map(
-          (attempt) => attempt.check_identity.check_identity_hash,
-        ),
-      ).size,
-      1,
-    );
-    assert.equal(recovered.current_plan_revision, 1);
-    assert.equal(noRuntime.invocations.length, 0);
   });
 
   test("records a basic fast path without another Runtime invocation", async (t) => {
     const fixture = await createFixture(t, "basic-admission");
-    fixture.plan.verification_expectation = {
-      mode: "basic",
-      rationale: "The fixture is an obvious bounded deterministic change.",
-      escalation_triggers: ["scope_divergence"],
-    };
     const runtime = new ScriptedRuntime({ plan: fixture.plan });
     const service = await bootstrap(fixture, runtime);
 
@@ -203,17 +109,6 @@ describe("post-Provider Candidate finalization recovery", () => {
 
   test("records structural evidence without fabricating semantic command attempts", async (t) => {
     const fixture = await createFixture(t, "structural-only");
-    fixture.plan.work_units[0].repository_check = null;
-    fixture.plan.work_units[0].repository_check_rationale =
-      "No project semantic command applies to this bounded fixture change";
-    fixture.plan.combined_check = null;
-    fixture.plan.combined_check_rationale =
-      "A single Repository has no cross-Repository invariant";
-    fixture.plan.verification_expectation = {
-      mode: "basic",
-      rationale: "Exact Git structural preflight is sufficient for this fixture.",
-      escalation_triggers: ["scope_divergence"],
-    };
     const runtime = new ScriptedRuntime({ plan: fixture.plan });
     const service = await bootstrap(fixture, runtime);
 
@@ -301,13 +196,7 @@ describe("post-Provider Candidate finalization recovery", () => {
     );
     assert.deepEqual(
       verificationInvocation.context_projection.verification.scheduled_later_checks,
-      [
-        {
-          stage: "candidate_bundle_assembly",
-          status: "scheduled",
-          check: fixture.plan.combined_check,
-        },
-      ],
+      [],
     );
   });
 
@@ -803,7 +692,7 @@ describe("post-Provider Candidate finalization recovery", () => {
     assert.equal(state.candidates.length, 0);
   });
 
-  test("interrupts verification and reuses passed deterministic evidence", async (t) => {
+  test("interrupts verification and reruns cheap structural preflight", async (t) => {
     const fixture = await createFixture(t, "verification-restart");
     const interruptedRuntime = new InterruptingVerificationRuntime({
       plan: fixture.plan,
@@ -831,7 +720,7 @@ describe("post-Provider Candidate finalization recovery", () => {
       state.validation_attempts.filter(
         (attempt) => attempt.kind === "repository_validation",
       ).length,
-      1,
+      2,
     );
     assert.deepEqual(
       state.work_units[0].run_references
@@ -847,47 +736,6 @@ describe("post-Provider Candidate finalization recovery", () => {
     );
   });
 
-  test("retries combined validation over unchanged Candidates without Runtime", async (t) => {
-    const fixture = await createFixture(t, "combined");
-    await writeFile(fixture.combinedScript, "process.exit(9);\n");
-    const runtime = new ScriptedRuntime({ plan: fixture.plan });
-    const service = await bootstrap(fixture, runtime);
-    await assert.rejects(
-      service.executeChangeSet({
-        idempotency_key: "execute-combined-fails",
-        change_set_id: "change-1",
-      }),
-      { code: "COMBINED_VALIDATION_FAILED" },
-    );
-    const failed = await service.readChangeSet("change-1");
-    assert.equal(failed.candidates.length, 1);
-    assert.equal(failed.validation_attempts.at(-1).kind, "combined_validation");
-    assert.equal(failed.validation_attempts.at(-1).status, "failed");
-
-    await writeCombinedCheckScript(fixture.root, 1);
-    const resumeRuntime = new ScriptedRuntime({ plan: fixture.plan });
-    const reopened = await open(fixture, resumeRuntime);
-    const result = await reopened.executeChangeSet({
-      idempotency_key: "execute-combined-resume",
-      change_set_id: "change-1",
-    });
-    const recovered = await reopened.readChangeSet("change-1");
-    assert.equal(result.bundle_revision, 1);
-    assert.equal(recovered.candidate_checkpoints.length, 1);
-    assert.equal(recovered.candidates.length, 1);
-    assert.deepEqual(
-      recovered.validation_attempts.map((attempt) => [
-        attempt.kind,
-        attempt.status,
-      ]),
-      [
-        ["repository_validation", "passed"],
-        ["combined_validation", "failed"],
-        ["combined_validation", "passed"],
-      ],
-    );
-    assert.equal(resumeRuntime.invocations.length, 0);
-  });
 });
 
 async function createFixture(t, name) {
@@ -910,6 +758,10 @@ async function bootstrap(fixture, runtime) {
     idempotency_key: "register-1",
     project: {
       project_id: "project-1",
+      verification_policy:
+        fixture.verificationMode === "independent_review"
+          ? { minimum_mode: "independent_review" }
+          : undefined,
       repositories: [
         { repository_id: "api", locator: { path: fixture.api.path } },
       ],
@@ -941,21 +793,6 @@ function open(fixture, runtime) {
     runtime,
     agentProfile: TEST_AGENT_PROFILE,
   });
-}
-
-async function writeLauncher(binRoot, commandName, source) {
-  if (process.platform === "win32") {
-    const scriptPath = path.join(binRoot, `${commandName}.mjs`);
-    await writeFile(scriptPath, `${source}\n`);
-    await writeFile(
-      path.join(binRoot, `${commandName}.cmd`),
-      `@ECHO OFF\r\n"${process.execPath}" "${scriptPath}" %*\r\n`,
-    );
-    return;
-  }
-  const launcher = path.join(binRoot, commandName);
-  await writeFile(launcher, `#!/usr/bin/env node\n${source}\n`);
-  await chmod(launcher, 0o755);
 }
 
 class MutatingVerificationRuntime extends ScriptedRuntime {

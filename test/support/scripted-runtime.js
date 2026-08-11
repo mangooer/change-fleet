@@ -264,107 +264,33 @@ function testProviderEvidence() {
 }
 
 export function createTwoRepositoryPlan(combinedCheckScript) {
-  const repositoryCheck = (repositoryId) => ({
-    command_id: `${repositoryId}-check`,
-    executable: process.execPath,
-    argv: [
-      "-e",
-      `const fs=require('node:fs');const value=fs.readFileSync('feature.txt','utf8');if(!value.includes('${repositoryId}'))process.exit(2)`,
-    ],
-    coverage_rationale: `Checks the delivered ${repositoryId} behavior`,
-    timeout_ms: 10_000,
-  });
+  // 保留参数以维持调用方的场景可读性；语义 Plan 不再携带可执行命令。
+  void combinedCheckScript;
   return {
-    rationale: "The API change precedes the web change",
-    work_units: [
-      {
-        work_unit_id: "api-unit",
-        repository_id: "api",
-        task: "Implement API behavior",
-        dependencies: [],
-        repository_check: repositoryCheck("api"),
-        repository_check_rationale: "The API behavior has a focused project check",
-      },
-      {
-        work_unit_id: "web-unit",
-        repository_id: "web",
-        task: "Implement web behavior",
-        dependencies: ["api-unit"],
-        repository_check: repositoryCheck("web"),
-        repository_check_rationale: "The web behavior has a focused project check",
-      },
+    summary: "Implement the coordinated API and web behavior.",
+    steps: [
+      "Implement the API behavior.",
+      "Update the web behavior against the resulting API contract.",
     ],
-    combined_check: {
-      command_id: "combined-check",
-      executable: process.execPath,
-      argv: [combinedCheckScript],
-      coverage_rationale: "Checks the combined repository contract",
-      timeout_ms: 10_000,
-    },
-    combined_check_rationale: "The two repositories share a compatibility contract",
+    validation: [
+      "Run the smallest repository-native checks for both changed repositories.",
+      "Verify the combined API and web contract.",
+    ],
     risks: ["The repositories must remain coherent"],
-    unverified_boundaries: [],
-    verification_expectation: {
-      mode: "deterministic",
-      rationale: "The selected behavioral checks cover the planned change.",
-      escalation_triggers: ["scope_divergence"],
-    },
-    bundle_review: {
-      mode: "none",
-      agent_profile_id: null,
-      agent_profile_revision: null,
-      attempt_limit: 2,
-    },
-    supervision: {
-      mode: "manual",
-      execution_attempt_limit_per_work_unit: 3,
-      verification_attempt_limit_per_work_unit: 3,
-      feedback_cycle_limit_per_work_unit: 2,
-      elapsed_time_limit_ms: 1_800_000,
-    },
+    assumptions: ["Both selected repositories participate in this task."],
+    revision_feedback_assessments: [],
   };
 }
 
 export function createOneRepositoryPlan(combinedCheckScript) {
+  // 测试计划只表达语义；Core 从 TaskWorkspace 编译 Repository 级执行身份。
+  void combinedCheckScript;
   return {
-    rationale: "Only the API needs to change",
-    work_units: [
-      {
-        work_unit_id: "api-unit",
-        repository_id: "api",
-        task: "Implement API behavior",
-        dependencies: [],
-        repository_check: {
-          command_id: "api-check",
-          executable: process.execPath,
-          argv: ["-e", "const fs=require('node:fs');if(!fs.readFileSync('feature.txt','utf8').includes('api'))process.exit(2)"],
-          coverage_rationale: "Checks the delivered API behavior",
-          timeout_ms: 10_000,
-        },
-        repository_check_rationale: "The API behavior has a focused project check",
-      },
-    ],
-    combined_check: { command_id: "combined-check", executable: process.execPath, argv: [combinedCheckScript], coverage_rationale: "Checks the combined repository contract", timeout_ms: 10_000 },
-    combined_check_rationale: "The fixture exercises exact Candidate-set validation",
+    summary: "Implement the API behavior.",
+    steps: ["Update the API implementation for the requested behavior."],
+    validation: ["Run the smallest repository-native API checks."],
     risks: [],
-    unverified_boundaries: [],
-    verification_expectation: {
-      mode: "deterministic",
-      rationale: "The selected behavioral checks cover the planned change.",
-      escalation_triggers: ["scope_divergence"],
-    },
-    bundle_review: {
-      mode: "none",
-      agent_profile_id: null,
-      agent_profile_revision: null,
-      attempt_limit: 2,
-    },
-    supervision: {
-      mode: "manual",
-      execution_attempt_limit_per_work_unit: 3,
-      verification_attempt_limit_per_work_unit: 3,
-      feedback_cycle_limit_per_work_unit: 2,
-      elapsed_time_limit_ms: 1_800_000,
-    },
+    assumptions: [],
+    revision_feedback_assessments: [],
   };
 }

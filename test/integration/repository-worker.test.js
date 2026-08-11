@@ -70,11 +70,13 @@ describe("RepositoryWorker", () => {
         ["AGENTS.md", "exact_base"],
       ],
     );
-    const workspace = await worker.prepareWorkspace({
+    const workspace = await worker.prepareTaskRepositoryWorkspace({
       repository,
       targetRef: base.target_ref,
       baseSha: base.base_sha,
+      taskWorkspaceId: "task-workspace-1",
       workspaceId: "workspace-1",
+      branchRef: "refs/heads/changefleet/task-workspace-1",
     });
     assert.equal(
       await git(workspace.workspace_path, ["show", "HEAD:baseline.txt"]),
@@ -158,11 +160,13 @@ describe("RepositoryWorker", () => {
       locator: secondFixture.path,
     });
     const secondBase = await worker.freezeBase(second);
-    const workspace = await worker.prepareWorkspace({
+    const workspace = await worker.prepareTaskRepositoryWorkspace({
       repository: second,
       targetRef: secondBase.target_ref,
       baseSha: secondBase.base_sha,
+      taskWorkspaceId: "task-workspace-foreign",
       workspaceId: "foreign",
+      branchRef: "refs/heads/changefleet/task-workspace-foreign",
     });
     await assert.rejects(
       worker.assertWorkspaceOwnership(first, workspace.workspace_path),

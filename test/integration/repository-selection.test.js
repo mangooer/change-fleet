@@ -12,7 +12,6 @@ import {
 } from "../support/git-fixture.js";
 import {
   createOneRepositoryPlan,
-  createTwoRepositoryPlan,
   ScriptedRuntime,
   TEST_AGENT_PROFILE,
 } from "../support/scripted-runtime.js";
@@ -33,9 +32,6 @@ describe("ChangeSet Repository selection", () => {
         await writeCombinedCheckScript(root, 1),
       ),
     });
-    runtime.plan.work_units[0].branch_ref = "refs/heads/runtime-choice";
-    runtime.plan.work_units[0].target_ref = "refs/heads/runtime-choice";
-    runtime.plan.work_units[0].base_sha = "f".repeat(40);
     const service = await openService(root, runtime);
     await registerProject(service, [
       { repository_id: "api", locator: { path: api.path } },
@@ -93,12 +89,19 @@ describe("ChangeSet Repository selection", () => {
       idempotency_key: "plan",
       change_set_id: "change",
     });
-    assert.equal(planned.message.plan_content.work_units[0].base_sha, selectedSha);
     assert.equal(
-      planned.message.plan_content.work_units[0].target_ref,
+      planned.message.workspace_control_summary.repositories[0].base_sha,
+      selectedSha,
+    );
+    assert.equal(
+      planned.message.workspace_control_summary.repositories[0].target_ref,
       "refs/heads/main",
     );
-    assert.equal(planned.message.plan_content.repository_selection_revision, 1);
+    assert.equal(
+      planned.message.workspace_control_summary.repository_selection_revision,
+      1,
+    );
+    assert.equal("work_units" in planned.message.plan_content, false);
     const invocation = runtime.invocations[0];
     assert.equal(
       invocation.control_contract.repository_selection_revision,
@@ -181,14 +184,7 @@ describe("ChangeSet Repository selection", () => {
       intent: { objective: "Change whichever Repository is selected" },
       planning_repository_ids: ["api"],
     });
-    runtime.plan = createTwoRepositoryPlan(combinedCheck);
-    await assert.rejects(
-      service.planChangeSet({
-        idempotency_key: "scope-denied",
-        change_set_id: "change",
-      }),
-      { code: "SCOPE_EXPANSION_REQUIRED" },
-    );
+    // 语义 Plan 不再声明 Repository 范围；当前 TaskWorkspace 仍只向 Planner 暴露 api。
     runtime.plan = oneRepositoryPlan("api", combinedCheck);
     await service.planChangeSet({
       idempotency_key: "plan-1",
@@ -232,13 +228,16 @@ describe("ChangeSet Repository selection", () => {
       idempotency_key: "plan-2",
       change_set_id: "change",
     });
-    assert.equal(replanned.message.plan_content.work_units[0].repository_id, "web");
     assert.equal(
-      replanned.message.plan_content.work_units[0].repository_selection_revision,
+      replanned.message.workspace_control_summary.repositories[0].repository_id,
+      "web",
+    );
+    assert.equal(
+      replanned.message.workspace_control_summary.repository_selection_revision,
       2,
     );
     assert.equal(
-      replanned.message.plan_content.work_units[0]
+      replanned.message.workspace_control_summary
         .repository_harness_selection_revision,
       2,
     );
@@ -348,38 +347,13 @@ function registerProject(service, repositories) {
 }
 
 function oneRepositoryPlan(repositoryId, combinedCheckScript) {
+  void combinedCheckScript;
   return {
-    rationale: `Only ${repositoryId} changes`,
-    work_units: [
-      {
-        work_unit_id: `${repositoryId}-unit`,
-        repository_id: repositoryId,
-        task: `Change ${repositoryId}`,
-        dependencies: [],
-        repository_check: {
-          command_id: `${repositoryId}-check`,
-          executable: process.execPath,
-          argv: ["-e", "process.exit(0)"],
-          coverage_rationale: `Checks the ${repositoryId} change`,
-          timeout_ms: 10_000,
-        },
-        repository_check_rationale: `The ${repositoryId} change has a focused check`,
-      },
-    ],
-    combined_check: {
-      command_id: "combined-check",
-      executable: process.execPath,
-      argv: [combinedCheckScript],
-      coverage_rationale: "Checks the combined contract",
-      timeout_ms: 10_000,
-    },
-    combined_check_rationale: "The fixture exercises exact Candidate-set validation",
+    summary: `Change ${repositoryId}.`,
+    steps: [`Implement the requested ${repositoryId} behavior.`],
+    validation: [`Run the relevant ${repositoryId} project checks.`],
     risks: [],
-    unverified_boundaries: [],
-    verification_expectation: {
-      mode: "deterministic",
-      rationale: "The selected behavioral checks cover the change.",
-      escalation_triggers: ["scope_divergence"],
-    },
+    assumptions: [],
+    revision_feedback_assessments: [],
   };
 }

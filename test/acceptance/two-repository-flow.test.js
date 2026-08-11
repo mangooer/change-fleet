@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, test } from "node:test";
 
@@ -18,6 +18,68 @@ import {
 } from "../support/scripted-runtime.js";
 
 describe("local two-repository vertical slice", () => {
+  test("isolates concurrent tasks and releases only their terminal worktrees", async (t) => {
+    const root = await createFixtureRoot(t, "changefleet-task-isolation-");
+    const api = await createGitRepository(root, "api");
+    const service = await ChangeFleetService.open({
+      controlRoot: path.join(root, "control"),
+      workspaceRoot: path.join(root, "workspaces"),
+      runtime: new ScriptedRuntime({
+        plan: createOneRepositoryPlan(await writeCombinedCheckScript(root, 1)),
+      }),
+      agentProfile: TEST_AGENT_PROFILE,
+    });
+    await service.registerProject({
+      idempotency_key: "register",
+      project: {
+        project_id: "project",
+        repositories: [
+          { repository_id: "api", locator: { path: api.path } },
+        ],
+      },
+    });
+    for (const changeSetId of ["feature-a", "feature-b"]) {
+      await service.createChangeSet({
+        idempotency_key: `create-${changeSetId}`,
+        change_set_id: changeSetId,
+        project_id: "project",
+        intent: { objective: `Implement ${changeSetId}` },
+      });
+    }
+    const [first, second] = await Promise.all([
+      service.readChangeSet("feature-a"),
+      service.readChangeSet("feature-b"),
+    ]);
+    const firstRepository = first.task_workspace.repositories[0];
+    const secondRepository = second.task_workspace.repositories[0];
+    assert.notEqual(
+      first.task_workspace.task_workspace_id,
+      second.task_workspace.task_workspace_id,
+    );
+    assert.notEqual(firstRepository.branch_ref, secondRepository.branch_ref);
+    assert.notEqual(
+      firstRepository.workspace.workspace_path,
+      secondRepository.workspace.workspace_path,
+    );
+
+    await service.closeChangeSet({
+      idempotency_key: "close-a",
+      change_set_id: "feature-a",
+      actor: "test-operator",
+      reason: { code: "other", summary: "Complete isolation fixture" },
+    });
+    const closed = await service.readChangeSet("feature-a");
+    assert.notEqual(closed.task_workspace.resources_released_at, null);
+    assert.equal(
+      await stat(firstRepository.workspace.workspace_path).catch(() => null),
+      null,
+    );
+    assert.equal(
+      (await stat(secondRepository.workspace.workspace_path)).isDirectory(),
+      true,
+    );
+  });
+
   test("allows one Repository Project and one Repository ChangeSet", async (t) => {
     const root = await createFixtureRoot(t, "changefleet-single-");
     const api = await createGitRepository(root, "api");
@@ -284,8 +346,16 @@ describe("local two-repository vertical slice", () => {
       executionInvocations.map(
         (invocation) => invocation.capabilities.paths.length,
       ),
-      [1, 1],
+      [2, 2],
     );
+    for (const invocation of executionInvocations) {
+      assert.deepEqual(
+        invocation.context_projection.repositories.map((repository) =>
+          repository.access,
+        ),
+        ["read_write", "read_only"],
+      );
+    }
 
     await assert.rejects(
       service.recordBundleDecision({
@@ -335,7 +405,6 @@ describe("local two-repository vertical slice", () => {
     const web = await createGitRepository(root, "web");
     const combinedScript = await writeCombinedCheckScript(root);
     const plan = createTwoRepositoryPlan(combinedScript);
-    plan.work_units[1].dependencies = [];
     const entered = deferred();
     const released = deferred();
 

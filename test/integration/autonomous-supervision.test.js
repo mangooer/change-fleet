@@ -669,21 +669,13 @@ describe("Plan-confirmed autonomous supervision", () => {
     assert.equal(run.runtime_evidence.kind, "runtime_invocation");
   });
 
-  test("preserves two-Repository dependencies and one exact combined Bundle", async (t) => {
+  test("preserves two-Repository execution and one exact combined Bundle", async (t) => {
     const root = await createFixtureRoot(t, "changefleet-auto-two-repository-");
     const api = await createGitRepository(root, "api");
     const web = await createGitRepository(root, "web");
     const plan = createTwoRepositoryPlan(
       await writeCombinedCheckScript(root, 2),
     );
-    plan.supervision.mode = "autonomous_until_review";
-    plan.bundle_review = {
-      mode: "independent",
-      agent_profile_id: "scripted-test-profile-reviewer",
-      agent_profile_revision: 1,
-      attempt_limit: 2,
-    };
-    plan.supervision.elapsed_time_limit_ms = 120_000;
     const runtime = new ScriptedRuntime({ plan });
     const service = await ChangeFleetService.open({
       controlRoot: path.join(root, "control"),
@@ -696,7 +688,7 @@ describe("Plan-confirmed autonomous supervision", () => {
       project: {
         project_id: "project",
         supervision_policy: {
-          default_mode: "manual",
+          default_mode: "autonomous_until_review",
           max_execution_attempts_per_work_unit: 3,
           max_verification_attempts_per_work_unit: 3,
           max_feedback_cycles_per_work_unit: 2,
@@ -1027,26 +1019,6 @@ async function createAutonomousFixture(
   }
   const combinedScript = await writeCombinedCheckScript(root, 1);
   const plan = createOneRepositoryPlan(combinedScript);
-  plan.supervision.mode = supervisionMode;
-  plan.supervision.verification_attempt_limit_per_work_unit = 6;
-  plan.supervision.elapsed_time_limit_ms = 120_000;
-  if (bundleReviewMode === "independent") {
-    plan.bundle_review = {
-      mode: "independent",
-      agent_profile_id: "scripted-test-profile-reviewer",
-      agent_profile_revision: 1,
-      attempt_limit: 2,
-    };
-  }
-  if (requireFixedContent) {
-    plan.work_units[0].repository_check.argv = [
-      "-e",
-      "const fs=require('node:fs');if(!fs.readFileSync('feature.txt','utf8').includes('fixed'))process.exit(2)",
-    ];
-  }
-  if (requireVerifierCheckRepair) {
-    plan.verification_expectation.mode = "independent_review";
-  }
   const passingVerification = {
     type: "verification_completed",
     review_depth: "triage",
@@ -1059,7 +1031,7 @@ async function createAutonomousFixture(
   };
   const runtime = runtimeFactory?.(plan) ?? new ScriptedRuntime({
     plan,
-    verificationOutcomes: requireVerifierCheckRepair
+    verificationOutcomes: requireVerifierCheckRepair || requireFixedContent
       ? [
           {
             ...passingVerification,
@@ -1108,12 +1080,16 @@ async function createAutonomousFixture(
     project: {
       project_id: "project",
       supervision_policy: {
-        default_mode: "manual",
+        default_mode: supervisionMode,
           max_execution_attempts_per_work_unit: 3,
           max_verification_attempts_per_work_unit: 6,
         max_feedback_cycles_per_work_unit: 2,
         max_elapsed_ms: 120_000,
       },
+      verification_policy:
+        requireVerifierCheckRepair || requireFixedContent
+          ? { minimum_mode: "independent_review" }
+          : undefined,
       bundle_review_policy:
         bundleReviewMode === "independent"
           ? {

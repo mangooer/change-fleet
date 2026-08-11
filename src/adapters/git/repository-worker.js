@@ -462,73 +462,61 @@ export class RepositoryWorker {
     }
   }
 
-  async prepareWorkspace({
+  async prepareTaskRepositoryWorkspace({
     repository,
     targetRef,
     baseSha,
+    taskWorkspaceId,
     workspaceId,
+    branchRef,
   }) {
+    // TaskWorkspace 的逻辑身份稳定，物理 worktree 与本地分支都由控制面创建并验证。
+    normalizeId("task_workspace_id", taskWorkspaceId);
     normalizeId("workspace_id", workspaceId);
+    const normalizedBranchRef = normalizeBranchRef(
+      branchRef,
+      "INVALID_TASK_WORKSPACE_BRANCH",
+    );
     const workspacePath = this.workspacePath(
       repository.repository_id,
       workspaceId,
     );
     await assertCommitExists(repository.resolved_git_root, baseSha);
-
-    await this.prepareDetachedWorktree({
+    await this.prepareBranchWorktree({
       repository,
       workspacePath,
-      commitSha: baseSha,
-      label: "Workspace",
+      branchRef: normalizedBranchRef,
+      baseSha,
+      label: "Task RepositoryWorkspace",
     });
     await this.assertWorkspaceAtCommit({
       repository,
       workspacePath,
       workspaceId,
       expectedHeadSha: baseSha,
-      label: "Workspace",
+      label: "Task RepositoryWorkspace",
     });
-    return {
-      workspace_id: workspaceId,
-      workspace_path: workspacePath,
-      repository_id: repository.repository_id,
-      target_ref: targetRef,
-      base_sha: baseSha,
-    };
-  }
-
-  async preparePlanningWorkspace({ repository, baseSha, workspaceId }) {
-    // 规划也使用控制面拥有的 detached worktree，绝不把登记 checkout 当成冻结基线视图。
-    normalizeId("workspace_id", workspaceId);
-    const workspacePath = this.planningWorkspacePath(
-      repository.repository_id,
-      workspaceId,
+    const currentBranch = (
+      await git(workspacePath, ["symbolic-ref", "-q", "HEAD"])
+    ).trim();
+    invariant(
+      currentBranch === normalizedBranchRef,
+      "TASK_WORKSPACE_BRANCH_MISMATCH",
+      `RepositoryWorkspace ${workspaceId} checked out ${currentBranch}, expected ${normalizedBranchRef}`,
     );
-    await assertCommitExists(repository.resolved_git_root, baseSha);
-
-    await this.prepareDetachedWorktree({
-      repository,
-      workspacePath,
-      commitSha: baseSha,
-      label: "Planning workspace",
-    });
-    await this.assertWorkspaceAtCommit({
-      repository,
-      workspacePath,
-      workspaceId,
-      expectedHeadSha: baseSha,
-      label: "Planning workspace",
-    });
     invariant(
       (await workspaceStatus(workspacePath)).length === 0,
-      "DIRTY_PLANNING_WORKSPACE",
-      `Planning workspace ${workspaceId} must start clean`,
+      "DIRTY_TASK_WORKSPACE",
+      `RepositoryWorkspace ${workspaceId} must start clean`,
     );
     return {
-      workspace_kind: "planning",
+      workspace_kind: "task_repository",
+      task_workspace_id: taskWorkspaceId,
       workspace_id: workspaceId,
       workspace_path: workspacePath,
       repository_id: repository.repository_id,
+      branch_ref: normalizedBranchRef,
+      target_ref: targetRef,
       base_sha: baseSha,
     };
   }
@@ -670,59 +658,6 @@ export class RepositoryWorker {
     };
   }
 
-  async cleanupPlanningWorkspace({
-    repository,
-    workspace,
-    harnessSnapshot = null,
-  }) {
-    // 所有权验证通过后才允许删除；HEAD 或 clean 违规仍会先安全移除，再把违规报告给控制层。
-    invariant(
-      workspace?.workspace_kind === "planning",
-      "INVALID_PLANNING_WORKSPACE",
-      "Only a planning workspace may use the planning cleanup path",
-    );
-    const workspaceStat = await statIfExists(workspace.workspace_path);
-    if (!workspaceStat) {
-      // 重启可能发生在 worktree 已删除、Run 尚未落终态之间；prune 后把缺失视为幂等清理完成。
-      await git(repository.resolved_git_root, ["worktree", "prune"]);
-      return;
-    }
-    await this.assertWorkspaceOwnership(repository, workspace.workspace_path);
-    const currentHead = await resolveCommit(workspace.workspace_path, "HEAD");
-    let harnessError = null;
-    if (harnessSnapshot) {
-      try {
-        await this.verifyAndRemoveHarnessOverlay({
-          repository,
-          workspace,
-          snapshot: harnessSnapshot,
-        });
-      } catch (error) {
-        harnessError = error;
-      }
-    }
-    const status = await workspaceStatus(workspace.workspace_path);
-    await git(repository.resolved_git_root, [
-      "worktree",
-      "remove",
-      "--force",
-      workspace.workspace_path,
-    ]);
-    await git(repository.resolved_git_root, ["worktree", "prune"]);
-    invariant(
-      currentHead === workspace.base_sha,
-      "PLANNING_WORKSPACE_HEAD_CHANGED",
-      `Planning workspace HEAD changed from ${workspace.base_sha} to ${currentHead}`,
-    );
-    invariant(
-      status.length === 0,
-      "PLANNING_WORKSPACE_MODIFIED",
-      "Read-only planning modified its exact-base workspace",
-      { changed_entries: status },
-    );
-    if (harnessError) throw harnessError;
-  }
-
   async cleanupVerificationWorkspace({
     repository,
     workspace,
@@ -773,6 +708,46 @@ export class RepositoryWorker {
       { changed_entries: status },
     );
     if (harnessError) throw harnessError;
+  }
+
+  async inspectTaskRepositoryWorkspace({ repository, workspace }) {
+    invariant(
+      workspace?.workspace_kind === "task_repository" &&
+        workspace.repository_id === repository.repository_id,
+      "INVALID_TASK_WORKSPACE",
+      "RepositoryWorkspace does not match its registered Repository",
+    );
+    await this.assertWorkspaceOwnership(repository, workspace.workspace_path);
+    return {
+      repository_id: repository.repository_id,
+      workspace_id: workspace.workspace_id,
+      head_sha: await resolveCommit(workspace.workspace_path, "HEAD"),
+      changed_entries: await workspaceStatus(workspace.workspace_path),
+    };
+  }
+
+  async cleanupTaskRepositoryWorkspace({ repository, workspace }) {
+    // 归档只删除控制面拥有的 worktree；本地分支保留为廉价、可恢复的 Git 身份。
+    invariant(
+      workspace?.workspace_kind === "task_repository",
+      "INVALID_TASK_WORKSPACE",
+      "Only a Task RepositoryWorkspace may use task cleanup",
+    );
+    const workspaceStat = await statIfExists(workspace.workspace_path);
+    if (!workspaceStat) {
+      await git(repository.resolved_git_root, ["worktree", "prune"]);
+      return;
+    }
+    await this.assertWorkspaceOwnership(repository, workspace.workspace_path);
+    // 终态回收不再解释 Harness 内容：候选发布前已完成私有 Harness 校验，
+    // 放弃任务则明确丢弃整个受控 worktree，因此这里只验证所有权并回收物理资源。
+    await git(repository.resolved_git_root, [
+      "worktree",
+      "remove",
+      "--force",
+      workspace.workspace_path,
+    ]);
+    await git(repository.resolved_git_root, ["worktree", "prune"]);
   }
 
   async publishCandidate({
@@ -984,6 +959,65 @@ export class RepositoryWorker {
     }
   }
 
+  async prepareBranchWorktree({
+    repository,
+    workspacePath,
+    branchRef,
+    baseSha,
+    label,
+  }) {
+    const workspaceStat = await statIfExists(workspacePath);
+    if (workspaceStat) {
+      invariant(
+        workspaceStat.isDirectory(),
+        "WORKSPACE_PATH_CONFLICT",
+        `${label} path is not a directory: ${workspacePath}`,
+      );
+      return;
+    }
+    await mkdir(path.dirname(workspacePath), { recursive: true });
+    await git(repository.resolved_git_root, ["worktree", "prune"]);
+    const shortBranch = branchRef.slice("refs/heads/".length);
+    let existingBranchSha = null;
+    try {
+      existingBranchSha = await resolveCommit(
+        repository.resolved_git_root,
+        branchRef,
+      );
+    } catch (error) {
+      if (error.code !== "GIT_COMMIT_NOT_FOUND") throw error;
+    }
+    invariant(
+      existingBranchSha === null || existingBranchSha === baseSha,
+      "TASK_WORKSPACE_BRANCH_MOVED",
+      `Existing task branch ${branchRef} no longer points to the frozen base`,
+      { expected_sha: baseSha, observed_sha: existingBranchSha },
+    );
+    try {
+      await git(
+        repository.resolved_git_root,
+        existingBranchSha === null
+          ? ["worktree", "add", "-b", shortBranch, workspacePath, baseSha]
+          : ["worktree", "add", workspacePath, shortBranch],
+      );
+    } catch (error) {
+      const primary = workspaceCheckoutError(
+        error,
+        label,
+        "checkout_task_branch",
+      );
+      await preserveSecondaryFailure(
+        primary,
+        "workspace_checkout_cleanup",
+        async () => {
+          await rm(workspacePath, { recursive: true, force: true });
+          await git(repository.resolved_git_root, ["worktree", "prune"]);
+        },
+      );
+      throw primary;
+    }
+  }
+
   async assertWorkspaceAtCommit({
     repository,
     workspacePath,
@@ -1004,18 +1038,6 @@ export class RepositoryWorker {
     normalizeId("repository_id", repositoryId);
     const candidate = path.resolve(
       this.workspaceRoot,
-      repositoryId,
-      workspaceId,
-    );
-    this.assertContainedWorkspace(candidate);
-    return candidate;
-  }
-
-  planningWorkspacePath(repositoryId, workspaceId) {
-    normalizeId("repository_id", repositoryId);
-    const candidate = path.resolve(
-      this.workspaceRoot,
-      "_planning",
       repositoryId,
       workspaceId,
     );

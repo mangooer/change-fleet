@@ -23,69 +23,6 @@ const COMMAND_SCHEMA = Object.freeze({
   additionalProperties: false,
 });
 
-const VERIFICATION_EXPECTATION_SCHEMA = Object.freeze({
-  type: "object",
-  properties: {
-    mode: {
-      type: "string",
-      enum: ["basic", "deterministic", "independent_review"],
-    },
-    rationale: { type: "string" },
-    escalation_triggers: {
-      type: "array",
-      items: {
-        type: "string",
-        enum: ["scope_divergence", "unverified_boundaries"],
-      },
-    },
-  },
-  required: ["mode", "rationale", "escalation_triggers"],
-  additionalProperties: false,
-});
-
-const PLAN_SUPERVISION_SCHEMA = Object.freeze({
-  type: "object",
-  properties: {
-    mode: {
-      type: "string",
-      enum: ["manual", "autonomous_until_review"],
-    },
-    execution_attempt_limit_per_work_unit: { type: "integer", minimum: 1 },
-    verification_attempt_limit_per_work_unit: { type: "integer", minimum: 1 },
-    feedback_cycle_limit_per_work_unit: { type: "integer", minimum: 1 },
-    elapsed_time_limit_ms: { type: "integer", minimum: 1 },
-  },
-  required: [
-    "mode",
-    "execution_attempt_limit_per_work_unit",
-    "verification_attempt_limit_per_work_unit",
-    "feedback_cycle_limit_per_work_unit",
-    "elapsed_time_limit_ms",
-  ],
-  additionalProperties: false,
-});
-
-const PLAN_BUNDLE_REVIEW_SCHEMA = Object.freeze({
-  type: "object",
-  properties: {
-    mode: { type: "string", enum: ["none", "independent"] },
-    agent_profile_id: {
-      anyOf: [{ type: "string" }, { type: "null" }],
-    },
-    agent_profile_revision: {
-      anyOf: [{ type: "integer", minimum: 1 }, { type: "null" }],
-    },
-    attempt_limit: { type: "integer", minimum: 1 },
-  },
-  required: [
-    "mode",
-    "agent_profile_id",
-    "agent_profile_revision",
-    "attempt_limit",
-  ],
-  additionalProperties: false,
-});
-
 const REVISION_FEEDBACK_ASSESSMENT_SCHEMA = Object.freeze({
   type: "object",
   properties: {
@@ -100,58 +37,23 @@ const REVISION_FEEDBACK_ASSESSMENT_SCHEMA = Object.freeze({
 const PLAN_SCHEMA = Object.freeze({
   type: "object",
   properties: {
-    rationale: { anyOf: [{ type: "string" }, { type: "null" }] },
+    summary: { type: "string" },
+    steps: STRING_ARRAY_SCHEMA,
+    validation: STRING_ARRAY_SCHEMA,
+    risks: STRING_ARRAY_SCHEMA,
+    assumptions: STRING_ARRAY_SCHEMA,
     revision_feedback_assessments: {
       type: "array",
       items: REVISION_FEEDBACK_ASSESSMENT_SCHEMA,
     },
-    work_units: {
-      type: "array",
-      minItems: 1,
-      items: {
-        type: "object",
-        properties: {
-          work_unit_id: { type: "string" },
-          repository_id: { type: "string" },
-          task: { type: "string" },
-          dependencies: STRING_ARRAY_SCHEMA,
-          repository_check: {
-            anyOf: [COMMAND_SCHEMA, { type: "null" }],
-          },
-          repository_check_rationale: { type: "string" },
-        },
-        required: [
-          "work_unit_id",
-          "repository_id",
-          "task",
-          "dependencies",
-          "repository_check",
-          "repository_check_rationale",
-        ],
-        additionalProperties: false,
-      },
-    },
-    combined_check: {
-      anyOf: [COMMAND_SCHEMA, { type: "null" }],
-    },
-    combined_check_rationale: { type: "string" },
-    verification_expectation: VERIFICATION_EXPECTATION_SCHEMA,
-    bundle_review: PLAN_BUNDLE_REVIEW_SCHEMA,
-    supervision: PLAN_SUPERVISION_SCHEMA,
-    risks: STRING_ARRAY_SCHEMA,
-    unverified_boundaries: STRING_ARRAY_SCHEMA,
   },
   required: [
-    "rationale",
-    "revision_feedback_assessments",
-    "work_units",
-    "combined_check",
-    "combined_check_rationale",
-    "verification_expectation",
-    "bundle_review",
-    "supervision",
+    "summary",
+    "steps",
+    "validation",
     "risks",
-    "unverified_boundaries",
+    "assumptions",
+    "revision_feedback_assessments",
   ],
   additionalProperties: false,
 });

@@ -1,6 +1,6 @@
 # Repository Design Proposal Index
 
-Updated: 2026-08-07
+Updated: 2026-08-11
 
 These proposals govern development of the ChangeFleet repository itself. They are repository
 Harness artifacts, not ChangeFleet Runtime outputs and not artifacts written into registered user
@@ -38,6 +38,7 @@ preserve chronological reasoning and are not current truth merely because they e
 | [0025](0025-bundle-level-independent-quality-review.md) | Bundle-level independent quality review | `accepted` | Recorded by Decision 0027; extends autonomous supervision through one exact read-only Bundle assessment while preserving human acceptance authority | [WI-0021](../work-items/WI-0021-bundle-level-independent-quality-review.md), `done` |
 | [0026](0026-shared-application-orchestration-boundary.md) | Shared application orchestration boundary | `accepted` | Recorded by Decision 0028; splits `ChangeFleetService` into shared leaves and per-operation orchestrators without changing the product contract | [WI-0025](../work-items/WI-0025-shared-run-command-and-workspace-helpers.md), `done`; [WI-0026](../work-items/WI-0026-supervision-orchestrator.md), `done`; [WI-0027](../work-items/WI-0027-verification-execution-boundary.md), `done`; [WI-0028](../work-items/WI-0028-verification-dispatch-boundary.md), `done`; [WI-0029](../work-items/WI-0029-bundle-review-orchestration-boundary.md), `done` |
 | [0027](0027-optional-project-semantic-checks.md) | Optional project semantic checks with mandatory structural preflight | `accepted` | Recorded by Decision 0029; revises Decision 0006's universal command presence while preserving exact structural evidence | [WI-0035](../work-items/WI-0035-optional-project-semantic-checks.md), `done` |
+| [0028](0028-persistent-task-workspaces-and-linked-repositories.md) | Persistent task workspaces and linked repository workspaces | `accepted` | Recorded by Decision 0030; one ChangeSet owns one continuing multi-Repository task workspace while Plan remains semantic | [WI-0037](../work-items/WI-0037-persistent-task-workspaces-and-semantic-plans.md), `done` |
 
 ## Status Rules
 

@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, test } from "node:test";
 
@@ -34,8 +33,9 @@ describe("application failure and revision boundaries", () => {
     );
     const state = await service.readChangeSet("change-1");
     assert.equal(state.phase, "working");
-    assert.equal(state.candidates.length, 1);
-    assert.equal(state.candidates[0].repository_id, "api");
+    assert.equal(state.candidates.length, 0);
+    assert.equal(state.candidate_checkpoints.length, 1);
+    assert.equal(state.candidate_checkpoints[0].repository_id, "api");
     assert.equal(state.bundles.length, 0);
     assert.equal(
       state.work_units.find((unit) => unit.repository_id === "web").phase,
@@ -45,43 +45,6 @@ describe("application failure and revision boundaries", () => {
       state.blockers.some((blocker) => blocker.work_unit_id === "web-unit"),
       true,
     );
-  });
-
-  test("fails combined validation when a Candidate workspace changes", async (t) => {
-    const fixture = await createApplicationFixture(t, "mutating");
-    const mutatingScript = path.join(fixture.root, "mutating-check.mjs");
-    await writeFile(
-      mutatingScript,
-      [
-        'import { readFile, writeFile } from "node:fs/promises";',
-        "const manifest = JSON.parse(await readFile(process.env.CHANGEFLEET_VALIDATION_MANIFEST, 'utf8'));",
-        "await writeFile(`${manifest.candidates[0].workspace_path}/tampered.txt`, 'changed\\n', 'utf8');",
-        "",
-      ].join("\n"),
-      "utf8",
-    );
-    fixture.plan.combined_check.argv = [mutatingScript];
-    const service = await openBootstrappedService(
-      fixture,
-      new ScriptedRuntime({ plan: fixture.plan }),
-    );
-
-    await assert.rejects(
-      service.executeChangeSet({
-        idempotency_key: "execute-1",
-        change_set_id: "change-1",
-      }),
-      { code: "COMBINED_VALIDATION_FAILED" },
-    );
-    const state = await service.readChangeSet("change-1");
-    assert.equal(state.phase, "working");
-    assert.equal(state.candidates.length, 2);
-    assert.equal(state.bundles.length, 0);
-    const attempt = state.validation_attempts.at(-1);
-    assert.equal(attempt.kind, "combined_validation");
-    assert.equal(attempt.status, "failed");
-    const evidence = await service.evidenceStore.read(attempt.evidence.evidence_id);
-    assert.equal(evidence.payload.postflight.status, "failed");
   });
 
   test("planning conversation replaces the approval subject without allocating Plan revisions", async (t) => {
@@ -130,6 +93,13 @@ describe("application failure and revision boundaries", () => {
       content_digest: second.message.content_digest,
     });
     assert.equal(confirmed.plan_revision, 1);
+    assert.equal(confirmed.plan.summary, second.message.plan_content.summary);
+    assert.equal("work_units" in confirmed.plan, false);
+    assert.equal("supervision" in confirmed.plan, false);
+    assert.equal(
+      confirmed.workspace_control_summary.task_workspace_id,
+      state.task_workspace.task_workspace_id,
+    );
   });
 
   test("requires bounded request-revision feedback in only the current Runtime projection", async (t) => {

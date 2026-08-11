@@ -10,16 +10,12 @@ export class ChangeSetRunService {
   constructor({
     controlStore,
     runStore,
-    repositoryWorker,
-    harnessSnapshotStore,
     workspaceRoot,
     idFactory,
     now,
   }) {
     this.controlStore = controlStore;
     this.runStore = runStore;
-    this.repositoryWorker = repositoryWorker;
-    this.harnessSnapshotStore = harnessSnapshotStore;
     this.workspaceRoot = path.resolve(workspaceRoot);
     this.idFactory = idFactory;
     this.now = now;
@@ -135,34 +131,6 @@ export class ChangeSetRunService {
       }
       state.updated_at = this.now();
     });
-  }
-
-  async cleanupPlanningWorkspaces({ planningWorkspaces, projectRepositories }) {
-    // 逐个清理并保留首个错误，避免一个仓库异常导致其余临时 worktree 永久泄漏。
-    let firstError = null;
-    for (const workspace of [...planningWorkspaces].reverse()) {
-      const repository = projectRepositories.get(workspace.repository_id);
-      let harnessSnapshot = null;
-      if (workspace.harness_overlay) {
-        try {
-          harnessSnapshot = await this.harnessSnapshotStore.read(
-            workspace.harness_overlay,
-          );
-        } catch (error) {
-          firstError ??= error;
-        }
-      }
-      try {
-        await this.repositoryWorker.cleanupPlanningWorkspace({
-          repository,
-          workspace,
-          harnessSnapshot,
-        });
-      } catch (error) {
-        firstError ??= error;
-      }
-    }
-    if (firstError) throw firstError;
   }
 
   async cleanupSupervisionWorkspace(workspacePath) {

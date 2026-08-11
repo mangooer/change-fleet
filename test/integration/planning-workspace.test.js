@@ -16,7 +16,7 @@ import {
   TEST_AGENT_PROFILE,
 } from "../support/scripted-runtime.js";
 
-test("planning reads and cleans an exact frozen detached worktree", async (t) => {
+test("planning reads and retains an exact frozen TaskWorkspace worktree", async (t) => {
   const root = await createFixtureRoot(t, "changefleet-planning-worktree-");
   const repository = await createGitRepository(root, "api", {
     harness: true,
@@ -76,10 +76,54 @@ test("planning reads and cleans an exact frozen detached worktree", async (t) =>
     path.resolve(runtime.snapshot.root_path),
     path.resolve(repository.path),
   );
+  assert.notEqual(await stat(runtime.snapshot.root_path).catch(() => null), null);
+  const state = await service.readChangeSet("change");
   assert.equal(
-    await stat(runtime.snapshot.root_path).catch(() => null),
-    null,
+    state.task_workspace.repositories[0].workspace.workspace_path,
+    runtime.snapshot.root_path,
   );
+});
+
+test("planning rejects workspace writes even when the Runtime exits with an error", async (t) => {
+  const root = await createFixtureRoot(t, "changefleet-planning-failed-write-");
+  const repository = await createGitRepository(root, "api");
+  const runtime = new MutatingFailedRuntime({
+    plan: createOneRepositoryPlan(await writeCombinedCheckScript(root, 1)),
+  });
+  const service = await ChangeFleetService.open({
+    controlRoot: path.join(root, "control"),
+    workspaceRoot: path.join(root, "workspaces"),
+    runtime,
+    agentProfile: TEST_AGENT_PROFILE,
+  });
+  await service.registerProject({
+    idempotency_key: "register",
+    project: {
+      project_id: "project",
+      repositories: [
+        { repository_id: "api", locator: { path: repository.path } },
+      ],
+    },
+  });
+  await service.createChangeSet({
+    idempotency_key: "create",
+    change_set_id: "change",
+    project_id: "project",
+    intent: { objective: "Reject a failed Planner write" },
+  });
+
+  await assert.rejects(
+    service.planChangeSet({
+      idempotency_key: "plan",
+      change_set_id: "change",
+    }),
+    { code: "PLANNING_WORKSPACE_MODIFIED" },
+  );
+
+  const state = await service.readChangeSet("change");
+  const run = await service.runStore.read(state.run_references[0].run_id);
+  assert.equal(run.status, "failed");
+  assert.equal(run.outcome.code, "PLANNING_WORKSPACE_MODIFIED");
 });
 
 test("planning preserves Provider evidence when domain validation rejects the plan", async (t) => {
@@ -88,10 +132,8 @@ test("planning preserves Provider evidence when domain validation rejects the pl
   const plan = createOneRepositoryPlan(
     await writeCombinedCheckScript(root, 1),
   );
-  plan.work_units.push({
-    ...structuredClone(plan.work_units[0]),
-    work_unit_id: "api-unit-duplicate",
-  });
+  // 注入 Core 才拥有的字段，证明旧 Planner 执行结构不会被静默兼容。
+  plan.work_units = [];
   const runtime = new CompletedProviderRuntime({ plan });
   const controlRoot = path.join(root, "control");
   const service = await ChangeFleetService.open({
@@ -121,7 +163,7 @@ test("planning preserves Provider evidence when domain validation rejects the pl
       idempotency_key: "plan",
       change_set_id: "change",
     }),
-    { code: "DUPLICATE_REPOSITORY_WORK_UNIT" },
+    { code: "INVALID_PLAN" },
   );
 
   const state = await service.readChangeSet("change");
@@ -141,7 +183,7 @@ test("planning preserves Provider evidence when domain validation rejects the pl
   assert.equal(evidence.payload.usage_observations[0].total_tokens, 77);
   assert.equal(
     evidence.payload.terminal.error_code,
-    "DUPLICATE_REPOSITORY_WORK_UNIT",
+    "INVALID_PLAN",
   );
 });
 
@@ -193,5 +235,22 @@ class CompletedProviderRuntime extends ScriptedRuntime {
       };
     }
     return result;
+  }
+}
+
+class MutatingFailedRuntime extends ScriptedRuntime {
+  async invoke(invocation, options) {
+    if (invocation.operation === "planning") {
+      await writeFile(
+        path.join(
+          invocation.context_projection.repositories[0].root_path,
+          "unexpected.txt",
+        ),
+        "not allowed\n",
+        "utf8",
+      );
+      throw new Error("Provider failed after writing");
+    }
+    return super.invoke(invocation, options);
   }
 }

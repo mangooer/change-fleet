@@ -380,12 +380,7 @@ export function deriveSupervisionActionSet(changeSet, { now }) {
   }
   const dispatchable = incomplete.filter(
     (unit) =>
-      ["execution", "verification"].includes(unit.phase) &&
-      unit.dependencies.every(
-        (dependency) =>
-          units.find((candidate) => candidate.work_unit_id === dependency)
-            ?.phase === "complete",
-      ),
+      ["execution", "verification"].includes(unit.phase),
   );
   const readyExecution = dispatchable.find((unit) => unit.phase === "execution");
   if (readyExecution) {
@@ -426,7 +421,7 @@ export function deriveSupervisionActionSet(changeSet, { now }) {
     ]);
   }
   return actionSet(snapshotId, progress, [
-    envelope("open_gate", {}, { reason: "work_unit_dependency_blocked" }),
+    envelope("open_gate", {}, { reason: "work_unit_not_dispatchable" }),
   ]);
 }
 
@@ -619,7 +614,6 @@ function exactSnapshot(changeSet, plan) {
       work_unit_id: unit.work_unit_id,
       phase: unit.phase,
       disposition: unit.disposition,
-      dependencies: [...unit.dependencies],
       candidate_checkpoint_id: unit.candidate_checkpoint_id,
       candidate_id: unit.candidate?.candidate_id ?? null,
       pending_feedback_id: unit.pending_feedback_id,

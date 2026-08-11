@@ -18,7 +18,7 @@ import {
 } from "../support/scripted-runtime.js";
 
 describe("restart recovery", () => {
-  test("interrupts a lost planning thread and retries from a fresh worktree", async (t) => {
+  test("interrupts a lost planning thread and retries in the same TaskWorkspace", async (t) => {
     const root = await createFixtureRoot(t, "changefleet-plan-recovery-");
     const api = await createGitRepository(root, "api");
     const plan = createOneRepositoryPlan(
@@ -59,7 +59,11 @@ describe("restart recovery", () => {
     const interruptedRunId = interruptedState.run_references[0].run_id;
     const interruptedRun = await first.runStore.read(interruptedRunId);
     const interruptedWorkspace =
-      interruptedRun.planning_workspaces[0].workspace_path;
+      interruptedState.task_workspace.repositories[0].workspace.workspace_path;
+    assert.equal(
+      interruptedRun.task_workspace_id,
+      interruptedState.task_workspace.task_workspace_id,
+    );
     assert.equal(interruptedRun.status, "running");
     assert.equal((await stat(interruptedWorkspace)).isDirectory(), true);
 
@@ -82,7 +86,7 @@ describe("restart recovery", () => {
     assert.equal(recoveredRun.status, "interrupted");
     assert.equal(recoveredRun.outcome.type, "controller_restart");
     assert.equal(recoveredRun.runtime_evidence.kind, "runtime_invocation");
-    assert.equal(await stat(interruptedWorkspace).catch(() => null), null);
+    assert.equal((await stat(interruptedWorkspace)).isDirectory(), true);
     assert.equal(secondRuntime.invocations.length, 1);
   });
 

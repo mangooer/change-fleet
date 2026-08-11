@@ -7,12 +7,9 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 
 ## Current Baseline
 
-- This history includes completed WI-0022 through
-  [WI-0035](work-items/WI-0035-optional-project-semantic-checks.md): private
-  compatibility debt is removed, Proposal 0026's internal split is complete, verification verdicts
-  match their strict Runtime contract, exact clean execution retry survives controller restart, and
-  disposable reviews use path-safe identities. Agents apply only project-owned repository-native
-  requirements; ChangeFleet Core neither defines nor parses target-project Harness formats.
+- Completed WI-0022 through [WI-0036](work-items/WI-0036-candidate-bound-feedback-repair.md) leave no
+  compatibility path: verification and feedback bind exact Candidates, clean retry survives restart,
+  and Core does not parse target-project Harness formats.
 - Structural preflight is mandatory. Project semantic commands are optional Plan selections;
   commandless validation records real attempts without fake command metadata.
 - Agent Runtimes own semantic work. ChangeFleet owns cross-repository authorization, revisions,
@@ -20,8 +17,9 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 
 ## Branch-Local Work
 
-- Completed [WI-0036](work-items/WI-0036-candidate-bound-feedback-repair.md) makes selected-check
-  timing explicit and preserves the current checkpoint/workspace through Bundle feedback.
+- Completed [WI-0037](work-items/WI-0037-persistent-task-workspaces-and-semantic-plans.md) implements
+  accepted Proposal 0028 and Decision 0030 on this branch as one atomic workspace and
+  Planner-contract replacement; the user accepted it and the exact branch commit is ready to land.
 
 ## Accepted Product Direction
 
@@ -31,7 +29,7 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
   non-authoritative; execution accepts only its isolated WorkUnit workspace Git subject.
 - Initial context targets at most 70 percent usage and records `enforced | estimated | unknown`.
 - Tracker integrations remain edge projections, not ChangeSet authority.
-- A Project binds registered Repositories. A ChangePlan selects a non-empty subset;
+- A Project binds registered Repositories. Task creation selects a non-empty subset before planning;
   single-Repository work is valid and scope expansion remains typed.
 - ChangeSet creation freezes visible Repositories, branches, base SHAs, and targets. Agents cannot
   replace them and dirty checkout files are excluded.
@@ -42,40 +40,33 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 - WorkUnits may run in parallel; delivery to one `repository_id + target_ref` is serialized, and
   cross-repository compensation never promises universal atomic rollback.
 - GitHub delivery publishes exact Candidates to human-merged PRs and records bounded results.
-- A foreground loopback console exposes bounded ChangeSet discovery, exact Bundle decisions, and
-  delivery actions through shared operations without invoking the CLI.
-- Landed slices expose shared operations through one experimental CLI and isolated debug audit.
+- A loopback console and experimental CLI expose the same shared operations; debug audit remains
+  isolated and read-only.
 - The first production Provider uses the pinned Codex SDK, a narrow Runtime port, one fresh thread
-  per attempt, structured outcomes, exact-base planning worktrees, and WorkUnit-scoped writes.
+  per attempt, structured outcomes, persistent exact-base task worktrees, and WorkUnit-scoped writes.
 - Controller loss abandons incomplete attempts; blind session resume remains deferred.
 - Human closure and ordinary later task creation are separate; generic restart and fork are deferred.
-- Decision 0020 supersedes ChangeFleet-owned Provider Home copying. Local configuration explicitly
-  selects an operator-prepared Codex environment; ChangeFleet neither manages its files nor
-  overrides its native Windows Sandbox implementation. Clean exact-base retry remains accepted.
-- Decision 0021 restores the Conductor-style layer boundary: worktrees isolate development state,
-  while an explicit AgentProfile selects Provider-owned host or constrained permissions.
+- Decisions 0020 and 0021 keep Provider environments and OS permissions Provider-owned. Worktrees
+  isolate development state; explicit AgentProfiles select host or constrained execution.
 - Execution may report a strict blocked result. Base-equal or empty implementation output is not a
   CandidateCheckpoint and cannot enter validation or review.
-- Candidate verification freezes policy and exact-checkpoint admission. Its optional read-only
-  Runtime binds requested-check evidence and separate usage, and can retry without repeating a
-  passed selected project command. Repository and Candidate-set structural preflight is always
-  required; a Plan may explicitly omit an inapplicable semantic command with a rationale. Decision
-  0025 models actionable review as Feedback: the WorkUnit returns to execution, another exact
-  checkpoint returns it to verification, and Gates or Blockers remain separate from lifecycle
-  phase.
-- Decision 0026 defines Plan-confirmed Agentic supervision: the
-  deterministic kernel offers exact authorized actions, forced actions avoid a model call, and a
-  read-only Supervisor Agent selects only when bounded semantic alternatives remain.
-- Decision 0027 adds optional Plan-confirmed Bundle quality review. One exact read-only Review Run
+- Candidate verification freezes exact-checkpoint admission, requested checks, and separate Runtime
+  usage. Structural preflight is mandatory; project commands are optional. Actionable review becomes
+  Feedback and returns through execution and verification without adding lifecycle phases.
+- Decision 0026 defines task-configured Agentic supervision: the deterministic kernel offers exact
+  authorized actions, forced actions avoid a model call, and a read-only Supervisor Agent selects
+  only when bounded semantic alternatives remain.
+- Decision 0027 adds optional task-configured Bundle quality review. One exact read-only Review Run
   may recommend passage, route bounded Feedback, or request a Gate; human Bundle acceptance remains
   explicit.
+- Decision 0030 makes each ChangeSet own one persistent multi-Repository task workspace. Plans are
+  semantic Agent guidance; exact execution configuration and WorkUnit creation remain Core-owned.
 
 ## Accepted Decisions
 
-- The [Decision Index](decisions/README.md) owns rationale. Decision 0028 records the internal
-  orchestration boundary. Decision 0029 separates mandatory structural preflight from optional
-  project-selected semantic commands without changing Decision 0025's lifecycle or Decision 0027's
-  review.
+- The [Decision Index](decisions/README.md) owns rationale. Decision 0029 separates structural
+  preflight from optional project checks. Decision 0030 owns the TaskWorkspace and semantic-Plan
+  replacement completed branch-locally by WI-0037.
 
 ## Repository Design Proposals
 
@@ -86,6 +77,8 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
   its implementation is complete through WI-0029 in this history.
 - Accepted [0027](proposals/0027-optional-project-semantic-checks.md) is recorded by Decision 0029
   and implemented by completed WI-0035 in this history.
+- Accepted [0028](proposals/0028-persistent-task-workspaces-and-linked-repositories.md) is recorded by
+  Decision 0030 and implemented branch-locally by completed WI-0037.
 
 ## Open Questions
 
@@ -112,8 +105,8 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 
 ## Next Recommended Task
 
-After WI-0036 adoption, consider one smaller real Provider trial; do not repeat the 732,091-token
-failed trial merely to duplicate deterministic evidence.
+After WI-0037 lands, run one bounded real self-iteration using its semantic Plan and persistent
+TaskWorkspace contract; tracker adapters, templates, and Candidate lanes remain deferred.
 
 ## Maintenance Contract
 

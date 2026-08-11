@@ -65,6 +65,7 @@ import { BundleReviewOrchestrator } from "./bundle-review-orchestrator.js";
 import { RunRecoveryService } from "./run-recovery-service.js";
 import { RepositoryValidator } from "./repository-validator.js";
 import { BundleAssembler } from "./bundle-assembler.js";
+import { TaskWorkspaceManager } from "./task-workspace-manager.js";
 import {
   createAgentRunRecord,
   createRunReference,
@@ -83,6 +84,12 @@ import {
   bundleReviewAssessmentMatches,
   normalizeBundleReviewPolicy,
 } from "../domain/bundle-review.js";
+import {
+  compileConfirmedPlanContent,
+  advanceTaskWorkspaceGeneration,
+  createTaskWorkspaceControlSummary,
+  requireTaskWorkspace,
+} from "../domain/task-workspace.js";
 
 const MAX_CONTEXT_HARNESS_RESOURCES = 32;
 // 应用服务是确定性编排入口：语义工作交给 Runtime，权限、状态和证据在此裁决。
@@ -131,6 +138,12 @@ export class ChangeFleetService {
     this.repositoryWorker = new RepositoryWorker({
       workspaceRoot: this.workspaceRoot,
     });
+    this.taskWorkspaceManager = new TaskWorkspaceManager({
+      controlStore: this.controlStore,
+      repositoryWorker: this.repositoryWorker,
+      harnessSnapshotStore: this.harnessSnapshotStore,
+      now: () => this.now(),
+    });
     this.combinedValidator = new CombinedValidator({
       controlRoot: this.controlRoot,
       repositoryWorker: this.repositoryWorker,
@@ -154,12 +167,12 @@ export class ChangeFleetService {
       githubPullRequestAdapter,
       clock,
       controllerId: this.instanceId,
+      releaseTaskWorkspaceResources: (changeSetId) =>
+        this.taskWorkspaceManager.releaseResources(changeSetId),
     });
     this.runService = new ChangeSetRunService({
       controlStore: this.controlStore,
       runStore: this.runStore,
-      repositoryWorker: this.repositoryWorker,
-      harnessSnapshotStore: this.harnessSnapshotStore,
       workspaceRoot: this.workspaceRoot,
       idFactory,
       now: () => this.now(),
@@ -273,8 +286,6 @@ export class ChangeFleetService {
       runStore: this.runStore,
       harnessSnapshotStore: this.harnessSnapshotStore,
       repositoryWorker: this.repositoryWorker,
-      cleanupPlanningWorkspaces: (input) =>
-        this.runService.cleanupPlanningWorkspaces(input),
       recordRuntimeEvidence: (input) =>
         this.runCoordinator.recordRuntimeEvidence(input),
       idFactory,
@@ -471,6 +482,7 @@ export class ChangeFleetService {
     planning_repository_ids,
     repository_selections,
     repository_harness_selections,
+    agent_profile = null,
     actor = "human",
   }) {
     // 创建命令先固定调用者请求，再解析分支；已完成重试绝不能重新观察移动后的 ref。
@@ -480,6 +492,9 @@ export class ChangeFleetService {
     normalizeId("actor", actor);
     const catalog = await this.controlStore.readCatalog();
     const project = requireProject(catalog, project_id);
+    const taskAgentProfile = normalizeAgentProfile(
+      agent_profile ?? this.agentProfile,
+    );
     const requestedSelection = normalizeRepositorySelectionRequest(project, {
       planningRepositoryIds: planning_repository_ids,
       repositorySelections: repository_selections,
@@ -497,6 +512,7 @@ export class ChangeFleetService {
         harnessSelectionRequestFingerprint(
           repository_harness_selections,
         ),
+      agent_profile: taskAgentProfile,
       actor,
     };
     try {
@@ -536,8 +552,17 @@ export class ChangeFleetService {
         confirmedAt: now,
         confirmedBy: actor,
       });
+    const taskWorkspace = await this.taskWorkspaceManager.prepare({
+      changeSetId: change_set_id,
+      project,
+      repositorySelection,
+      repositoryHarnessSelection,
+      agentProfile: taskAgentProfile,
+      createdAt: now,
+    });
     const result = {
       change_set_id,
+      task_workspace_id: taskWorkspace.task_workspace_id,
       repository_selection_revision: 1,
       repository_harness_selection_revision: 1,
       repositories: structuredClone(repositorySelection.repositories),
@@ -564,6 +589,7 @@ export class ChangeFleetService {
         repositoryHarnessSelection,
       ],
       current_repository_harness_selection_revision: 1,
+      task_workspace: taskWorkspace,
       plans: [],
       current_plan_revision: null,
       planning_message_references: [],
@@ -608,7 +634,18 @@ export class ChangeFleetService {
       await this.controlStore.createChangeSet(state);
       return structuredClone(result);
     } catch (error) {
-      if (error.code !== "CHANGE_SET_ALREADY_EXISTS") throw error;
+      if (error.code !== "CHANGE_SET_ALREADY_EXISTS") {
+        await preserveSecondaryFailure(
+          error,
+          "task_workspace_cleanup",
+          () =>
+            this.taskWorkspaceManager.releasePrepared({
+              project,
+              taskWorkspace,
+            }),
+        );
+        throw error;
+      }
       const existing = await this.controlStore.readChangeSet(change_set_id);
       return readIdempotentResult(
         existing,
@@ -620,7 +657,7 @@ export class ChangeFleetService {
   }
 
   async closeChangeSet(request) {
-    // 关闭只写控制事实：不解析基线、不触碰工作区，也不调用 Runtime、验证或交付端口。
+    // 关闭先写不可变的终态事实，再幂等释放该任务拥有的可替换工作区资源。
     const {
       idempotency_key,
       change_set_id,
@@ -628,7 +665,7 @@ export class ChangeFleetService {
       reason,
     } = normalizeChangeSetCloseRequest(request);
     const commandInput = { change_set_id, actor, reason };
-    return this.controlStore.transactChangeSet(change_set_id, (state) =>
+    const result = await this.controlStore.transactChangeSet(change_set_id, (state) =>
       applyIdempotentCommand({
         record: state,
         idempotencyKey: idempotency_key,
@@ -676,6 +713,8 @@ export class ChangeFleetService {
         },
       }),
     );
+    await this.taskWorkspaceManager.releaseResources(change_set_id);
+    return result;
   }
 
   async submitFeedback({
@@ -1044,8 +1083,17 @@ export class ChangeFleetService {
         confirmedAt: this.now(),
         confirmedBy: actor,
       });
+    const nextTaskWorkspace = await this.taskWorkspaceManager.prepare({
+      changeSetId: change_set_id,
+      project,
+      repositorySelection: nextSelection,
+      repositoryHarnessSelection: nextHarnessSelection,
+      agentProfile: requireTaskWorkspace(initialState).agent_profile,
+      createdAt: this.now(),
+    });
 
-    return this.controlStore.transactChangeSet(change_set_id, (state) =>
+    try {
+      return await this.controlStore.transactChangeSet(change_set_id, (state) =>
       applyIdempotentCommand({
         record: state,
         idempotencyKey: idempotency_key,
@@ -1078,6 +1126,11 @@ export class ChangeFleetService {
           );
           state.current_repository_harness_selection_revision =
             nextHarnessRevision;
+          state.task_workspace = advanceTaskWorkspaceGeneration({
+            currentWorkspace: requireTaskWorkspace(state),
+            nextWorkspace: nextTaskWorkspace,
+            retiredAt: this.now(),
+          });
           state.current_plan_revision = null;
           state.current_bundle_review_assessment_id = null;
           state.current_approvable_plan_message_id = null;
@@ -1111,7 +1164,16 @@ export class ChangeFleetService {
           };
         },
       }),
-    );
+      );
+    } catch (error) {
+      await preserveSecondaryFailure(error, "task_workspace_cleanup", () =>
+        this.taskWorkspaceManager.releasePrepared({
+          project,
+          taskWorkspace: nextTaskWorkspace,
+        }),
+      );
+      throw error;
+    }
   }
 
   async reviseRepositoryHarnessSelection({
@@ -1170,8 +1232,17 @@ export class ChangeFleetService {
         confirmedAt: this.now(),
         confirmedBy: actor,
       });
+    const nextTaskWorkspace = await this.taskWorkspaceManager.prepare({
+      changeSetId: change_set_id,
+      project,
+      repositorySelection: currentRepositorySelection(initialState),
+      repositoryHarnessSelection: nextSelection,
+      agentProfile: requireTaskWorkspace(initialState).agent_profile,
+      createdAt: this.now(),
+    });
 
-    return this.controlStore.transactChangeSet(change_set_id, (state) =>
+    try {
+      return await this.controlStore.transactChangeSet(change_set_id, (state) =>
       applyIdempotentCommand({
         record: state,
         idempotencyKey: idempotency_key,
@@ -1193,6 +1264,11 @@ export class ChangeFleetService {
           }
           state.repository_harness_selection_revisions.push(nextSelection);
           state.current_repository_harness_selection_revision = revision;
+          state.task_workspace = advanceTaskWorkspaceGeneration({
+            currentWorkspace: requireTaskWorkspace(state),
+            nextWorkspace: nextTaskWorkspace,
+            retiredAt: this.now(),
+          });
           state.current_plan_revision = null;
           state.current_bundle_review_assessment_id = null;
           state.current_approvable_plan_message_id = null;
@@ -1214,7 +1290,16 @@ export class ChangeFleetService {
           };
         },
       }),
-    );
+      );
+    } catch (error) {
+      await preserveSecondaryFailure(error, "task_workspace_cleanup", () =>
+        this.taskWorkspaceManager.releasePrepared({
+          project,
+          taskWorkspace: nextTaskWorkspace,
+        }),
+      );
+      throw error;
+    }
   }
 
   async resolveRepositorySelectionRevision({
@@ -1346,12 +1431,18 @@ export class ChangeFleetService {
       message === null
         ? null
         : normalizePlanningMessageText(message, "planning.message");
-    const agentProfile = normalizeAgentProfile(
-      agent_profile ?? this.agentProfile,
-    );
     const catalog = await this.controlStore.readCatalog();
     let initialState = await this.controlStore.readChangeSet(change_set_id);
     const project = requireProject(catalog, initialState.project_id);
+    const taskWorkspace = requireTaskWorkspace(initialState);
+    const agentProfile = normalizeAgentProfile(taskWorkspace.agent_profile);
+    if (agent_profile !== null) {
+      invariant(
+        sha256(normalizeAgentProfile(agent_profile)) === sha256(agentProfile),
+        "TASK_AGENT_PROFILE_MISMATCH",
+        "Planning AgentProfile must match the profile selected when the task was created",
+      );
+    }
     const commandInput = {
       change_set_id,
       agent_profile: agentProfile,
@@ -1378,26 +1469,22 @@ export class ChangeFleetService {
         repository,
       ]),
     );
-    const selectedRepositories = repositorySelection.repositories.map(
-      (selection) => projectRepositories.get(selection.repository_id),
-    );
-    const planningProject = {
-      ...project,
-      repositories: selectedRepositories,
-    };
     const planningAttempt =
       initialState.run_references.filter(
         (reference) => reference.operation === "planning",
       ).length + 1;
     const runId = this.idFactory("run");
-    const bases = {};
     const repositoriesForContext = [];
     const harnessObservations = [];
-    const planningWorkspaces = [];
-    // 规划只消费创建时已冻结的选择，不能再次读取分支 tip 或登记默认值。
-    try {
-      for (const selection of repositorySelection.repositories) {
+    const planningWorkspaces = taskWorkspace.repositories.map(
+      (repository) => structuredClone(repository.workspace),
+    );
+    // 规划复用任务创建时准备好的多仓工作空间，但能力保持只读且不会形成 Candidate。
+    for (const selection of repositorySelection.repositories) {
         const repository = projectRepositories.get(selection.repository_id);
+        const repositoryWorkspace = taskWorkspace.repositories.find(
+          (candidate) => candidate.repository_id === selection.repository_id,
+        );
         const harnessSelection =
           repositoryHarnessSelection.repositories.find(
             (candidate) =>
@@ -1414,13 +1501,13 @@ export class ChangeFleetService {
           target_ref: selection.target_ref,
           base_sha: selection.resolved_base_sha,
         };
-        let workspace =
-          await this.repositoryWorker.preparePlanningWorkspace({
-            repository,
-            baseSha: base.base_sha,
-            workspaceId: `planning-${runId}`,
-          });
-        planningWorkspaces.push(workspace);
+        const workspace = repositoryWorkspace.workspace;
+        invariant(
+          workspace.base_sha === base.base_sha &&
+            workspace.target_ref === base.target_ref,
+          "TASK_WORKSPACE_REPOSITORY_MISMATCH",
+          `RepositoryWorkspace ${selection.repository_id} no longer matches current authority`,
+        );
         let overlaySnapshot = null;
         if (
           harnessSelection.mode ===
@@ -1429,23 +1516,13 @@ export class ChangeFleetService {
           overlaySnapshot = await this.harnessSnapshotStore.read(
             harnessSelection.artifact_reference,
           );
-          workspace = {
-            ...workspace,
-            harness_overlay: {
-              ...harnessSelection.artifact_reference,
-              paths: [...harnessSelection.resolved_relative_paths],
-            },
-          };
-          planningWorkspaces[planningWorkspaces.length - 1] = workspace;
-          workspace =
-            await this.repositoryWorker.materializeHarnessOverlay({
-              repository,
-              workspace,
-              snapshot: overlaySnapshot,
-            });
-          planningWorkspaces[planningWorkspaces.length - 1] = workspace;
+          invariant(
+            workspace.harness_overlay?.snapshot_hash ===
+              overlaySnapshot.snapshot_hash,
+            "HARNESS_SNAPSHOT_WORKSPACE_MISMATCH",
+            "Task RepositoryWorkspace is missing its frozen Harness overlay",
+          );
         }
-        bases[selection.repository_id] = base;
         const exactBaseHarness =
           await this.repositoryWorker.discoverHarness(
             repository,
@@ -1471,23 +1548,19 @@ export class ChangeFleetService {
           target_ref: base.target_ref,
           base_sha: base.base_sha,
           root_path: workspace.workspace_path,
+          access: "read_only",
           harness_selection: harnessSelectionForContext(harnessSelection),
           ...harnessResourcesForContext(availableHarness),
         });
-      }
-    } catch (error) {
-      // 部分创建失败时，只清理已经验证归属的规划 worktree。
-      await preserveSecondaryFailure(
-        error,
-        "planning_workspace_cleanup",
-        () =>
-          this.runService.cleanupPlanningWorkspaces({
-            planningWorkspaces,
-            projectRepositories,
-          }),
-      );
-      throw error;
     }
+    const planningWorkspaceSnapshots = await Promise.all(
+      taskWorkspace.repositories.map((candidate) =>
+        this.repositoryWorker.inspectTaskRepositoryWorkspace({
+          repository: requireRepository(project, candidate.repository_id),
+          workspace: candidate.workspace,
+        }),
+      ),
+    );
 
     const controlContract = createControlContract({
       operation: "planning",
@@ -1529,7 +1602,7 @@ export class ChangeFleetService {
           (workspace) => workspace.workspace_path,
         ),
       },
-      requiredEvidence: ["change_plan", "risks", "unverified_boundaries"],
+      requiredEvidence: ["semantic_plan"],
       historyReferences: initialState.plans.slice(-16).map((plan) => ({
         kind: "plan_revision",
         revision: plan.revision,
@@ -1549,6 +1622,7 @@ export class ChangeFleetService {
       verificationPolicy: initialState.verification_policy,
       supervisionPolicy: initialState.supervision_policy,
       bundleReviewPolicy: initialState.bundle_review_policy,
+      workspaceControl: createTaskWorkspaceControlSummary(initialState),
     });
     const invocation = {
       operation: "planning",
@@ -1598,7 +1672,7 @@ export class ChangeFleetService {
           },
           createdAt: this.now(),
           extra: {
-            planning_workspaces: planningWorkspaces,
+            task_workspace_id: taskWorkspace.task_workspace_id,
           },
         }),
       );
@@ -1641,16 +1715,7 @@ export class ChangeFleetService {
         state.updated_at = this.now();
       });
     } catch (error) {
-      // 关闭若先赢得状态事务，规划不得调用 Runtime；只回收本次尚未授权的隔离工作区。
-      await preserveSecondaryFailure(
-        error,
-        "planning_workspace_cleanup",
-        () =>
-          this.runService.cleanupPlanningWorkspaces({
-            planningWorkspaces,
-            projectRepositories,
-          }),
-      );
+      // TaskWorkspace 属于整个 ChangeSet；单次规划失败不能回收后续阶段仍要复用的工作区。
       throw error;
     }
 
@@ -1666,6 +1731,15 @@ export class ChangeFleetService {
         runId,
         invocation,
       );
+      await this.taskWorkspaceManager.assertUnchanged({
+        project,
+        repositoryWorkspaces: taskWorkspace.repositories,
+        repositoryHarnessSelection,
+        beforeSnapshots: planningWorkspaceSnapshots,
+        errorCode: "PLANNING_WORKSPACE_MODIFIED",
+        errorMessage:
+          "Read-only planning modified a TaskWorkspace RepositoryWorkspace",
+      });
       outcome = result.outcome;
       providerEvidence = result.provider_evidence;
       invariant(
@@ -1688,21 +1762,23 @@ export class ChangeFleetService {
           outcome.message.plan === null
             ? null
             : normalizePlanContent(outcome.message.plan, {
-                project: planningProject,
-                bases,
-                intentRevision: initialState.current_intent_revision,
-                repositorySelectionRevision: repositorySelection.revision,
-                repositoryHarnessSelectionRevision:
-                  repositoryHarnessSelection.revision,
                 revisionFeedback: this.feedbackService.currentContent(initialState),
               });
-        const contentDigest = sha256({ text, plan_content: planContent });
+        const workspaceControlSummary =
+          createTaskWorkspaceControlSummary(initialState);
+        const contentDigest = sha256({
+          text,
+          plan_content: planContent,
+          workspace_control_digest: workspaceControlSummary.control_digest,
+        });
         planningMessage = {
-          schema_version: 1,
+          schema_version: 2,
           message_id: this.idFactory("planning-message"),
           role: "assistant",
           text,
           plan_content: planContent,
+          workspace_control_summary: workspaceControlSummary,
+          workspace_control_digest: workspaceControlSummary.control_digest,
           content_digest: contentDigest,
           planning_run_id: runId,
           created_at: this.now(),
@@ -1715,20 +1791,30 @@ export class ChangeFleetService {
       }
     } catch (error) {
       runtimeError = error;
+      try {
+        await this.taskWorkspaceManager.assertUnchanged({
+          project,
+          repositoryWorkspaces: taskWorkspace.repositories,
+          repositoryHarnessSelection,
+          beforeSnapshots: planningWorkspaceSnapshots,
+          errorCode: "PLANNING_WORKSPACE_MODIFIED",
+          errorMessage:
+            "Read-only planning modified a TaskWorkspace RepositoryWorkspace",
+        });
+      } catch (boundaryError) {
+        // 越界写入比 Provider 自身失败更重要；原始失败只作为有界次级诊断保留。
+        runtimeError = attachSecondaryFailure(
+          boundaryError,
+          "planning_runtime_failure",
+          error,
+        );
+      }
       // Provider 已完成而领域规范化失败时，保留已观测证据；仅在错误携带更新证据时覆盖。
       providerEvidence = error.runtime_evidence ?? providerEvidence;
     }
     // 该错误模拟进程已直接消失；保留 running Run 和 worktree 供下一控制器执行确定性恢复。
     if (runtimeError?.code === "CONTROLLER_INTERRUPTED") {
       throw runtimeError;
-    }
-    try {
-      await this.runService.cleanupPlanningWorkspaces({
-        planningWorkspaces,
-        projectRepositories,
-      });
-    } catch (error) {
-      runtimeError ??= error;
     }
     if (runtimeError) {
       await this.runCoordinator.failAttempt({
@@ -1880,17 +1966,20 @@ export class ChangeFleetService {
       "STALE_PLAN_MESSAGE_CONFIRMATION",
       "Plan confirmation does not bind the current exact planning message",
     );
-    const [planningMessage, planningRun] = await Promise.all([
-      this.runStore.readJsonArtifact(reference.artifact_reference),
-      this.runStore.read(reference.run_id),
-    ]);
+    const planningMessage = await this.runStore.readJsonArtifact(
+      reference.artifact_reference,
+    );
     invariant(
       planningMessage.message_id === message_id &&
         planningMessage.content_digest === content_digest &&
         planningMessage.plan_content !== null &&
+        planningMessage.workspace_control_digest ===
+          createTaskWorkspaceControlSummary(initialState).control_digest &&
         sha256({
           text: planningMessage.text,
           plan_content: planningMessage.plan_content,
+          workspace_control_digest:
+            planningMessage.workspace_control_digest,
         }) === content_digest,
       "PLAN_MESSAGE_SUBJECT_MISMATCH",
       "Planning message artifact does not match the approval subject",
@@ -1923,6 +2012,14 @@ export class ChangeFleetService {
             planningMessage.plan_content.revision_feedback_assessments,
             this.feedbackService.currentContent(state),
           );
+          const workspaceControlSummary =
+            createTaskWorkspaceControlSummary(state);
+          invariant(
+            workspaceControlSummary.control_digest ===
+              planningMessage.workspace_control_digest,
+            "STALE_TASK_WORKSPACE_CONTROL",
+            "TaskWorkspace control configuration changed before Plan confirmation",
+          );
           const planRevision =
             state.plans.reduce(
               (maximum, plan) => Math.max(maximum, plan.revision),
@@ -1930,11 +2027,17 @@ export class ChangeFleetService {
             ) + 1;
           const priorPlan = currentPlan(state);
           if (priorPlan) priorPlan.status = "superseded";
-          const plan = createConfirmedPlan(planningMessage.plan_content, {
+          const compiledContent = compileConfirmedPlanContent({
+            state,
+            semanticPlan: planningMessage.plan_content,
+            planRevision,
+          });
+          const taskWorkspace = requireTaskWorkspace(state);
+          const plan = createConfirmedPlan(compiledContent, {
             revision: planRevision,
             confirmedAt: this.now(),
-            agentProfile: planningRun.agent_profile,
-            planningRunId: planningRun.run_id,
+            agentProfile: taskWorkspace.agent_profile,
+            planningRunId: reference.run_id,
             sourceMessageId: message_id,
             sourceContentDigest: content_digest,
           });
@@ -1948,7 +2051,12 @@ export class ChangeFleetService {
               plan_revision: planRevision,
               phase: "execution",
               disposition: "current",
-              workspace: null,
+              workspace: structuredClone(
+                taskWorkspace.repositories.find(
+                  (repository) =>
+                    repository.repository_id === workUnit.repository_id,
+                ).workspace,
+              ),
               run_references: [],
               pending_feedback_id: null,
               candidate_checkpoint_id: null,
@@ -1967,6 +2075,8 @@ export class ChangeFleetService {
             plan_revision: planRevision,
             source_message_id: message_id,
             source_content_digest: content_digest,
+            workspace_control_digest:
+              workspaceControlSummary.control_digest,
             actor,
             decided_at: this.now(),
           });
@@ -1983,7 +2093,13 @@ export class ChangeFleetService {
             change_set_id,
             plan_revision: planRevision,
             status: "confirmed",
-            plan: structuredClone(plan),
+            // 对外确认结果仍把 Plan 表达为语义内容；内部控制记录只留在聚合状态。
+            plan: {
+              revision: plan.revision,
+              status: plan.status,
+              ...structuredClone(plan.semantic_plan),
+            },
+            workspace_control_summary: workspaceControlSummary,
           };
         },
       }),
@@ -1992,7 +2108,10 @@ export class ChangeFleetService {
   }
 
   async maybeAutoStartAfterConfirmation(confirmation) {
-    if (confirmation.plan.supervision.mode !== "autonomous_until_review") {
+    if (
+      confirmation.workspace_control_summary.supervision.mode !==
+      "autonomous_until_review"
+    ) {
       return confirmation;
     }
     const supervision = await this.runAutonomousSupervision(
@@ -2178,22 +2297,16 @@ export class ChangeFleetService {
             ["execution", "verification"].includes(unit.phase) &&
             !unit.run_references.some(
               (reference) => reference.status === "running",
-            ) &&
-            unit.dependencies.every(
-              (dependency) =>
-                currentUnits.find(
-                  (candidate) => candidate.work_unit_id === dependency,
-                )?.phase === "complete",
             ),
         );
-        // 在依赖允许时先启动尚未执行的仓库，再消费已有检查点。
+        // 先启动尚未执行的仓库，再消费已有检查点。
         // 这样多个仓库可以自然处于不同阶段，而无需并发状态或额外生命周期。
         const ready =
           dispatchable.find((unit) => unit.phase === "execution") ??
           dispatchable.find((unit) => unit.phase === "verification");
         invariant(
           ready,
-          "WORK_UNIT_DEPENDENCY_BLOCKED",
+          "WORK_UNIT_NOT_DISPATCHABLE",
           "No WorkUnit is ready and the current plan is incomplete",
           {
             units: incomplete.map((unit) => ({
@@ -2602,6 +2715,7 @@ export class ChangeFleetService {
     const repositorySelection = currentRepositorySelection(state);
     const repositoryHarnessSelection =
       currentRepositoryHarnessSelection(state);
+    const taskWorkspace = requireTaskWorkspace(state);
     const workUnit = unitsForCurrentPlan(state).find(
       (candidate) => candidate.work_unit_id === workUnitId,
     );
@@ -2656,15 +2770,19 @@ export class ChangeFleetService {
       (reference) => reference.operation === "execution",
     );
     const attempt = executionReferences.length + 1;
-    const reuseWorkspace = Boolean(
-      isFeedbackExecution && sourceCheckpoint && workUnit.workspace,
+    const reuseCandidate = Boolean(isFeedbackExecution && sourceCheckpoint);
+    const repositoryWorkspace = taskWorkspace.repositories.find(
+      (candidate) => candidate.repository_id === workUnit.repository_id,
     );
-    const workspaceId = reuseWorkspace
-      ? workUnit.workspace.workspace_id
-      : `${changeSetId}.${plan.revision}.${workUnitId}.${attempt}`;
-    let workspace;
-    if (reuseWorkspace) {
-      // 反馈执行只在精确 checkpoint 仍匹配时复用工作区；否则创建新的受控工作区。
+    invariant(
+      repositoryWorkspace?.workspace.workspace_id ===
+        workUnit.workspace?.workspace_id,
+      "TASK_WORKSPACE_SUBJECT_MISMATCH",
+      `WorkUnit ${workUnitId} does not use its TaskWorkspace RepositoryWorkspace`,
+    );
+    let workspace = structuredClone(workUnit.workspace);
+    if (reuseCandidate) {
+      // 同一任务的修正继续使用已形成 Candidate 的持久工作区。
       await this.repositoryWorker.preflightCandidate({
         repository,
         candidate: {
@@ -2673,13 +2791,13 @@ export class ChangeFleetService {
           workspace_path: workUnit.workspace.workspace_path,
         },
       });
-      workspace = structuredClone(workUnit.workspace);
     } else {
-      workspace = await this.repositoryWorker.prepareWorkspace({
+      // 首次执行和 Provider 重试都必须从任务创建时冻结的干净 base 开始。
+      await this.repositoryWorker.preflightExecutionRetry({
         repository,
+        workspace,
         targetRef: workUnit.target_ref,
         baseSha: workUnit.base_sha,
-        workspaceId,
       });
     }
     let overlaySnapshot = null;
@@ -2690,13 +2808,22 @@ export class ChangeFleetService {
       overlaySnapshot = await this.harnessSnapshotStore.read(
         selectedHarness.artifact_reference,
       );
-      workspace = await this.repositoryWorker.materializeHarnessOverlay({
-        repository,
-        workspace,
-        snapshot: overlaySnapshot,
-      });
+      if (reuseCandidate) {
+        workspace = await this.repositoryWorker.materializeHarnessOverlay({
+          repository,
+          workspace,
+          snapshot: overlaySnapshot,
+        });
+      } else {
+        // 初始 TaskWorkspace 已装配冻结 overlay；此处只验证，避免重复复制掩盖漂移。
+        await this.repositoryWorker.verifyHarnessOverlay({
+          repository,
+          workspace,
+          snapshot: overlaySnapshot,
+        });
+      }
     }
-    const harnessCommit = reuseWorkspace
+    const harnessCommit = reuseCandidate
       ? sourceCheckpoint.candidate_sha
       : workUnit.base_sha;
     const exactBaseHarness = await this.repositoryWorker.discoverHarness(
@@ -2713,6 +2840,18 @@ export class ChangeFleetService {
       exactBaseResources: exactBaseHarness,
       overlayResources: frozenOverlayHarness,
     });
+    const readOnlyRepositoryWorkspaces = taskWorkspace.repositories.filter(
+      (candidate) => candidate.repository_id !== workUnit.repository_id,
+    );
+    // OS 权限可能覆盖整个任务目录，因此执行前冻结只读兄弟仓库的 Git 身份并在返回后复核。
+    const readOnlyWorkspaceSnapshots = await Promise.all(
+      readOnlyRepositoryWorkspaces.map((candidate) =>
+        this.repositoryWorker.inspectTaskRepositoryWorkspace({
+          repository: requireRepository(project, candidate.repository_id),
+          workspace: candidate.workspace,
+        }),
+      ),
+    );
     const runId = this.idFactory("run");
     const run = createAgentRunRecord({
       runId,
@@ -2797,7 +2936,10 @@ export class ChangeFleetService {
       repositoryHarnessSelectionRevision:
         repositoryHarnessSelection.revision,
       workUnitId,
-      authorizedRepositories: [workUnit.repository_id],
+      authorizedRepositories: taskWorkspace.repositories.map(
+        (candidate) => candidate.repository_id,
+      ),
+      writableRepositories: [workUnit.repository_id],
       allowedOutcomes: [
         "implementation_completed",
         "implementation_blocked",
@@ -2818,17 +2960,47 @@ export class ChangeFleetService {
           branch_ref: selectedRepository.branch_ref,
           target_ref: workUnit.target_ref,
           base_sha: workUnit.base_sha,
-          ...(reuseWorkspace
+          ...(reuseCandidate
             ? { candidate_sha: sourceCheckpoint.candidate_sha }
             : {}),
           root_path: workspace.workspace_path,
+          access: "read_write",
           harness_selection: harnessSelectionForContext(selectedHarness),
           ...harnessResourcesForContext(availableHarness),
         },
+        ...readOnlyRepositoryWorkspaces.map((candidate) => {
+          const linkedSelection = repositorySelection.repositories.find(
+            (selected) => selected.repository_id === candidate.repository_id,
+          );
+          const linkedHarness = repositoryHarnessSelection.repositories.find(
+            (selected) => selected.repository_id === candidate.repository_id,
+          );
+          const snapshot = readOnlyWorkspaceSnapshots.find(
+            (item) => item.repository_id === candidate.repository_id,
+          );
+          return {
+            repository_id: candidate.repository_id,
+            branch_ref: candidate.branch_ref,
+            target_ref: candidate.target_ref,
+            base_sha: candidate.base_sha,
+            ...(snapshot.head_sha === candidate.base_sha
+              ? {}
+              : { candidate_sha: snapshot.head_sha }),
+            root_path: candidate.workspace.workspace_path,
+            access: "read_only",
+            harness_selection: harnessSelectionForContext(linkedHarness),
+            selected_branch_ref: linkedSelection.branch_ref,
+          };
+        }),
       ],
       capability: {
         mode: "read_write",
-        paths: [workspace.workspace_path],
+        paths: [
+          workspace.workspace_path,
+          ...readOnlyRepositoryWorkspaces.map(
+            (candidate) => candidate.workspace.workspace_path,
+          ),
+        ],
       },
       requiredEvidence: isFeedbackExecution
         ? [
@@ -2880,6 +3052,15 @@ export class ChangeFleetService {
       );
       outcome = result.outcome;
       providerEvidence = result.provider_evidence;
+      await this.taskWorkspaceManager.assertUnchanged({
+        project,
+        repositoryWorkspaces: readOnlyRepositoryWorkspaces,
+        repositoryHarnessSelection,
+        beforeSnapshots: readOnlyWorkspaceSnapshots,
+        errorCode: "READ_ONLY_REPOSITORY_MODIFIED",
+        errorMessage:
+          "Execution modified a linked RepositoryWorkspace outside its assigned WorkUnit",
+      });
       invariant(
         [
           "implementation_completed",
@@ -2928,15 +3109,38 @@ export class ChangeFleetService {
         current.updated_at = this.now();
       });
     } catch (error) {
-      if (error.code === "CONTROLLER_INTERRUPTED") throw error;
+      let failure = error;
+      try {
+        await this.taskWorkspaceManager.assertUnchanged({
+          project,
+          repositoryWorkspaces: readOnlyRepositoryWorkspaces,
+          repositoryHarnessSelection,
+          beforeSnapshots: readOnlyWorkspaceSnapshots,
+          errorCode: "READ_ONLY_REPOSITORY_MODIFIED",
+          errorMessage:
+            "Execution modified a linked RepositoryWorkspace outside its assigned WorkUnit",
+        });
+      } catch (boundaryError) {
+        failure = attachSecondaryFailure(
+          boundaryError,
+          "execution_runtime_failure",
+          error,
+        );
+      }
+      if (failure.code === "CONTROLLER_INTERRUPTED") throw failure;
       await this.runCoordinator.failAttempt({
         runId,
         invocation,
         providerEvidence: error.runtime_evidence ?? providerEvidence,
-        error,
+        error: failure,
       });
-      await this.runService.failWorkUnit(changeSetId, workUnitId, error, runId);
-      throw error;
+      await this.runService.failWorkUnit(
+        changeSetId,
+        workUnitId,
+        failure,
+        runId,
+      );
+      throw failure;
     }
 
     if (outcome.type === "implementation_blocked") {
@@ -3013,7 +3217,7 @@ export class ChangeFleetService {
       const published = await this.repositoryWorker.publishCandidate({
         repository,
         workspace,
-        expectedHead: reuseWorkspace
+        expectedHead: reuseCandidate
           ? sourceCheckpoint.candidate_sha
           : workUnit.base_sha,
         baseSha: workUnit.base_sha,
@@ -3022,7 +3226,7 @@ export class ChangeFleetService {
           : `ChangeFleet ${changeSetId} ${workUnitId}`,
       });
       invariant(
-        !reuseWorkspace ||
+        !reuseCandidate ||
           !published.no_change ||
           outcome.changed_paths.length === 0,
         "FEEDBACK_EXECUTION_CHANGED_PATHS_MISMATCH",
@@ -3030,7 +3234,7 @@ export class ChangeFleetService {
         { source_run_id: runId, reported_changed_paths: outcome.changed_paths },
       );
       invariant(
-        reuseWorkspace ||
+        reuseCandidate ||
           (!published.no_change && published.changed_paths.length > 0),
         "EMPTY_IMPLEMENTATION_RESULT",
         "Runtime implementation produced no Git change for the WorkUnit",
@@ -3205,32 +3409,8 @@ function createBundleReviewProjection({
     ),
     plan: {
       revision: plan.revision,
-      rationale: plan.rationale,
-      bundle_review: structuredClone(plan.bundle_review),
-      risks: [...plan.risks],
-      unverified_boundaries: [...plan.unverified_boundaries],
-      work_units: plan.work_units.map((unit) => ({
-        work_unit_id: unit.work_unit_id,
-        repository_id: unit.repository_id,
-        task: unit.task,
-        dependencies: [...unit.dependencies],
-        repository_check:
-          unit.repository_check === null
-            ? null
-            : {
-                command_id: unit.repository_check.command_id,
-                coverage_rationale: unit.repository_check.coverage_rationale,
-              },
-        repository_check_rationale: unit.repository_check_rationale,
-      })),
-      combined_check:
-        plan.combined_check === null
-          ? null
-          : {
-              command_id: plan.combined_check.command_id,
-              coverage_rationale: plan.combined_check.coverage_rationale,
-            },
-      combined_check_rationale: plan.combined_check_rationale,
+      // Reviewer 需要理解目标和风险；精确 Candidate、证据和准入策略由其他字段提供。
+      ...structuredClone(plan.semantic_plan),
     },
     bundle: {
       bundle_id: bundle.bundle_id,

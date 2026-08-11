@@ -2,8 +2,8 @@ import { canonicalStringify } from "./canonical-json.js";
 import { invariant } from "./errors.js";
 
 // Runtime 只接收当前操作所需投影；完整历史留在控制存储中按引用读取。
-export const CONTROL_CONTRACT_VERSION = 5;
-export const CONTEXT_PROJECTION_VERSION = 12;
+export const CONTROL_CONTRACT_VERSION = 6;
+export const CONTEXT_PROJECTION_VERSION = 13;
 const RUNTIME_EXCLUDED_DECISION_TYPES = new Set([
   "bundle_review",
   "changeset_closure",
@@ -18,6 +18,7 @@ export function createControlContract({
   repositoryHarnessSelectionRevision,
   workUnitId = null,
   authorizedRepositories,
+  writableRepositories = [],
   allowedOutcomes,
   humanGates,
 }) {
@@ -31,6 +32,8 @@ export function createControlContract({
       repositoryHarnessSelectionRevision,
     work_unit_id: workUnitId,
     authorized_repositories: authorizedRepositories,
+    // 可读仓库与可写仓库分开冻结；Runtime 权限宽于声明时仍由执行前后 Git 身份比对兜底。
+    writable_repositories: writableRepositories,
     allowed_outcomes: allowedOutcomes,
     human_gates: humanGates,
     runtime_kit: {
@@ -55,6 +58,7 @@ export function createContextProjection({
   verificationPolicy = null,
   supervisionPolicy = null,
   bundleReviewPolicy = null,
+  workspaceControl = null,
   verification = null,
   feedback = null,
 }) {
@@ -63,7 +67,8 @@ export function createContextProjection({
     operation,
     change_set_id: changeSet.change_set_id,
     confirmed_intent: changeSet.intents.at(-1),
-    current_plan: plan,
+    // Agent 只消费已确认的语义计划；Core 编译出的 WorkUnit、预算和审核配置不回灌上下文。
+    current_plan: projectSemanticPlan(plan),
     verification_policy:
       verificationPolicy === null ? null : structuredClone(verificationPolicy),
     supervision_policy:
@@ -72,6 +77,8 @@ export function createContextProjection({
       bundleReviewPolicy === null
         ? null
         : structuredClone(bundleReviewPolicy),
+    workspace_control:
+      workspaceControl === null ? null : structuredClone(workspaceControl),
     // 只投影当前选择，不把已废弃 revision 历史灌入 Agent 上下文。
     repository_selection: repositorySelection,
     repository_harness_selection: repositoryHarnessSelection,
@@ -97,6 +104,14 @@ export function createContextProjection({
     verification:
       verification === null ? null : structuredClone(verification),
     history_references: historyReferences,
+  };
+}
+
+function projectSemanticPlan(plan) {
+  if (!plan?.semantic_plan) return null;
+  return {
+    revision: plan.revision,
+    ...structuredClone(plan.semantic_plan),
   };
 }
 
@@ -133,7 +148,6 @@ function projectWorkUnit(workUnit) {
       "work_unit_id",
       "repository_id",
       "task",
-      "dependencies",
       "target_ref",
       "base_sha",
       "repository_selection_revision",

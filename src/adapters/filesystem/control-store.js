@@ -11,7 +11,7 @@ import { readJsonFile, writeJsonFileAtomic } from "./atomic-json-file.js";
 import { DirectoryLock } from "./directory-lock.js";
 
 // 当前私有存储只接受一个精确版本；未发布的旧格式不会在生产启动时被隐式改写。
-export const CONTROL_SCHEMA_VERSION = 12;
+export const CONTROL_SCHEMA_VERSION = 13;
 
 export class ControlStore {
   constructor(controlRoot, { clock = () => new Date() } = {}) {
@@ -226,4 +226,12 @@ function assertChangeSetRecord(record, label) {
       `${label} must contain the ${field} array`,
     );
   }
+  invariant(
+    record.task_workspace?.change_set_id === record.change_set_id &&
+      typeof record.task_workspace.task_workspace_id === "string" &&
+      Array.isArray(record.task_workspace.repositories) &&
+      record.task_workspace.repositories.length > 0,
+    "INVALID_CONTROL_RECORD",
+    `${label} must contain one prepared TaskWorkspace`,
+  );
 }

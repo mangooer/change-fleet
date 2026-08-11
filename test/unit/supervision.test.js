@@ -330,7 +330,6 @@ function createState() {
         repository_id: "repository-1",
         phase: "execution",
         disposition: "current",
-        dependencies: [],
         run_references: [],
         validation_attempt_ids: [],
         candidate_checkpoint_id: null,

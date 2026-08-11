@@ -34,8 +34,9 @@ questions. It describes what and why, not the complete implementation method.
 
 ## ChangePlan
 
-A versioned, code-informed proposal describing affected repositories, WorkUnits, dependencies,
-validation, Bundle review admission, supervision authorization, delivery, and risks.
+A versioned, code-informed semantic proposal describing implementation steps, validation intent,
+risks, and assumptions. Git authority, Runtime configuration, budgets, review, and delivery policy
+remain separate Core-owned task control.
 
 ## ChangeSet
 

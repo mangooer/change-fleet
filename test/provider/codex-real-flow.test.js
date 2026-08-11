@@ -123,7 +123,7 @@ test(
           "The initial execution checkpoint contains the exact final feature value and no finalization marker.",
           "A verifier-requested exact marker check fails and a read-only Supervisor selects bounded implementation Feedback.",
           "The feedback-triggered execution adds the exact finalization marker without changing the feature value.",
-          "The exact repository and combined checks pass.",
+          "Exact structural and verifier-requested checks pass.",
           "An independent read-only Bundle review recommends passage for the exact Candidate.",
         ],
       },
@@ -147,14 +147,18 @@ test(
       idempotency_key: "plan",
       change_set_id: "real-change",
     });
-    assert.equal(planned.message.plan_content.work_units.length, 1);
-    assert.equal(planned.message.plan_content.work_units[0].repository_id, "api");
-    assert.equal(planned.message.plan_content.work_units[0].base_sha, selectedBase);
-    assert.match(
-      planned.message.plan_content.work_units[0].task,
-      /initial execution/u,
+    assert.equal("work_units" in planned.message.plan_content, false);
+    assert.ok(planned.message.plan_content.summary.length > 0);
+    assert.ok(planned.message.plan_content.steps.length > 0);
+    assert.equal(
+      planned.message.workspace_control_summary.repositories[0].repository_id,
+      "api",
     );
-    assert.deepEqual(planned.message.plan_content.bundle_review, {
+    assert.equal(
+      planned.message.workspace_control_summary.repositories[0].base_sha,
+      selectedBase,
+    );
+    assert.deepEqual(planned.message.workspace_control_summary.bundle_review, {
       mode: "independent",
       agent_profile_id: "codex-real-acceptance-reviewer",
       agent_profile_revision: 1,
@@ -377,8 +381,6 @@ test(
 function realProviderHarness() {
   const repositoryCheck =
     `const fs=require('node:fs');if(fs.readFileSync('feature.txt','utf8')!==${JSON.stringify(EXPECTED_FEATURE)})process.exit(2);if(fs.existsSync('finalized.txt')&&fs.readFileSync('finalized.txt','utf8')!==${JSON.stringify(EXPECTED_MARKER)})process.exit(3)`;
-  const combinedCheck =
-    "const fs=require('node:fs');const m=JSON.parse(fs.readFileSync(process.env.CHANGEFLEET_VALIDATION_MANIFEST,'utf8'));if(m.candidates.length!==1)process.exit(2);const w=m.candidates[0].workspace_path;if(fs.readFileSync(w+'/feature.txt','utf8')!=='codex real provider implementation\\n')process.exit(3);if(fs.readFileSync(w+'/finalized.txt','utf8')!=='supervisor feedback applied\\n')process.exit(4)";
   const requestedCheck = {
     command_id: "verification-final-feature-check",
     executable: "node",
@@ -398,24 +400,20 @@ function realProviderHarness() {
     "- During a later feedback-triggered execution, create `finalized.txt` with exactly `supervisor feedback applied` followed by one newline.",
     "- Do not modify any other file.",
     "",
-    "For planning, return exactly one WorkUnit with:",
+    "For planning, return a concise semantic Plan with:",
     "",
-    "- `work_unit_id`: `api-unit`",
-    "- `repository_id`: `api`",
-    "- `task`: `Create feature.txt with exactly codex real provider implementation followed by one newline. During the initial execution do not create finalized.txt; only a later execution receiving exact validation Feedback may add that marker.`",
-    "- no dependencies",
-    `- repository check executable \`node\`, argv \`${JSON.stringify(["-e", repositoryCheck])}\`, timeout 10000`,
-    `- combined check executable \`node\`, argv \`${JSON.stringify(["-e", combinedCheck])}\`, timeout 10000`,
-    "- supervision mode `autonomous_until_review` with execution attempt limit 3, verification attempt limit 6, Feedback cycle limit 2, and elapsed time limit 600000 milliseconds",
-    "- Bundle review mode `independent` with AgentProfile id `codex-real-acceptance-reviewer`, AgentProfile revision 1, and attempt limit 2",
-    "- empty risks and unverified boundaries",
+    "- a summary of the requested feature and later Feedback finalization;",
+    "- implementation steps that preserve the initial-versus-Feedback boundary;",
+    "- validation guidance for the exact file contents;",
+    "- empty risks, assumptions, and revision feedback assessments.",
+    "Do not include WorkUnits, Git identities, commands, profiles, budgets, supervision, review, or delivery configuration.",
     "",
     "During initial execution without feedback, use the available filesystem editing tool to write exactly `codex real provider implementation` followed by one newline. Do not create `finalized.txt` in this Run; that file is reserved for a later feedback-triggered execution.",
-    "After editing, run the exact repository check yourself and return completion only when it exits with code 0.",
+    `After editing, run this local diagnostic with executable \`node\` and argv \`${JSON.stringify(["-e", repositoryCheck])}\`; return completion only when it exits with code 0.`,
     "Leave Git commits to ChangeFleet.",
     "",
     `During initial verification, when \`feature.txt\` has the exact implementation and \`finalized.txt\` is absent, return triage \`pass\` with no findings, notes, or human decision and exactly this conditional requested check: \`${JSON.stringify(requestedCheck)}\`. The controller-owned failure of that check is the intended exact evidence for Supervisor routing.`,
-    "During execution with feedback, assess the failed exact marker check as `adopt`, preserve `feature.txt`, create `finalized.txt` with exactly `supervisor feedback applied` followed by one newline, run the repository check, and return `implementation_completed`.",
+    "During execution with feedback, assess the failed exact marker check as `adopt`, preserve `feature.txt`, create `finalized.txt` with exactly `supervisor feedback applied` followed by one newline, run the same local diagnostic, and return `implementation_completed`.",
     "During verification with feedback lineage, if `feature.txt` and `finalized.txt` have the exact accepted contents and no other tracked path changed, return a triage `pass` with no findings, notes, human decision, or requested checks.",
     "During Bundle review, if the exact Candidate contains only the two accepted files with their required contents and the supplied checks passed, return `bundle_review_completed` with disposition `pass`, summary `Exact Candidate satisfies the confirmed intent and evidence.`, no findings, and no human decision.",
     "",

@@ -288,7 +288,6 @@ const MESSAGES = {
     DUPLICATE_STRING: "The list contains duplicate text.",
     DUPLICATE_REPOSITORY_WORK_UNIT: "A Repository can have only one WorkUnit in a plan.",
     MISSING_FROZEN_BASE: "The Repository has no frozen base suitable for execution.",
-    WORK_UNIT_DEPENDENCY_CYCLE: "WorkUnit dependencies contain a cycle.",
     UNKNOWN_WORK_UNIT_DEPENDENCY: "A WorkUnit depends on an unknown WorkUnit.",
     COMBINED_VALIDATION_FAILED: "Combined validation did not pass for the exact Candidate set.",
     INITIAL_CONTEXT_BUDGET_EXCEEDED: "Initial context exceeds the 70 percent budget.",

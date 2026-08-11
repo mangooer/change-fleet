@@ -362,7 +362,7 @@ describe("Repository Harness overlays", () => {
     assert.equal(await readFile(fixture.skillPath, "utf8"), FROZEN_SKILL);
   });
 
-  test("detects planning mutation and still removes the owned worktree", async (t) => {
+  test("detects planning mutation while retaining the task-owned worktree", async (t) => {
     const fixture = await createHarnessFixture(t, "planning-mutation");
     const runtime = new MutatingPlanningHarnessRuntime({
       plan: createOneRepositoryPlan(
@@ -390,10 +390,12 @@ describe("Repository Harness overlays", () => {
     const run = await service.runStore.read(state.run_references[0].run_id);
     assert.equal(run.status, "failed");
     assert.equal(
-      await stat(run.planning_workspaces[0].workspace_path).catch(
-        () => null,
-      ),
-      null,
+      (
+        await stat(
+          state.task_workspace.repositories[0].workspace.workspace_path,
+        )
+      ).isDirectory(),
+      true,
     );
   });
 

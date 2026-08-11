@@ -565,8 +565,7 @@ export class BundleReviewOrchestrator {
               createdAt: completedAt,
             });
             setWorkUnitPhase(unit, "execution");
-            unit.workspace = null;
-            unit.candidate_checkpoint_id = null;
+            // 同 Plan 修正从当前精确 Candidate 继续；持久 RepositoryWorkspace 和 checkpoint 不得丢失。
             unit.verification_admission_id = null;
             unit.verification_review_id = null;
             unit.pending_feedback_id = feedback.feedback_id;

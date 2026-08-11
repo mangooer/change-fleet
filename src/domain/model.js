@@ -7,12 +7,8 @@ import {
 import { invariant } from "./errors.js";
 import {
   createCheckIdentity,
-  normalizeVerificationExpectation,
-  normalizeVerificationPolicy,
   verificationReviewAllowsCandidate,
 } from "./verification.js";
-import { normalizePlanSupervision } from "./supervision.js";
-import { normalizePlanBundleReview } from "./bundle-review.js";
 
 // 领域模块保持纯函数：只验证输入与构造稳定身份，不读取 Git、文件或当前时间。
 const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
@@ -254,152 +250,52 @@ export function normalizeOptionalCommand(
 
 export function normalizePlanContent(
   input,
-  {
-    project,
-    bases,
-    intentRevision,
-    repositorySelectionRevision,
-    repositoryHarnessSelectionRevision,
-    revisionFeedback = null,
-  },
+  { revisionFeedback = null } = {},
 ) {
   invariant(
     input && typeof input === "object",
     "INVALID_PLAN",
-    "Runtime planning outcome must contain a plan object",
+    "Runtime planning outcome must contain one semantic Plan",
   );
-  invariant(
-    // 项目目录是授权上限，不是每次变更都必须覆盖的执行清单。
-    Array.isArray(input.work_units) && input.work_units.length >= 1,
+  assertExactFields(
+    "semantic Plan",
+    input,
+    [
+      "assumptions",
+      "revision_feedback_assessments",
+      "risks",
+      "steps",
+      "summary",
+      "validation",
+    ],
     "INVALID_PLAN",
-    "A ChangePlan requires at least one WorkUnit",
   );
-  invariant(
-    Number.isSafeInteger(repositorySelectionRevision) &&
-      repositorySelectionRevision > 0,
-    "INVALID_REPOSITORY_SELECTION_REVISION",
-    "A ChangePlan requires one positive Repository selection revision",
-  );
-  invariant(
-    Number.isSafeInteger(repositoryHarnessSelectionRevision) &&
-      repositoryHarnessSelectionRevision > 0,
-    "INVALID_REPOSITORY_HARNESS_SELECTION_REVISION",
-    "A ChangePlan requires one positive Repository Harness selection revision",
-  );
-
-  const authorizedRepositories = new Set(
-    project.repositories.map((repository) => repository.repository_id),
-  );
-  const verificationPolicy = normalizeVerificationPolicy(
-    project.verification_policy,
-  );
-  const seenUnits = new Set();
-  const seenRepositories = new Set();
-  const workUnits = input.work_units.map((workUnit) => {
-    const workUnitId = normalizeId("work_unit_id", workUnit.work_unit_id);
-    const repositoryId = normalizeId(
-      "repository_id",
-      workUnit.repository_id,
-    );
-    invariant(
-      !seenUnits.has(workUnitId),
-      "DUPLICATE_WORK_UNIT",
-      `Duplicate WorkUnit id ${workUnitId}`,
-    );
-    invariant(
-      authorizedRepositories.has(repositoryId),
-      "SCOPE_EXPANSION_REQUIRED",
-      `Repository ${repositoryId} is not authorized for this Project`,
-      { requested_repository_id: repositoryId },
-    );
-    invariant(
-      !seenRepositories.has(repositoryId),
-      "DUPLICATE_REPOSITORY_WORK_UNIT",
-      `The first slice allows one WorkUnit per Repository: ${repositoryId}`,
-    );
-    invariant(
-      bases[repositoryId],
-      "MISSING_FROZEN_BASE",
-      `No frozen base exists for Repository ${repositoryId}`,
-    );
-    seenUnits.add(workUnitId);
-    seenRepositories.add(repositoryId);
-    return {
-      work_unit_id: workUnitId,
-      repository_id: repositoryId,
-      task: requireString("work_unit.task", workUnit.task),
-      dependencies: normalizeIdArray(
-        "work_unit.dependencies",
-        workUnit.dependencies,
-      ),
-      target_ref: bases[repositoryId].target_ref,
-      base_sha: bases[repositoryId].base_sha,
-      repository_selection_revision: repositorySelectionRevision,
-      repository_harness_selection_revision:
-        repositoryHarnessSelectionRevision,
-      repository_check: normalizeOptionalCommand(
-        workUnit.repository_check,
-        `${workUnitId}.repository_check`,
-        {
-          defaultTimeoutMs: verificationPolicy.default_attempt_timeout_ms,
-          maxTimeoutMs: verificationPolicy.max_attempt_timeout_ms,
-        },
-      ),
-      repository_check_rationale: requireString(
-        `${workUnitId}.repository_check_rationale`,
-        workUnit.repository_check_rationale,
-      ),
-    };
+  const steps = normalizeSemanticPlanItems("steps", input.steps, {
+    minimum: 1,
   });
-
-  validateDependencyGraph(workUnits);
-
-  const plannedRepositories = [...seenRepositories].sort();
-  invariant(
-    plannedRepositories.length > 0,
-    "INCOMPLETE_REPOSITORY_SCOPE",
-    "A ChangePlan must cover at least one explicitly authorized Repository",
-    { plannedRepositories },
-  );
-
-  return {
-    intent_revision: intentRevision,
-    repository_selection_revision: repositorySelectionRevision,
-    repository_harness_selection_revision:
-      repositoryHarnessSelectionRevision,
-    rationale: normalizeOptionalString(input.rationale),
-    // 人类反馈是待评估的审查主张；计划必须逐项记录判断，不能把它静默当成事实或忽略。
+  const plan = {
+    summary: boundedUtf8String(
+      "plan.summary",
+      input.summary,
+      4 * 1024,
+      "INVALID_PLAN",
+    ),
+    steps,
+    validation: normalizeSemanticPlanItems("validation", input.validation),
+    risks: normalizeSemanticPlanItems("risks", input.risks),
+    assumptions: normalizeSemanticPlanItems("assumptions", input.assumptions),
+    // 人类反馈仍是待评估的审查主张，但评估属于语义计划而不是控制配置。
     revision_feedback_assessments: normalizeRevisionFeedbackAssessments(
       input.revision_feedback_assessments,
       revisionFeedback,
     ),
-    work_units: workUnits,
-    combined_check: normalizeOptionalCommand(
-      input.combined_check,
-      "combined_check",
-      {
-        defaultTimeoutMs: verificationPolicy.default_attempt_timeout_ms,
-        maxTimeoutMs: verificationPolicy.max_attempt_timeout_ms,
-      },
-    ),
-    combined_check_rationale: requireString(
-      "combined_check_rationale",
-      input.combined_check_rationale,
-    ),
-    verification_expectation: normalizeVerificationExpectation(
-      input.verification_expectation,
-    ),
-    bundle_review: normalizePlanBundleReview(
-      input.bundle_review,
-      project.bundle_review_policy,
-    ),
-    supervision: normalizePlanSupervision(
-      input.supervision,
-      project.supervision_policy,
-    ),
-    risks: normalizeStringArray(input.risks),
-    unverified_boundaries: normalizeStringArray(input.unverified_boundaries),
   };
+  invariant(
+    Buffer.byteLength(canonicalStringify(plan), "utf8") <= PLANNING_MESSAGE_BYTES,
+    "INVALID_PLAN",
+    "Semantic Plan exceeds the bounded planning payload",
+  );
+  return plan;
 }
 
 export function createConfirmedPlan(
@@ -954,48 +850,26 @@ export function candidateIdentity(candidate) {
   };
 }
 
-function validateDependencyGraph(workUnits) {
-  const units = new Map(
-    workUnits.map((workUnit) => [workUnit.work_unit_id, workUnit]),
-  );
-  for (const workUnit of workUnits) {
-    for (const dependency of workUnit.dependencies) {
-      invariant(
-        units.has(dependency),
-        "UNKNOWN_WORK_UNIT_DEPENDENCY",
-        `${workUnit.work_unit_id} depends on unknown WorkUnit ${dependency}`,
-      );
-      invariant(
-        dependency !== workUnit.work_unit_id,
-        "WORK_UNIT_DEPENDENCY_CYCLE",
-        `${workUnit.work_unit_id} cannot depend on itself`,
-      );
-    }
-  }
-
-  const visiting = new Set();
-  const visited = new Set();
-  function visit(workUnitId) {
-    if (visited.has(workUnitId)) return;
-    invariant(
-      !visiting.has(workUnitId),
-      "WORK_UNIT_DEPENDENCY_CYCLE",
-      `WorkUnit dependency cycle includes ${workUnitId}`,
-    );
-    visiting.add(workUnitId);
-    for (const dependency of units.get(workUnitId).dependencies) {
-      visit(dependency);
-    }
-    visiting.delete(workUnitId);
-    visited.add(workUnitId);
-  }
-  for (const workUnitId of units.keys()) visit(workUnitId);
-}
-
 function normalizeStringArray(value) {
   if (value === undefined) return [];
   invariant(Array.isArray(value), "INVALID_STRING_ARRAY", "Expected an array");
   return value.map((item) => requireString("array item", item));
+}
+
+function normalizeSemanticPlanItems(label, value, { minimum = 0 } = {}) {
+  invariant(
+    Array.isArray(value) && value.length >= minimum && value.length <= 16,
+    "INVALID_PLAN",
+    `Semantic Plan ${label} must contain ${minimum}-16 items`,
+  );
+  return value.map((item, index) =>
+    boundedUtf8String(
+      `plan.${label}[${index}]`,
+      item,
+      2 * 1024,
+      "INVALID_PLAN",
+    ),
+  );
 }
 
 function normalizeUniqueStringArray(value) {
