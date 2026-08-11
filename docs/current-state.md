@@ -8,21 +8,19 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 ## Current Baseline
 
 - This history includes completed WI-0022 through
-  [WI-0034](work-items/WI-0034-repository-owned-harness-boundary-and-self-check.md): private
+  [WI-0035](work-items/WI-0035-optional-project-semantic-checks.md): private
   compatibility debt is removed, Proposal 0026's internal split is complete, verification verdicts
   match their strict Runtime contract, exact clean execution retry survives controller restart, and
   disposable reviews use path-safe identities. Agents apply only project-owned repository-native
   requirements; ChangeFleet Core neither defines nor parses target-project Harness formats.
+- Structural preflight is mandatory. Project semantic commands are optional Plan selections;
+  commandless validation records real attempts without fake command metadata.
 - Agent Runtimes own semantic work. ChangeFleet owns cross-repository authorization, revisions,
   scheduling, exact Git and Bundle subjects, evidence, recovery, and human gates.
 
 ## Branch-Local Work
 
-- Accepted Proposal 0027 and Decision 0029 revise the first-slice fixed validation-command shape.
-  Confirmed [WI-0035](work-items/WI-0035-optional-project-semantic-checks.md) has implemented and
-  verified optional project semantic commands with mandatory exact structural-preflight evidence
-  on branch `codex/wi-0035-optional-project-checks`; it remains in review and distinct from
-  canonical `main`.
+- None after WI-0035 adoption; remote publication remains a separate Git fact.
 
 ## Accepted Product Direction
 
@@ -86,7 +84,7 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
   [0026](proposals/0026-shared-application-orchestration-boundary.md) is recorded by Decision 0028;
   its implementation is complete through WI-0029 in this history.
 - Accepted [0027](proposals/0027-optional-project-semantic-checks.md) is recorded by Decision 0029
-  and implemented branch-locally by WI-0035.
+  and implemented by completed WI-0035 in this history.
 
 ## Open Questions
 
@@ -113,10 +111,10 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 
 ## Next Recommended Task
 
-Review and adopt WI-0035. After adoption, run one bounded real self-iteration whose single-
-Repository Plan selects only applicable project checks and explicitly omits an inapplicable
-combined command. Keep multiple baseline Plan commands and project-specific policy enforcement
-deferred until a demonstrated need exists.
+Run one bounded real self-iteration whose single-Repository Plan selects applicable project checks
+and omits an inapplicable combined command. Verify planning through Bundle review and cost audit
+without adding product features. Defer multiple baseline commands and project-specific enforcement
+until demonstrated need exists.
 
 ## Maintenance Contract
 

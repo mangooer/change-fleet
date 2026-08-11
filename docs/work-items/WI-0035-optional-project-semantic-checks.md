@@ -1,7 +1,7 @@
 ---
 artifact_type: development_work_item
 id: WI-0035
-status: review
+status: done
 title: Optional project semantic checks with mandatory structural preflight
 source: User accepted the recommended repository-check and combined-check boundary
 confirmed_by: user
@@ -64,10 +64,10 @@ exact Git authority, evidence binding, independent verification, or lifecycle st
 
 ## Current Projection
 
-- Current subject: branch `codex/wi-0035-optional-project-checks` from local `main` at `e386a32`.
-- Last verified state: the atomic contract replacement and all selected deterministic checks are
-  complete on the exact branch.
-- Next step: human review and adoption of this exact branch.
+- Current subject: implementation commit `ccfb022` on local `main`.
+- Last verified state: the atomic contract replacement passed all selected deterministic checks and
+  was accepted by the user on 2026-08-11.
+- Next step: one bounded real self-iteration using the landed optional-check contract.
 - Active blocker or decision: none.
 
 ## Implementation Evidence
@@ -102,6 +102,8 @@ exact Git authority, evidence binding, independent verification, or lifecycle st
   and 35 WorkItems.
 - Real Provider and real GitHub gates remain unexecuted because Provider invocation, credentials,
   remote delivery, and external writes are outside this schema-and-validation change.
+- The user accepted WI-0035 on 2026-08-11; implementation commit `ccfb022` was then fast-forwarded
+  into local `main` without rewriting its verified content.
 
 ## Project Memory Impact
 
