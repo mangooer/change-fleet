@@ -26,7 +26,8 @@ accepted contract; decisions own rationale; WorkItems and Git own execution evid
 
 - Completed [WI-0040](work-items/WI-0040-unified-task-control-local-vertical-slice.md) implements
   accepted Proposal 0030 and Decision 0032 on `codex/wi-0040-unified-task-control`; it replaces the
-  operation-oriented local route with one task-first controller flow and awaits review and merge.
+  operation-oriented local route with one task-first controller flow. Its first bounded real local
+  self-iteration has completed on the branch; review and merge remain pending.
 
 ## Current Implementation Focus
 
@@ -67,9 +68,10 @@ accepted contract; decisions own rationale; WorkItems and Git own execution evid
 
 ## Next Recommended Task
 
-Land WI-0040 and use the simplified console for one bounded real self-iteration. Let that evidence
-choose between a defect-fix WorkItem and the next Proposal; do not preemptively add tracker
-routing, Runtime role catalogs, or Candidate comparison.
+Land WI-0040 together with this Harness calibration. Then use the evidence from the completed first
+real self-iteration and this review to choose one defect-fix WorkItem; do not preemptively create
+or confirm a new WorkItem or Proposal, and do not jump ahead to tracker routing, Runtime role
+catalogs, or Candidate comparison.
 
 ## Maintenance Contract
 
