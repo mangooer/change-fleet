@@ -32,7 +32,7 @@ describe("application failure and revision boundaries", () => {
       { code: "SCRIPTED_EXECUTION_FAILURE" },
     );
     const state = await service.readChangeSet("change-1");
-    assert.equal(state.phase, "working");
+    assert.equal(state.phase, "running");
     assert.equal(state.candidates.length, 0);
     assert.equal(state.candidate_checkpoints.length, 1);
     assert.equal(state.candidate_checkpoints[0].repository_id, "api");
@@ -158,7 +158,9 @@ describe("application failure and revision boundaries", () => {
         content_digest: question.message.content_digest,
         text: question.message.text,
         plan_content: null,
+        intent_draft: question.message.intent_draft,
       },
+      intent_draft: question.message.intent_draft,
     });
     assert.equal(
       JSON.stringify(secondProjection).includes(

@@ -23,12 +23,11 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 
 ## Branch-Local Work
 
-- Accepted [0029](proposals/0029-local-changeset-intake-and-conversational-planning.md) is recorded
-  by Decision 0031. Confirmed
-  [WI-0039](work-items/WI-0039-local-changeset-intake-and-conversational-planning.md) is accepted and
-  complete branch-locally. It adds safe existing-Project intake, bounded planning conversation,
-  partial-failure retry, and the adjacent Planner reply projection without changing lifecycle
-  authority.
+- Accepted [0030](proposals/0030-unified-task-control-and-conversational-operator-flow.md) is recorded
+  by Decision 0032. Completed
+  [WI-0040](work-items/WI-0040-unified-task-control-local-vertical-slice.md) atomically replaces the
+  ordinary operation-oriented route on `codex/wi-0040-unified-task-control` and awaits review and
+  merge.
 
 ## Accepted Product Direction
 
@@ -49,9 +48,10 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 - WorkUnits may run in parallel; delivery to one `repository_id + target_ref` is serialized, and
   cross-repository compensation never promises universal atomic rollback.
 - GitHub delivery publishes exact Candidates to human-merged PRs and records bounded results.
-- A loopback console and experimental CLI use shared operations. The branch-local console can create
-  an existing-Project ChangeSet and conduct bounded planning conversation; debug audit stays
-  isolated and read-only.
+- A loopback console and experimental CLI use shared operations. The branch-local console creates a
+  task from one objective, maintains one bounded cross-stage conversation, confirms Intent and Plan
+  together, starts one Task Controller by default, streams sanitized current activity, and keeps
+  detailed audit on demand.
 - The first production Provider uses the pinned Codex SDK, a narrow Runtime port, one fresh thread
   per attempt, structured outcomes, persistent exact-base task worktrees, and WorkUnit-scoped writes.
 - Controller loss abandons incomplete attempts; blind session resume remains deferred.
@@ -71,18 +71,21 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
   explicit.
 - Decision 0030 makes each ChangeSet own one persistent multi-Repository task workspace. Plans are
   semantic Agent guidance; exact execution configuration and WorkUnit creation remain Core-owned.
+- Decision 0032 replaces premature executable Intent, user-visible manual/autonomous advancement,
+  and the operation-oriented console with one Task Controller and conversation while retaining the
+  exact kernel.
 
 ## Accepted Decisions
 
-- The [Decision Index](decisions/README.md) owns rationale. Decision 0030 owns persistent
-  TaskWorkspaces and semantic Plans; Decision 0031 accepts local ChangeSet intake and planning.
+- The [Decision Index](decisions/README.md) owns rationale. Decision 0032 owns the current task
+  authority, Controller, lifecycle, and operator route.
 
 ## Repository Design Proposals
 
 - The [Proposal Index](proposals/INDEX.md) owns chronology; Decisions retain superseded, rejected,
   and deferred boundaries.
-- Accepted Proposals 0026 through 0029 are recorded by Decisions 0028 through 0031 and implemented
-  by completed WorkItems through WI-0039.
+- Accepted Proposals through 0029 are implemented by completed WorkItems through WI-0039. Accepted
+  Proposal 0030 is implemented branch-locally by completed WI-0040 and awaits review and merge.
 
 ## Open Questions
 
@@ -96,10 +99,12 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 - Codex SDK usage is aggregate-only; effective model and universal host read-denial remain unknown.
 - Bundle-level independent quality review currently supports one selected reviewer and bounded
   repair. Multiple reviewers, Candidate comparison, normalized scoring, and automatic model routing
-  remain deferred. Local UI support for arbitrary Feedback and Gate resolution stays intentionally
-  minimal; transport operations already share the same application boundary.
+  remain deferred. The local UI routes ordinary planning, running, and review messages through one
+  conversation and exposes exact Gate actions only when needed. Ambiguous idle multi-Repository
+  feedback targeting remains deferred.
 - Provider-native live feedback steering and durable session continuation remain optimizations;
-  current feedback is queued for another same-phase Run.
+  current feedback is queued for the same Plan's next Run. Current SSE streams sanitized activity,
+  not model text deltas or provider-thread control.
 - Simultaneous independent WorkUnit Provider dispatch remains unproven; the foreground scheduler
   still advances exact eligible units serially.
 - Runtime Kit, Codex App Server, another Provider, Linear, pricing, dashboards, and continuous
@@ -109,9 +114,9 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 
 ## Next Recommended Task
 
-Merge the exact WI-0039 Candidate, then run one bounded real self-iteration from local intake
-through Bundle review. Use that operator-path evidence to distinguish usability defects from the
-next product boundary before drafting another Proposal.
+Land WI-0040 and use the simplified console for one bounded real self-iteration. Let that evidence
+choose between a defect-fix WorkItem and the next Proposal; do not preemptively add tracker routing,
+Runtime role catalogs, or Candidate comparison.
 
 ## Maintenance Contract
 

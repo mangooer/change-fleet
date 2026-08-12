@@ -158,7 +158,7 @@ export class GithubDeliveryService {
           );
         }
         invariant(
-          state.phase === "delivery",
+          state.phase === "review",
           "INVALID_CHANGE_SET_STATE",
           `ChangeSet cannot publish delivery from phase ${state.phase}`,
         );
@@ -204,7 +204,7 @@ export class GithubDeliveryService {
             this.now(),
           );
         }
-        setChangeSetPhase(state, "delivery");
+        setChangeSetPhase(state, "review");
         state.updated_at = this.now();
         return { completed: false, bundle_id: bundle.bundle_id };
       },
@@ -291,7 +291,7 @@ export class GithubDeliveryService {
           );
         }
         invariant(
-          state.phase === "delivery" ||
+          state.phase === "review" ||
             (state.phase === "terminal" && state.terminal_outcome === "done"),
           "INVALID_CHANGE_SET_STATE",
           `ChangeSet cannot refresh delivery from phase ${state.phase}`,
@@ -839,9 +839,9 @@ function deriveAggregateDeliveryState(state) {
       ]).has(request.state),
     )
   ) {
-    setChangeSetPhase(state, "delivery");
+    setChangeSetPhase(state, "review");
   } else {
-    setChangeSetPhase(state, "delivery");
+    setChangeSetPhase(state, "review");
   }
 }
 

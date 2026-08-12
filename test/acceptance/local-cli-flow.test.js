@@ -136,7 +136,7 @@ test("unified CLI completes one current single-Repository lifecycle", async (t) 
     configPath,
     dependencies,
   );
-  assert.equal(finalState.phase, "delivery");
+  assert.equal(finalState.phase, "review");
   assert.equal(finalState.candidates.length, 1);
   assert.equal(finalState.decisions.at(-1).bundle_hash, execution.bundle_hash);
   assert.equal(runtime.invocations.length, 2);

@@ -40,6 +40,7 @@ preserve chronological reasoning and are not current truth merely because they e
 | [0027](0027-optional-project-semantic-checks.md) | Optional project semantic checks with mandatory structural preflight | `accepted` | Recorded by Decision 0029; revises Decision 0006's universal command presence while preserving exact structural evidence | [WI-0035](../work-items/WI-0035-optional-project-semantic-checks.md), `done` |
 | [0028](0028-persistent-task-workspaces-and-linked-repositories.md) | Persistent task workspaces and linked repository workspaces | `accepted` | Recorded by Decision 0030; one ChangeSet owns one continuing multi-Repository task workspace while Plan remains semantic | [WI-0037](../work-items/WI-0037-persistent-task-workspaces-and-semantic-plans.md), `done` |
 | [0029](0029-local-changeset-intake-and-conversational-planning.md) | Local ChangeSet intake and conversational planning | `accepted` | Recorded by Decision 0031; extends the Decision 0016 loopback console over Decision 0030 task creation without another lifecycle | [WI-0039](../work-items/WI-0039-local-changeset-intake-and-conversational-planning.md), `done` |
+| [0030](0030-unified-task-control-and-conversational-operator-flow.md) | Unified task control and conversational operator flow | `accepted` | Recorded by Decision 0032; replaces premature Intent authority and operation-oriented task advancement while retaining the exact kernel | [WI-0040](../work-items/WI-0040-unified-task-control-local-vertical-slice.md), `done` |
 
 ## Status Rules
 

@@ -305,16 +305,23 @@ provider helpers. The isolated audit CLI retains its stronger read-only process 
 audit view inside the lifecycle server does not claim that boundary.
 
 Creation and initial planning are separate idempotent mutations. A successful creation survives a
-failed Planner attempt as one visible retryable ChangeSet. The console persists only opaque attempt
-identity and unfinished form input needed to retry the same browser action; persisted Core state
-remains authority.
+failed Planner attempt as one visible retryable ChangeSet. Every planning response carries one
+complete bounded Intent draft; exact Plan-message approval confirms that draft and Plan in one
+transaction. The console persists only opaque attempt identity and unfinished form input needed to
+retry the same browser action; persisted Core state remains authority.
 
-The current view reconstructs a recent planning conversation from linked evidence under turn,
-per-message, and total-byte bounds. A fresh Planner attempt receives the current human input and
-the immediately preceding assistant response, including a response without Plan content; it does
-not receive a transcript replay. Full logs, transcripts, diffs, GitHub payloads, and evidence bodies
-remain linked on-demand artifacts. Browser actions carry caller attempt identity and exact Plan,
-Bundle, or delivery subjects; browser state never becomes lifecycle authority or Agent context.
+The current view reconstructs one stage-aware conversation from linked planning, Feedback, and
+Run-outcome evidence under explicit bounds. A fresh Planner receives the current draft, human input,
+and immediately preceding assistant response; it does not receive a transcript replay. A bounded
+SSE projection exposes sanitized current Run activity and Agent todo progress without logs, command
+output, diffs, reasoning, or evidence bodies. Browser actions carry caller attempt identity and
+exact Plan, Bundle, or delivery subjects; browser state never becomes lifecycle authority or Agent
+context.
+
+One deterministic Task Controller selects the existing exact execution path or configured Agentic
+supervision path after Plan confirmation. The UI never asks an operator to choose between them.
+ChangeSet lifecycle is `planning | running | review | terminal`; delivery remains an attached
+external process under review rather than a fifth task phase.
 
 The local trust boundary requires exact loopback and Host, same-origin requests, no CORS, an
 in-memory session/CSRF nonce, bounded JSON mutations, restrictive security headers, safe errors,

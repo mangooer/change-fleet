@@ -148,7 +148,7 @@ describe("explicit ChangeSet closure", () => {
 
   test("allows representative quiescent unfinished phases", async (t) => {
     const fixture = await createClosureFixture(t, "eligible");
-    for (const phase of ["planning", "working", "review", "delivery"]) {
+    for (const phase of ["planning", "running", "review"]) {
       const changeSetId = `change-${phase}`;
       await createChangeSet(fixture.service, changeSetId);
       await setChangeSet(fixture.service, changeSetId, (record) => {
@@ -193,7 +193,7 @@ describe("explicit ChangeSet closure", () => {
 
     await createChangeSet(fixture.service, "change-delivery");
     await setChangeSet(fixture.service, "change-delivery", (record) => {
-      record.phase = "delivery";
+      record.phase = "review";
       record.delivery_requests.push({ delivery_request_id: "delivery-started" });
     });
     await assert.rejects(

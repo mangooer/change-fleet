@@ -129,7 +129,7 @@ export class BundleReviewOrchestrator {
     await this.controlStore.transactChangeSet(changeSetId, (state) => {
       invariant(
         state.current_plan_revision === plan.revision &&
-          state.phase === "working" &&
+          state.phase === "running" &&
           this.unitsForCurrentPlan(state).every(
             (unit) => unit.phase === "complete",
           ),
@@ -580,7 +580,7 @@ export class BundleReviewOrchestrator {
         }
         if (exhaustedTargets.length === 0) {
           current.current_bundle_review_assessment_id = null;
-          setChangeSetPhase(current, "working");
+          setChangeSetPhase(current, "running");
         }
       } else if (assessment.disposition === "gate") {
         current.gates.push({

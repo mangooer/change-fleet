@@ -89,11 +89,16 @@ export class ChangeSetViewService {
         : null,
       this.readPlanningConversation(state),
     ]);
+    const conversation = await this.readTaskConversation(
+      state,
+      planningConversation,
+    );
     return projectExactChangeSet(
       state,
       catalog.projects?.[state.project_id] ?? null,
       planningMessage,
       planningConversation,
+      conversation,
     );
   }
 
@@ -146,6 +151,95 @@ export class ChangeSetViewService {
     return projectAuditView(audit);
   }
 
+  async readTaskConversation(state, planningConversation) {
+    const messages = planningConversation.turns.flatMap((turn) => [
+      ...(turn.user_message === null
+        ? []
+        : [
+            {
+              message_id: `input:${turn.run_id}`,
+              role: "human",
+              stage: "planning",
+              text: turn.user_message.text,
+              created_at: turn.user_message.created_at,
+            },
+          ]),
+      {
+        message_id: turn.assistant_message.message_id,
+        role: "agent",
+        stage: "planning",
+        text: turn.assistant_message.text,
+        created_at: turn.assistant_message.created_at,
+      },
+    ]);
+    messages.push(
+      ...(state.feedback_records ?? []).slice(-12).map((feedback) => ({
+        message_id: feedback.feedback_id,
+        role: feedback.source === "human" ? "human" : "agent",
+        stage: feedback.target?.phase ?? feedback.source,
+        text: feedback.content.summary,
+        created_at: feedback.created_at,
+      })),
+    );
+    const outcomeMessages = await Promise.all(
+      (state.run_references ?? [])
+        .filter((reference) => reference.operation !== "planning")
+        .slice(-12)
+        .map(async (reference) => {
+          const events = await this.runStore.readEvents(reference.run_id, {
+            type: "runtime.outcome",
+            limit: 1,
+          });
+          const event = events[0];
+          const summary = event?.payload?.summary;
+          const text =
+            typeof summary === "string"
+              ? summary
+              : typeof summary?.preview === "string"
+                ? summary.preview
+                : null;
+          return text === null
+            ? null
+            : {
+                message_id: `outcome:${reference.run_id}`,
+                role: "agent",
+                stage: reference.operation,
+                text: boundedPlanningText(text).text,
+                created_at: event.at,
+              };
+        }),
+    );
+    messages.push(...outcomeMessages.filter(Boolean));
+    messages.sort(
+      (left, right) =>
+        String(left.created_at).localeCompare(String(right.created_at)) ||
+        left.message_id.localeCompare(right.message_id),
+    );
+    return {
+      messages: messages.slice(-24),
+      shown_messages: Math.min(messages.length, 24),
+      total_messages: messages.length,
+      truncated: messages.length > 24,
+    };
+  }
+
+  async readLiveTaskView(changeSetId) {
+    normalizeId("change_set_id", changeSetId);
+    const state = await this.controlStore.readChangeSet(changeSetId);
+    const reference =
+      state.run_references.find((candidate) => candidate.status === "running") ??
+      state.run_references.at(-1) ??
+      null;
+    const events =
+      reference === null
+        ? []
+        : await this.runStore.readEvents(reference.run_id, {
+            limit: 128,
+            tail: true,
+          });
+    return projectLiveTask(state, reference, events);
+  }
+
   async readAllChangeSets() {
     let entries;
     try {
@@ -175,6 +269,59 @@ export class ChangeSetViewService {
     );
     return reads.filter(Boolean);
   }
+}
+
+function projectLiveTask(state, reference, events) {
+  const delivery = createDeliveryProjection(state);
+  const visible = events.filter((event) =>
+    [
+      "provider.item.started",
+      "provider.item.updated",
+      "provider.item.completed",
+      "provider.turn.started",
+      "provider.turn.completed",
+      "provider.turn.failed",
+      "provider.stream.failed",
+      "runtime.outcome",
+      "run.failed",
+      "run.interrupted",
+      "run.cancelled",
+    ].includes(event.type),
+  );
+  const todoEvent = [...visible]
+    .reverse()
+    .find((event) => event.payload?.item_type === "todo_list");
+  return {
+    change_set_id: state.change_set_id,
+    phase: state.phase,
+    operator_status: deriveOperatorStatus(state, delivery),
+    activity: derivePresentationActivity(state),
+    state_updated_at: state.updated_at,
+    cursor: `${state.updated_at}:${
+      visible.at(-1)?.event_id ?? reference?.run_id ?? "idle"
+    }`,
+    run:
+      reference === null
+        ? null
+        : {
+            run_id: reference.run_id,
+            operation: reference.operation,
+            status: reference.status,
+            attempt: reference.attempt ?? null,
+          },
+    progress: {
+      items: structuredClone(todoEvent?.payload?.items ?? []),
+    },
+    recent_activity: visible.slice(-12).map((event) => ({
+      event_id: event.event_id,
+      type: event.type,
+      at: event.at,
+      item_type: event.payload?.item_type ?? null,
+      item_status: event.payload?.item_status ?? null,
+      exit_code: event.payload?.exit_code ?? null,
+      change_count: event.payload?.change_count ?? null,
+    })),
+  };
 }
 
 function projectAgentProfile(profile) {
@@ -246,6 +393,7 @@ function projectPlanningTurn({
     assistant_message: {
       message_id: assistant.message_id,
       ...boundedPlanningText(assistant.text),
+      intent_draft: structuredClone(assistant.intent_draft),
       has_plan: reference.has_plan,
       is_approvable: reference.message_id === approvableMessageId,
       created_at: assistant.created_at,
@@ -290,8 +438,9 @@ function projectListEntry(state) {
     change_set_id: state.change_set_id,
     project_id: state.project_id,
     phase: state.phase,
+    operator_status: deriveOperatorStatus(state, delivery),
     activity:
-      state.phase === "delivery" || state.phase === "terminal"
+      state.phase === "review" || state.phase === "terminal"
         ? delivery.activity
         : derivePresentationActivity(state),
     updated_at: state.updated_at,
@@ -317,6 +466,7 @@ function projectExactChangeSet(
   project,
   planningMessage,
   planningConversation,
+  conversation,
 ) {
   const delivery = createDeliveryProjection(state);
   const currentSelection =
@@ -341,8 +491,9 @@ function projectExactChangeSet(
     change_set_id: state.change_set_id,
     project_id: state.project_id,
     phase: state.phase,
+    operator_status: deriveOperatorStatus(state, delivery),
     activity:
-      state.phase === "delivery" || state.phase === "terminal"
+      state.phase === "review" || state.phase === "terminal"
         ? delivery.activity
         : derivePresentationActivity(state),
     updated_at: state.updated_at,
@@ -362,12 +513,15 @@ function projectExactChangeSet(
             message_id: planningMessage.message_id,
             content_digest: planningMessage.content_digest,
             text: planningMessage.text,
+            intent_draft: structuredClone(planningMessage.intent_draft),
             plan: projectPlanContent(planningMessage.plan_content),
             workspace_control: projectWorkspaceControl(
               planningMessage.workspace_control_summary,
             ),
           },
     planning_conversation: planningConversation,
+    conversation,
+    task_workspace: projectTaskWorkspace(state.task_workspace),
     plan:
       currentPlan === null
         ? null
@@ -486,6 +640,12 @@ function projectTaskWorkspace(workspace) {
   return {
     task_workspace_id: workspace.task_workspace_id,
     resources_released_at: workspace.resources_released_at,
+    agent_profile: projectAgentProfile(workspace.agent_profile),
+    verification_expectation: structuredClone(
+      workspace.verification_expectation,
+    ),
+    supervision: structuredClone(workspace.supervision),
+    bundle_review: structuredClone(workspace.bundle_review),
     repositories: workspace.repositories.map((repository) => ({
       repository_id: repository.repository_id,
       base_sha: repository.base_sha,
@@ -494,6 +654,35 @@ function projectTaskWorkspace(workspace) {
       repository_workspace_id: repository.workspace.workspace_id,
     })),
   };
+}
+
+function deriveOperatorStatus(state, delivery) {
+  if (state.phase === "terminal") {
+    return state.terminal_outcome === "done" ? "complete" : "abandoned";
+  }
+  if ((state.gates ?? []).some((gate) => gate.status === "open")) {
+    return "needs_input";
+  }
+  if ((state.blockers ?? []).some((blocker) => blocker.resolved_at === undefined)) {
+    return "blocked";
+  }
+  if (state.phase === "planning") {
+    return state.current_approvable_plan_message_id === null
+      ? "planning"
+      : "needs_confirmation";
+  }
+  if (state.phase === "running") return "running";
+  if (delivery.activity === "running") return "waiting_for_merge";
+  if (delivery.activity === "blocked") return "blocked";
+  const bundle = state.bundles.at(-1);
+  const accepted = (state.decisions ?? []).some(
+    (decision) =>
+      decision.type === "bundle_review" &&
+      decision.bundle_revision === bundle?.revision &&
+      decision.bundle_hash === bundle?.bundle_hash &&
+      decision.decision === "accept",
+  );
+  return accepted ? "ready_for_delivery" : "review";
 }
 
 function projectRepository(selection, project) {

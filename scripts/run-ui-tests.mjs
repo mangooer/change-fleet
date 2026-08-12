@@ -49,20 +49,18 @@ try {
     }
   });
   await page.goto(`http://${server.host}:${server.port}/`, {
-    waitUntil: "networkidle",
+    // 页面持有一个 SSE 长连接，因此不能以 networkidle 作为就绪条件。
+    waitUntil: "domcontentloaded",
   });
-  await page.getByRole("button", { name: "New" }).click();
+  await page.getByRole("button", { name: "新建" }).click();
   await page
-    .getByLabel("Objective")
+    .getByLabel("你希望 Agent 完成什么？")
     .fill("Create and plan one exact task from the browser");
   await page
-    .getByLabel("Acceptance criteria one per line")
-    .fill("Prepare both RepositoryWorkspaces");
-  await page
-    .getByRole("button", { name: "Create and Start Planning" })
+    .getByRole("button", { name: "创建并开始规划" })
     .click();
   await page
-    .getByRole("button", { name: "Start Planning", exact: true })
+    .getByRole("button", { name: "重试规划", exact: true })
     .waitFor();
   const createdChangeSetId = new URL(page.url()).searchParams.get(
     "change_set_id",
@@ -80,9 +78,9 @@ try {
     throw new Error("Failed initial planning did not preserve one retryable ChangeSet.");
   }
   await page
-    .getByRole("button", { name: "Start Planning", exact: true })
+    .getByRole("button", { name: "重试规划", exact: true })
     .click();
-  await page.waitForSelector("text=Exact approval subject");
+  await page.getByRole("button", { name: "确认计划并自动运行" }).waitFor();
   await page.waitForSelector("text=The deterministic fixture produced an approvable plan.");
   if (
     planningAttempts.length !== 2 ||
@@ -90,17 +88,16 @@ try {
   ) {
     throw new Error("Planning retry did not preserve the same attempt identity.");
   }
-  await page.reload({ waitUntil: "networkidle" });
-  await page.waitForSelector("text=1/1 turns");
-  await page.getByRole("button", { name: "Approve Exact Plan Message" }).click();
-  await page.waitForSelector("text=current plan");
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.getByRole("button", { name: "确认计划并自动运行" }).waitFor();
+  await page.getByRole("button", { name: "确认计划并自动运行" }).click();
+  await page.waitForSelector("text=等待审查候选", { timeout: 90_000 });
   await page.locator('[data-change-set-id="change"]').click();
-  await page.waitForSelector("text=Bundle Subject");
-  await page.waitForSelector("text=Work Units");
+  await page.waitForSelector("text=候选变更");
   await page.waitForSelector("text=api");
   await page.waitForSelector("text=web");
-  await page.getByRole("button", { name: "Accept Bundle" }).click();
-  await page.getByRole("button", { name: "Publish Delivery" }).click();
+  await page.getByRole("button", { name: "接受候选" }).click();
+  await page.getByRole("button", { name: "创建 Ready PR" }).click();
   await page.waitForSelector('a[href^="https://github.com/fixture/api/pull/"]');
   await page.waitForSelector('a[href^="https://github.com/fixture/web/pull/"]');
 
@@ -125,10 +122,7 @@ try {
     ),
   });
 
-  await page.getByRole("button", { name: "Refresh Delivery" }).click();
-  await page.waitForSelector("text=Current state");
-  await page.waitForSelector("text=Per-repository requests 2");
-  await page.waitForSelector("text=Reusing refresh attempt");
+  await page.getByRole("button", { name: "刷新合并状态" }).click();
   await page.waitForSelector("text=merged");
   await page.waitForSelector("text=open");
 
@@ -153,12 +147,11 @@ try {
     ),
   });
 
-  await page.getByRole("button", { name: "Refresh Delivery" }).click();
-  await page.waitForSelector("text=Current state");
+  await page.getByRole("button", { name: "刷新合并状态" }).click();
   await page.waitForFunction(
     () =>
-      Array.from(document.querySelectorAll(".pill")).some(
-        (element) => element.textContent?.trim() === "terminal / complete",
+      Array.from(document.querySelectorAll(".changeset-card p")).some(
+        (element) => element.textContent?.trim() === "已完成",
       ),
     // Playwright 的第二个参数是传给页面函数的值，超时选项必须放在第三个参数。
     undefined,
@@ -202,7 +195,13 @@ try {
 } finally {
   if (browser) await browser.close().catch(() => {});
   if (server) await server.close().catch(() => {});
-  await rm(root, { recursive: true, force: true });
+  // Windows 可能在浏览器或 Git 刚关闭句柄时短暂返回 EBUSY；只对测试临时根做有界重试。
+  await rm(root, {
+    recursive: true,
+    force: true,
+    maxRetries: 5,
+    retryDelay: 200,
+  });
 }
 
 async function createFixture(root) {

@@ -165,6 +165,15 @@ describe("Runtime identity and evidence", () => {
       type: "conversation_message",
       message: {
         text: "ready",
+        intent_draft: {
+          objective: "Implement the requested behavior.",
+          rationale: null,
+          constraints: [],
+          non_goals: [],
+          acceptance_criteria: ["The requested behavior is implemented."],
+          resolved_decisions: [],
+          open_questions: [],
+        },
         plan: {
           summary: "Implement the requested behavior.",
           steps: ["Update the implementation."],

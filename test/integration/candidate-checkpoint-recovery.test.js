@@ -497,7 +497,7 @@ describe("post-Provider Candidate finalization recovery", () => {
     });
     assert.equal(second.status, "feedback_required");
     const state = await service.readChangeSet("change-1");
-    assert.equal(state.phase, "working");
+    assert.equal(state.phase, "running");
     assert.equal(state.verification_reviews.length, 2);
     assert.equal(state.verification_reviews[1].review_scope, "feedback");
     assert.equal(state.work_units[0].phase, "execution");

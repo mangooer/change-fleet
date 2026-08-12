@@ -34,6 +34,7 @@ describe("local console server", () => {
         readIntakeOptions: async () => ({ projects: [] }),
         listChangeSets: async () => ({ items: [] }),
         readChangeSetView: async () => ({}),
+        readLiveTaskView: async () => ({}),
         readAuditView: async () => ({}),
       },
       operatorApplication: {
@@ -121,13 +122,14 @@ describe("local console server", () => {
             message_id: exact.planning_message.message_id,
             content_digest: exact.planning_message.content_digest,
             actor: "human",
+            run_after_confirmation: false,
           }),
         },
       );
       assert.equal(confirmation.plan_revision, 1);
       assert.equal(
         (await fixture.service.readChangeSet("plan-only")).phase,
-        "working",
+        "running",
       );
       const supervision = await fetchJson(
         server,
@@ -144,7 +146,7 @@ describe("local console server", () => {
           headers,
           body: JSON.stringify({
             idempotency_key: "feedback-plan-only",
-            phase: "working",
+            phase: "running",
             work_unit_id: "api-unit",
             run_id: null,
             feedback: {
@@ -428,7 +430,7 @@ describe("local console server", () => {
           body: JSON.stringify({ idempotency_key: "refresh-attempt" }),
         },
       );
-      assert.equal(partial.phase, "delivery");
+      assert.equal(partial.phase, "review");
       assert.equal(partial.activity, "running");
       assert.deepEqual(partial.counts, { merged: 1, open: 1 });
 

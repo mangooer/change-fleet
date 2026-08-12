@@ -128,3 +128,18 @@ test("autonomous supervision diagnostics preserve stable codes", () => {
     "计划自主运行预算超过项目上限。",
   );
 });
+
+test("unified task controller diagnostics preserve stable codes", () => {
+  assert.equal(
+    diagnosticMessage("INVALID_PLAN_CONFIRMATION"),
+    "计划确认请求无效。",
+  );
+  assert.equal(
+    diagnosticMessage("PLAN_NOT_CONFIRMED", { locale: "en" }),
+    "The current task does not have a confirmed Plan.",
+  );
+  assert.equal(
+    diagnosticMessage("TASK_MESSAGE_NOT_ROUTABLE"),
+    "当前任务状态无法安全地接收这条消息。",
+  );
+});

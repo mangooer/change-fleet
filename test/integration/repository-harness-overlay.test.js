@@ -354,7 +354,7 @@ describe("Repository Harness overlays", () => {
     );
     const state = await service.readChangeSet("change");
     assert.equal(state.candidates.length, 0);
-    assert.equal(state.phase, "working");
+    assert.equal(state.phase, "running");
     assert.equal(
       state.blockers.some((blocker) => blocker.code === "HARNESS_OVERLAY_MODIFIED"),
       true,

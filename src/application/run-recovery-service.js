@@ -147,7 +147,7 @@ export class RunRecoveryService {
             });
           }
         }
-        setChangeSetPhase(current, "working");
+        setChangeSetPhase(current, "running");
       },
     });
   }
@@ -219,7 +219,7 @@ export class RunRecoveryService {
             });
           }
         }
-        setChangeSetPhase(current, "working");
+        setChangeSetPhase(current, "running");
       },
     });
   }

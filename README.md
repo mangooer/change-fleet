@@ -209,31 +209,30 @@ node ./bin/changefleet.js changeset show <change_set_id> --config changefleet.js
 node ./bin/changefleet.js serve --config changefleet.json [--port 4311]
 ```
 
-`changefleet serve` opens a loopback-only local console. It can create a ChangeSet under an existing
-configured Project, select one or more registered Repositories, conduct bounded planning turns,
-approve the exact current Plan-bearing message, review the Bundle, and operate explicit GitHub
-delivery. It does not edit Projects, Repositories, AgentProfiles, Harness, policies, credentials, or
-delivery bindings. Creation and initial planning are separate idempotent actions, so a failed
-Planner attempt leaves the exact created task visible and retryable.
+`changefleet serve` opens a loopback-only task console. A new-task dialog accepts the objective and
+an existing Project; Repository bases are optional advanced input. One conversation handles Planner
+clarification and later Feedback. One exact confirmation binds Intent and semantic Plan and starts
+the deterministic Task Controller by default. The task view shows semantic steps, bounded live
+activity, effective Runtime, compact cost/retry metrics, necessary Gates, Bundle review, and GitHub
+delivery. Exact evidence and full metrics are loaded on demand in the audit dialog.
 
 `changeset plan` may include a bounded `message` string to continue the planning conversation. Its
-result is an Agent message with optional `plan_content`, not a Plan revision. A new Planner attempt
-receives the current human message and only the immediately preceding assistant planning message;
-the browser reconstructs a separately bounded recent view from linked evidence. `changeset plan
-confirm` accepts `idempotency_key`, `change_set_id`, `message_id`, `content_digest`, and `actor`;
-only that exact approval creates the first or next confirmed Plan revision. The local console uses
-the same shared operations and configured Agent Runtime as the CLI lifecycle path.
+result is an Agent message with a complete current `intent_draft` and optional `plan_content`, not a
+Plan revision. A fresh Planner receives that draft, the current message, and only the immediately
+preceding assistant response. `changeset plan confirm` binds the exact message digest, confirms
+Intent and Plan atomically, and may run the shared Task Controller. The browser uses this confirm-
+and-run path and one stage-aware task-message operation; low-level execute and supervision commands
+remain compatibility and diagnostic surfaces, not the ordinary workflow.
 
-A confirmed Plan records `manual` or `autonomous_until_review` supervision plus bounded execution,
-verification, Feedback, and elapsed-time limits. In autonomous mode, exact forced actions run
-without a Supervisor model call. A read-only Supervisor Run is used only when several bounded
-semantic routes remain; it must select one offered exact action. A Plan may additionally freeze
-`none | independent` Bundle review, one exact Review AgentProfile revision, and a bounded attempt
-ceiling. Required review is a forced read-only action, so it does not spend a Supervisor model call.
-Start, pause, resume, and progress commands use the same application operations as the local
-console. Autonomous authority stops with a current passage recommendation, an explicit Gate or
-hold, stale authority, exhausted budget, or a terminal ChangeSet; it never accepts or delivers the
-Bundle.
+At confirmation, Core binds the semantic Plan to the TaskWorkspace's accepted supervision,
+verification, review, attempt, and elapsed-time controls. Those controls are task configuration,
+not Planner-authored steps. Exact forced actions run without a Supervisor model call. A read-only
+Supervisor Run is used only when several bounded semantic routes remain; it must select one offered
+exact action. Required Bundle review is also a forced read-only action. Low-level start, pause,
+resume, and progress commands remain diagnostic application operations; the ordinary console uses
+the Task Controller. Autonomous authority stops with a current passage recommendation, an explicit
+Gate or hold, stale authority, exhausted budget, or a terminal ChangeSet; it never accepts or
+delivers the Bundle.
 
 An independent Bundle reviewer sees disposable read-only worktrees for the exact CandidateBundle
 and returns `pass | feedback | gate`. Passage is advisory. Blocking findings must cite authorized
@@ -256,9 +255,10 @@ prior-finding focus metadata. Repeated feedback uses the same phases, while unre
 an open Gate. Every Run is separately auditable, while costs and historical output stay outside
 ordinary Runtime input.
 
-ChangeSets persist only `planning | working | review | delivery | terminal`; WorkUnits persist only
+ChangeSets persist only `planning | running | review | terminal`; WorkUnits persist only
 `execution | verification | complete` plus disposition. UI and CLI activity is derived as
-`ready | running | waiting | blocked | complete` from Runs, Gates, Blockers, and exact artifacts.
+`ready | running | waiting | blocked | complete` from Runs, Gates, Blockers, delivery records, and
+exact artifacts.
 
 `changeset close` accepts only `idempotency_key`, `change_set_id`, `actor`, and a `reason` with one
 of `no_longer_needed`, `restart_on_new_base`, `route_abandoned`, `duplicate`, or `other` plus a

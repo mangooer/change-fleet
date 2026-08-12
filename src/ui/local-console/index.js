@@ -26,28 +26,29 @@ export function renderIndexHtml({
     selected_change_set_id: selectedChangeSetId ?? null,
   });
   return `<!doctype html>
-<html lang="en">
+<html lang="zh-CN">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>ChangeFleet Local Console</title>
+    <title>ChangeFleet 任务控制台</title>
     <link rel="stylesheet" href="/app.css">
   </head>
   <body>
     <main class="shell">
-      <header class="hero">
-        <p class="eyebrow">Loopback Task Surface</p>
-        <h1>ChangeFleet Local Console</h1>
-        <p class="hero-copy">Create one exact task, plan with an Agent, review bounded evidence, and publish human-controlled delivery.</p>
-        <div id="status" class="status">Initializing local session.</div>
+      <header class="hero compact-hero">
+        <div>
+          <p class="eyebrow">Local agent control plane</p>
+          <h1>ChangeFleet</h1>
+        </div>
+        <div id="status" class="status">正在初始化本地会话。</div>
       </header>
       <section class="layout">
-        <aside class="panel sidebar" aria-label="Recent ChangeSets">
+        <aside class="panel sidebar" aria-label="任务列表">
           <div class="panel-header">
-            <h2>Recent ChangeSets</h2>
+            <h2>任务</h2>
             <div class="actions">
-              <button id="new-changeset" type="button">New</button>
-              <button id="load-more" class="ghost" type="button">More</button>
+              <button id="new-changeset" type="button">新建</button>
+              <button id="load-more" class="ghost" type="button">更多</button>
             </div>
           </div>
           <div id="changeset-list" class="changeset-list"></div>
@@ -55,6 +56,8 @@ export function renderIndexHtml({
         <section id="changeset-detail" class="panel detail" aria-live="polite"></section>
       </section>
     </main>
+    <dialog id="create-task-dialog" class="modal"><div id="create-task-content"></div></dialog>
+    <dialog id="audit-dialog" class="modal"><div id="audit-content"></div></dialog>
     <script id="changefleet-bootstrap" type="application/json">${bootstrap}</script>
     <script type="module" src="/app.js"></script>
   </body>

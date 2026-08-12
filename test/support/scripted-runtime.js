@@ -88,6 +88,13 @@ export class ScriptedRuntime {
         );
       }
       if (sequencedOutcome) {
+        if (
+          sequencedOutcome.type === "conversation_message" &&
+          sequencedOutcome.message &&
+          !sequencedOutcome.message.intent_draft
+        ) {
+          sequencedOutcome.message.intent_draft = currentIntentDraft(invocation);
+        }
         return {
           outcome: structuredClone(sequencedOutcome),
           provider_evidence: testProviderEvidence(),
@@ -108,6 +115,7 @@ export class ScriptedRuntime {
           type: "conversation_message",
           message: {
             text: "The deterministic fixture produced an approvable plan.",
+            intent_draft: currentIntentDraft(invocation),
             plan,
           },
           request: null,
@@ -247,6 +255,21 @@ export class ScriptedRuntime {
       provider_evidence: testProviderEvidence(),
     };
   }
+}
+
+function currentIntentDraft(invocation) {
+  const projected =
+    invocation.context_projection.planning_conversation?.intent_draft ??
+    invocation.context_projection.confirmed_intent;
+  return {
+    objective: projected.objective,
+    rationale: projected.rationale ?? null,
+    constraints: [...(projected.constraints ?? [])],
+    non_goals: [...(projected.non_goals ?? [])],
+    acceptance_criteria: [...(projected.acceptance_criteria ?? [])],
+    resolved_decisions: [...(projected.resolved_decisions ?? [])],
+    open_questions: [...(projected.open_questions ?? [])],
+  };
 }
 
 async function writeFixtureFeature(invocation, content) {

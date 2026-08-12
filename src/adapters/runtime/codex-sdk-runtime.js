@@ -317,7 +317,9 @@ function buildPrompt(invocation) {
     operationInstruction = [
           "Inspect only the supplied exact-base repositories and their repository-native instructions.",
           REPOSITORY_HARNESS_COMPLETENESS_INSTRUCTIONS.planning,
+          "You are already planning the current ChangeSet inside its prepared TaskWorkspace. Plan the requested repository change; never propose creating another ChangeSet, workspace, or console task unless the operator explicitly asks to change ChangeFleet itself in that way.",
           "This is a planning conversation, not a Plan revision. Reply with conversation_message and a concise user-facing text. Include a complete structured plan only when the message is ready for exact human approval; otherwise set message.plan to null.",
+          "Every conversation_message must carry the complete current intent_draft. Incorporate valid operator clarification into that draft, keep unresolved questions explicit, and do not rely on older transcript text. A message with a Plan must have no unresolved open_questions.",
           "When feedback is present and the message carries a replacement plan, treat every finding as a reviewer claim to evaluate, not as an automatic fact or command. Return exactly one revision_feedback_assessment for each finding_id using adopt, adapt, or decline with a concise rationale. When no feedback is present, a plan must contain an empty revision_feedback_assessments array.",
           "Return either conversation_message with message populated and request null, or repository_selection_change_request with request populated and message null.",
           "A ready plan contains only summary, steps, validation, risks, assumptions, and revision_feedback_assessments. Keep it concise and useful to the later execution Agent.",
@@ -435,6 +437,19 @@ function normalizeProviderEvent(event) {
   }
   if (event.item.type === "file_change") {
     itemMetadata.change_count = event.item.changes.length;
+  }
+  if (event.item.type === "todo_list") {
+    // todo_list 是 Agent 主动声明的执行进度；只保留有界文本和完成位，不暴露推理或完整事件正文。
+    itemMetadata.items = (Array.isArray(event.item.items)
+      ? event.item.items
+      : []
+    )
+      .slice(0, 32)
+      .map((item) => ({
+        text: String(item?.text ?? "").slice(0, 512),
+        completed: item?.completed === true,
+      }))
+      .filter((item) => item.text.length > 0);
   }
   return {
     type: `provider.${event.type}`,

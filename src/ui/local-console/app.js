@@ -1,25 +1,31 @@
 const bootstrap = readBootstrap();
 
-// 浏览器模块只维护展示状态、确认步骤与 attempt identity；精确语义、幂等与持久化仍由共享应用操作负责。
+// 页面只维护面向操作者的任务投影；精确身份、幂等和状态裁决仍由服务端负责。
 const state = {
   intake: null,
   list: null,
   selectedChangeSetId: bootstrap.selected_change_set_id ?? null,
   exact: null,
   audit: null,
-  createMode: false,
-  createProjectId: null,
+  live: null,
   loading: false,
   pendingAction: null,
   error: null,
+  createProjectId: null,
+  streamController: null,
+  quietRefreshing: false,
 };
 
 const elements = {
   list: document.querySelector("#changeset-list"),
   detail: document.querySelector("#changeset-detail"),
   loadMore: document.querySelector("#load-more"),
-  newChangeSet: document.querySelector("#new-changeset"),
+  newTask: document.querySelector("#new-changeset"),
   status: document.querySelector("#status"),
+  createDialog: document.querySelector("#create-task-dialog"),
+  createContent: document.querySelector("#create-task-content"),
+  auditDialog: document.querySelector("#audit-dialog"),
+  auditContent: document.querySelector("#audit-content"),
 };
 
 const attemptStore = {
@@ -35,7 +41,7 @@ const attemptStore = {
 };
 
 elements.loadMore.addEventListener("click", () => void loadMore());
-elements.newChangeSet.addEventListener("click", () => showCreateForm());
+elements.newTask.addEventListener("click", () => openCreateDialog());
 void loadInitial();
 
 async function loadInitial() {
@@ -44,28 +50,15 @@ async function loadInitial() {
       apiGet("/api/local/v0/intake/options"),
       apiGet("/api/local/v0/changesets?limit=20"),
     ]);
-    state.createProjectId =
-      readPendingCreate()?.draft?.project_id ??
-      state.intake.projects[0]?.project_id ??
-      null;
-    if (!state.selectedChangeSetId && state.list.items.length > 0) {
-      state.selectedChangeSetId = state.list.items[0].change_set_id;
+    state.createProjectId = state.intake.projects[0]?.project_id ?? null;
+    if (!state.selectedChangeSetId) {
+      state.selectedChangeSetId = state.list.items[0]?.change_set_id ?? null;
     }
-    if (state.selectedChangeSetId) {
-      await loadExact(state.selectedChangeSetId);
-    } else {
-      state.createMode = true;
-    }
+    if (state.selectedChangeSetId) await loadExact(state.selectedChangeSetId);
   });
-}
-
-function showCreateForm() {
-  state.createMode = true;
-  state.selectedChangeSetId = null;
-  state.exact = null;
-  state.audit = null;
-  updateLocation(null);
-  render();
+  if (!state.selectedChangeSetId && (state.intake?.projects.length ?? 0) > 0) {
+    openCreateDialog();
+  }
 }
 
 async function loadMore() {
@@ -74,15 +67,11 @@ async function loadMore() {
     const next = await apiGet(
       `/api/local/v0/changesets?limit=20&cursor=${encodeURIComponent(state.list.next_cursor)}`,
     );
-    state.list = {
-      ...next,
-      items: [...state.list.items, ...next.items],
-    };
+    state.list = { ...next, items: [...state.list.items, ...next.items] };
   });
 }
 
 async function loadExact(changeSetId) {
-  state.createMode = false;
   state.selectedChangeSetId = changeSetId;
   updateLocation(changeSetId);
   const [exact, audit] = await Promise.all([
@@ -91,7 +80,9 @@ async function loadExact(changeSetId) {
   ]);
   state.exact = exact;
   state.audit = audit;
+  state.live = null;
   clearFinishedAttempts();
+  startLiveStream(changeSetId);
 }
 
 async function withLoading(work) {
@@ -115,409 +106,332 @@ function render() {
 }
 
 function renderStatus() {
-  const base = state.loading
-    ? "Loading exact local state."
-    : "Loopback only, same-origin session required, and ordinary GET stays side-effect free.";
-  elements.status.textContent =
-    state.pendingAction === null ? base : `${base} Pending ${state.pendingAction}.`;
-  elements.status.className = state.error ? "status error" : "status";
   if (state.error) {
     elements.status.textContent = state.error.message;
+    elements.status.className = "status error";
+    return;
   }
+  const liveRun = state.live?.run?.status === "running";
+  elements.status.textContent = state.pendingAction
+    ? `正在${state.pendingAction}…`
+    : liveRun
+      ? `${stageLabel(state.live.run.operation)}正在运行`
+      : "本机控制台 · 精确工作区 · 人工合并";
+  elements.status.className = "status";
 }
 
 function renderList() {
-  if (!state.list) {
-    elements.list.innerHTML = '<div class="empty">No recent ChangeSets.</div>';
-    elements.loadMore.disabled = true;
-    elements.newChangeSet.disabled = true;
-    return;
+  const items = state.list?.items ?? [];
+  if (items.length === 0) {
+    elements.list.innerHTML = '<div class="empty">还没有任务。</div>';
+  } else {
+    const groups = [
+      ["进行中", items.filter((item) => ["planning", "running"].includes(item.phase))],
+      ["待审查", items.filter((item) => item.phase === "review")],
+      ["已结束", items.filter((item) => item.phase === "terminal")],
+    ];
+    elements.list.innerHTML = groups
+      .filter(([, group]) => group.length > 0)
+      .map(
+        ([label, group]) => `
+          <section class="task-group">
+            <h3>${label}<span>${group.length}</span></h3>
+            ${group.map(renderTaskCard).join("")}
+          </section>`,
+      )
+      .join("");
   }
-  elements.list.innerHTML = state.list.items
-    .map(
-      (item) => `
-        <article class="changeset-card ${item.change_set_id === state.selectedChangeSetId ? "active" : ""}" data-change-set-id="${escapeHtml(item.change_set_id)}">
-          <div class="row">
-            <strong>${escapeHtml(item.change_set_id)}</strong>
-            <span class="pill ${pillClass(item.activity)}">${escapeHtml(`${item.phase} / ${item.activity}`)}</span>
-          </div>
-          <p>${escapeHtml(item.current_intent?.objective ?? "No objective")}</p>
-          <div class="muted">Project ${escapeHtml(item.project_id)}</div>
-          <div class="muted">Updated ${escapeHtml(item.updated_at)}</div>
-        </article>
-      `,
-    )
-    .join("");
   for (const card of elements.list.querySelectorAll("[data-change-set-id]")) {
     card.addEventListener("click", () =>
       void withLoading(() => loadExact(card.dataset.changeSetId)),
     );
   }
-  elements.loadMore.disabled = !state.list.next_cursor || state.loading;
-  elements.newChangeSet.disabled =
+  elements.loadMore.disabled = !state.list?.next_cursor || state.loading;
+  elements.newTask.disabled =
     state.loading || (state.intake?.projects.length ?? 0) === 0;
 }
 
+function renderTaskCard(item) {
+  const selected = item.change_set_id === state.selectedChangeSetId;
+  const status = taskStatus(item);
+  return `
+    <article class="changeset-card ${selected ? "active" : ""}" data-change-set-id="${escapeAttribute(item.change_set_id)}">
+      <div class="row">
+        <strong>${escapeHtml(item.current_intent?.objective ?? "未命名任务")}</strong>
+        <span class="status-dot ${pillClass(status.kind)}"></span>
+      </div>
+      <p>${escapeHtml(status.label)}</p>
+      <div class="card-meta">${escapeHtml(item.project_id)} · ${formatRelativeTime(item.updated_at)}</div>
+    </article>`;
+}
+
 function renderDetail() {
-  if (state.createMode) {
-    renderCreateForm();
+  if (!state.exact) {
+    elements.detail.innerHTML = '<div class="empty detail-empty">选择一个任务，或新建任务。</div>';
     return;
   }
-  if (!state.exact || !state.audit) {
-    elements.detail.innerHTML = '<div class="empty">Select one ChangeSet.</div>';
-    return;
-  }
-  const bundle = state.exact.bundle;
-  const qualityReview = bundle?.quality_review ?? null;
-  const bundleReviewRequired =
-    state.exact.plan?.bundle_review?.mode === "independent";
-  const explicitBundleGate = state.exact.gates.some((gate) =>
-    ["bundle_review_decision", "bundle_review_failure"].includes(gate.kind),
-  );
-  const bundleAcceptable =
-    !bundleReviewRequired ||
-    ["pass", "gate"].includes(qualityReview?.disposition) ||
-    explicitBundleGate;
-  const canAdvance =
-    state.exact.phase === "working" ||
-    (state.exact.phase === "review" &&
-      bundleReviewRequired &&
-      qualityReview === null &&
-      !explicitBundleGate);
-  const planningMessage = state.exact.planning_message;
-  const planningConversation = state.exact.planning_conversation;
-  const pendingPlanning = readPendingPlanning(state.exact.change_set_id);
-  const delivery = state.exact.delivery;
-  const publishAttempt = bundle
-    ? attemptStore.get(`publish:${state.exact.change_set_id}:${bundle.bundle_id}`)
-    : null;
-  const refreshAttempt = bundle
-    ? attemptStore.get(`refresh:${state.exact.change_set_id}:${bundle.bundle_id}`)
-    : null;
+  const exact = state.exact;
+  const status = taskStatus(exact);
+  const profile = exact.task_workspace?.agent_profile ?? state.intake?.agent_profile;
+  const metrics = compactMetrics(state.audit);
+  const currentPlan = exact.plan ?? exact.planning_message?.plan ?? null;
+  const bundle = exact.bundle;
+  const quality = bundle?.quality_review ?? null;
+  const reviewMode = exact.task_workspace?.bundle_review?.mode ?? "none";
+  const canAccept =
+    bundle &&
+    (reviewMode !== "independent" ||
+      ["pass", "gate"].includes(quality?.disposition) ||
+      exact.gates.some((gate) => gate.kind.startsWith("bundle_review")));
   elements.detail.innerHTML = `
-    <div class="summary-grid">
-      <article class="summary-box">
-        <div class="row">
-          <h2>${escapeHtml(state.exact.change_set_id)}</h2>
-          <span class="pill ${pillClass(state.exact.activity)}">${escapeHtml(`${state.exact.phase} / ${state.exact.activity}`)}</span>
+    <header class="task-header">
+      <div>
+        <p class="eyebrow">${escapeHtml(exact.project_id)}</p>
+        <h2>${escapeHtml(exact.current_intent?.objective ?? exact.change_set_id)}</h2>
+        <div class="task-subline">
+          <span class="pill ${pillClass(status.kind)}">${escapeHtml(status.label)}</span>
+          <span>${escapeHtml(runtimeLabel(profile))}</span>
+          <span>${formatNumber(metrics.tokens)} tokens</span>
+          <span>${formatDuration(metrics.duration_ms)}</span>
+          <span>${metrics.runs} 次运行</span>
+          <span>${metrics.failures} 次失败/中断</span>
+          <span>${metrics.rework} 次返工</span>
         </div>
-        <p>${escapeHtml(state.exact.current_intent?.objective ?? "No objective")}</p>
-        <div class="muted">Updated ${escapeHtml(state.exact.updated_at)}</div>
-      </article>
-      <article class="summary-box">
-        <h3>Exact Current State</h3>
-        <ul class="meta">
-          <li>Intent revision ${escapeHtml(state.exact.current_revisions.intent_revision)}</li>
-          <li>Selection revision ${escapeHtml(state.exact.current_revisions.repository_selection_revision)}</li>
-          <li>Harness revision ${escapeHtml(state.exact.current_revisions.repository_harness_selection_revision)}</li>
-          <li>Plan revision ${escapeHtml(state.exact.current_revisions.plan_revision ?? "none")}</li>
-        </ul>
-      </article>
-      <article class="summary-box">
-        <h3>Audit Summary</h3>
-        <pre>${escapeHtml(
-          JSON.stringify(
-            {
-              usage: state.audit.payload.usage,
-              outcomes: state.audit.payload.outcomes,
-              validation: state.audit.payload.validation.outcomes,
-              bundle_reviews: state.audit.payload.bundle_reviews,
-            },
-            null,
-            2,
-          ),
-        )}</pre>
-      </article>
-    </div>
-    <section class="section">
+      </div>
       <div class="actions">
-        ${
-          state.exact.supervision.mode === "autonomous_until_review"
-            ? `
-              <button id="${state.exact.supervision.held ? "resume-supervision" : "start-supervision"}" type="button" ${canAdvance ? "" : "disabled"}>${state.exact.supervision.held ? "Resume Autonomous Work" : "Run Autonomously To Review"}</button>
-              <button id="pause-supervision" class="secondary" type="button" ${state.exact.phase === "working" && !state.exact.supervision.held ? "" : "disabled"}>Pause After Current Action</button>
-            `
-            : `<button id="continue-change-set" type="button" ${canAdvance ? "" : "disabled"}>Start or Continue Eligible Work</button>`
-        }
+        ${renderTaskControl(exact)}
+        <button id="open-audit" class="ghost" type="button">审计</button>
       </div>
-      <div class="muted">Supervision ${escapeHtml(state.exact.supervision.mode)}; last stop ${escapeHtml(state.exact.supervision.last_stop_reason ?? "none")}.</div>
-    </section>
-    <section class="section stack">
-      <div class="row">
-        <h3>Planning Conversation</h3>
-        <span class="pill">${escapeHtml(
-          `${planningConversation.shown_turns}/${planningConversation.total_turns} turns`,
-        )}</span>
-      </div>
-      <div class="conversation">
-        ${
-          planningConversation.turns.length === 0
-            ? '<div class="summary-box muted">No planning turn yet.</div>'
-            : planningConversation.turns.map(renderPlanningTurn).join("")
-        }
-      </div>
-      ${
-        planningConversation.truncated
-          ? '<p class="muted">Older or oversized planning text remains linked audit evidence and is not loaded here.</p>'
-          : ""
-      }
-      ${
-        state.exact.phase === "planning"
-          ? `
-            <form id="planning-message-form" class="planning-composer">
-              <label class="field">
-                <span>${planningConversation.total_turns === 0 ? "Start planning" : "Reply to Planner"}</span>
-                <textarea id="planning-message-input" rows="3" placeholder="${
-                  planningConversation.total_turns === 0
-                    ? "Optional initial guidance; the confirmed intent is already available."
-                    : "Describe the required clarification or revision."
-                }">${escapeHtml(pendingPlanning?.message ?? "")}</textarea>
-              </label>
-              <div class="actions">
-                <button id="send-planning-message" type="submit">${
-                  planningConversation.total_turns === 0
-                    ? "Start Planning"
-                    : "Send Planning Message"
-                }</button>
-              </div>
-            </form>`
-          : ""
-      }
-      ${
-        planningMessage
-          ? `
-            <div class="summary-box exact-plan-subject">
-              <div class="row">
-                <strong>Exact approval subject</strong>
-                <span class="pill">current</span>
-              </div>
-              <p>Message <code>${escapeHtml(planningMessage.message_id)}</code></p>
-              <p>Digest <code>${escapeHtml(planningMessage.content_digest)}</code></p>
-              <pre>${escapeHtml(JSON.stringify(planningMessage.plan, null, 2))}</pre>
-              <div class="actions">
-                <button id="confirm-plan" type="button">Approve Exact Plan Message</button>
-              </div>
-            </div>
-          `
-          : '<div class="summary-box muted">No Plan-bearing message is currently awaiting approval.</div>'
-      }
-    </section>
-    <section class="section stack">
-      <div class="row">
-        <h3>Work Units</h3>
-        <span class="pill">current plan</span>
-      </div>
-      <div class="cards">
-        ${
-          state.exact.work_units.length === 0
-            ? '<div class="summary-box muted">No current WorkUnits.</div>'
-            : state.exact.work_units
-                .map(
-                  (unit) => `
-                    <article class="candidate-card">
-                      <div class="row">
-                        <strong>${escapeHtml(unit.work_unit_id)}</strong>
-                        <span class="pill ${pillClass(unit.activity)}">${escapeHtml(`${unit.phase} / ${unit.activity}`)}</span>
-                      </div>
-                      <div>Repository ${escapeHtml(unit.repository_id)}</div>
-                      <div>Pending feedback <code>${escapeHtml(unit.pending_feedback_id ?? "none")}</code></div>
-                      <div>Candidate <code>${escapeHtml(unit.candidate_id ?? "none")}</code></div>
-                      <div class="actions">
-                        <button class="secondary submit-feedback" type="button" data-work-unit-id="${escapeAttribute(unit.work_unit_id)}" data-run-id="${escapeAttribute(unit.active_run_id ?? "")}">Submit Feedback</button>
-                        ${unit.active_run_id ? `<button class="danger interrupt-run" type="button" data-run-id="${escapeAttribute(unit.active_run_id)}">Interrupt Run</button>` : ""}
-                      </div>
-                    </article>
-                  `,
-                )
-                .join("")
-        }
-      </div>
-    </section>
-    <section class="section stack">
-      <div class="row">
-        <h3>Open Gates</h3>
-        <span class="pill">human input</span>
-      </div>
-      <div class="cards">
-        ${
-          state.exact.gates.length === 0
-            ? '<div class="summary-box muted">No open Gates.</div>'
-            : state.exact.gates
-                .map(
-                  (gate) => `
-                    <article class="candidate-card">
-                      <strong>${escapeHtml(gate.question ?? gate.kind)}</strong>
-                      <div><code>${escapeHtml(gate.gate_id)}</code></div>
-                      <div>WorkUnit ${escapeHtml(gate.work_unit_id ?? "none")}</div>
-                      <div>Options: ${gate.options.map(escapeHtml).join(", ")}</div>
-                      <div class="actions">
-                        ${gate.options
-                          .map(
-                            (option) => `<button class="secondary resolve-gate" type="button" data-gate-id="${escapeAttribute(gate.gate_id)}" data-option="${escapeAttribute(option)}">${escapeHtml(option)}</button>`,
-                          )
-                          .join("")}
-                      </div>
-                    </article>
-                  `,
-                )
-                .join("")
-        }
-      </div>
-    </section>
-    <section class="section stack">
-      <div class="row">
-        <h3>Bundle Subject</h3>
-        ${bundle ? `<span class="pill">rev ${escapeHtml(bundle.revision)}</span>` : ""}
-      </div>
-      ${
-        bundle
-          ? `
-            <div class="summary-box">
-              <p>Bundle hash <code>${escapeHtml(bundle.bundle_hash)}</code></p>
-              <p>Combined validation evidence <code>${escapeHtml(bundle.combined_validation_evidence?.evidence_id ?? "missing")}</code></p>
-              <p>Quality review <span class="pill ${pillClass(qualityReview?.disposition ?? "waiting")}">${escapeHtml(qualityReview?.disposition ?? (bundleReviewRequired ? "required" : "not required"))}</span></p>
-              ${
-                qualityReview
-                  ? `<p>${escapeHtml(qualityReview.summary)}</p><pre>${escapeHtml(JSON.stringify(qualityReview.findings, null, 2))}</pre>`
-                  : ""
-              }
-              <p class="muted">Confirmation binds the exact revision, hash, candidate ids, SHAs, changed paths, and available evidence references.</p>
-              <div class="actions">
-                <button id="accept-bundle" type="button" ${bundleAcceptable ? "" : "disabled"}>Accept Bundle</button>
-                <button id="reject-bundle" class="danger" type="button">Reject Bundle</button>
-              </div>
-            </div>
-            <div class="cards">
-              ${bundle.candidates
-                .map(
-                  (candidate) => `
-                    <article class="candidate-card">
-                      <div class="row">
-                        <strong>${escapeHtml(candidate.repository_id)}</strong>
-                        <span class="pill">${escapeHtml(candidate.target_ref)}</span>
-                      </div>
-                      <div><code>${escapeHtml(candidate.candidate_id)}</code></div>
-                      <div><code>${escapeHtml(candidate.base_sha)}</code> -> <code>${escapeHtml(candidate.candidate_sha)}</code></div>
-                      <div>Changed paths: ${candidate.changed_paths.length === 0 ? "none" : candidate.changed_paths.map(escapeHtml).join(", ")}</div>
-                      <div>Repository evidence <code>${escapeHtml(candidate.repository_evidence.evidence_id)}</code></div>
-                    </article>
-                  `,
-                )
-                .join("")}
-            </div>
-          `
-          : '<div class="summary-box muted">No current exact bundle.</div>'
-      }
-    </section>
-    <section class="section stack">
-      <div class="row">
-        <h3>GitHub Delivery</h3>
-        <div class="actions">
-          <button id="publish-delivery" type="button" ${bundle ? "" : "disabled"}>Publish Delivery</button>
-          <button id="refresh-delivery" class="secondary" type="button" ${bundle ? "" : "disabled"}>Refresh Delivery</button>
+    </header>
+
+    <section id="live-panel" class="live-panel">${renderLivePanel()}</section>
+
+    <section class="workspace-grid">
+      <article class="surface conversation-surface">
+        <div class="section-title">
+          <div><p class="eyebrow">Conversation</p><h3>任务对话</h3></div>
+          <span class="muted">当前阶段：${escapeHtml(stageLabel(exact.phase))}</span>
         </div>
-      </div>
-      <div class="summary-box">
-        <div>Current phase <span class="pill ${pillClass(delivery.activity)}">${escapeHtml(`${delivery.phase} / ${delivery.activity}`)}</span></div>
-        <div>Per-repository requests ${escapeHtml(delivery.delivery_count)}</div>
-        ${
-          publishAttempt
-            ? `<div class="muted">Reusing publish attempt <code>${escapeHtml(publishAttempt)}</code> while the result is ambiguous.</div>`
-            : ""
-        }
-        ${
-          refreshAttempt
-            ? `<div class="muted">Reusing refresh attempt <code>${escapeHtml(refreshAttempt)}</code> while the result is ambiguous.</div>`
-            : ""
-        }
-      </div>
-      <div class="cards">
-        ${
-          delivery.deliveries.length === 0
-            ? '<div class="summary-box muted">No delivery requests yet.</div>'
-            : delivery.deliveries
-                .map(
-                  (item) => `
-                    <article class="candidate-card">
-                      <div class="row">
-                        <strong>${escapeHtml(item.repository_id)}</strong>
-                        <span class="pill ${pillClass(item.state)}">${escapeHtml(item.state)}</span>
-                      </div>
-                      <div>Target ${escapeHtml(item.target_ref)}</div>
-                      <div>Branch <code>${escapeHtml(item.remote_branch)}</code></div>
-                      <div>GitHub ${escapeHtml(item.github_repository)}</div>
-                      <div>Candidate <code>${escapeHtml(item.candidate_sha)}</code></div>
-                      <div>PR ${
-                        item.pull_request
-                          ? `<a href="${escapeAttribute(item.pull_request.url)}" target="_blank" rel="noreferrer">#${escapeHtml(item.pull_request.number)}</a>`
-                          : "not created"
-                      }</div>
-                      <div>Last error ${escapeHtml(item.last_error?.code ?? "none")}</div>
-                    </article>
-                  `,
-                )
-                .join("")
-        }
-      </div>
-    </section>
-    <section class="section summary-grid">
-      <article class="summary-box">
-        <h3>Repositories</h3>
-        <pre>${escapeHtml(JSON.stringify(state.exact.repositories, null, 2))}</pre>
+        <div class="conversation">${renderConversation(exact.conversation)}</div>
+        ${renderComposer(exact)}
       </article>
-      <article class="summary-box">
-        <h3>Blockers</h3>
-        <pre>${escapeHtml(JSON.stringify(state.exact.blockers, null, 2))}</pre>
-      </article>
+
+      <aside class="task-rail">
+        <article class="surface plan-surface">
+          <div class="section-title">
+            <div><p class="eyebrow">Plan</p><h3>${currentPlan ? escapeHtml(currentPlan.summary) : "等待计划"}</h3></div>
+            ${exact.current_revisions.plan_revision ? `<span class="pill">r${escapeHtml(exact.current_revisions.plan_revision)}</span>` : ""}
+          </div>
+          ${renderPlan(currentPlan, exact)}
+          ${renderPlanConfirmation(exact)}
+        </article>
+        ${renderGatePanel(exact.gates)}
+        ${renderBundlePanel(exact, bundle, quality, canAccept)}
+        ${renderDeliveryPanel(exact, bundle)}
+      </aside>
     </section>
   `;
+  bindDetailActions();
+}
 
-  document
-    .querySelector("#confirm-plan")
-    ?.addEventListener("click", () => void confirmPlanMessage());
-  document
-    .querySelector("#planning-message-form")
-    ?.addEventListener("submit", (event) => {
-      event.preventDefault();
-      void sendPlanningMessage();
-    });
-  document
-    .querySelector("#accept-bundle")
-    ?.addEventListener("click", () => void decideBundle("accept"));
-  document
-    .querySelector("#reject-bundle")
-    ?.addEventListener("click", () => void decideBundle("reject"));
-  document
-    .querySelector("#publish-delivery")
-    ?.addEventListener("click", () => void publishDelivery());
-  document
-    .querySelector("#refresh-delivery")
-    ?.addEventListener("click", () => void refreshDelivery());
-  document
-    .querySelector("#continue-change-set")
-    ?.addEventListener("click", () => void continueChangeSet());
-  document
-    .querySelector("#start-supervision")
-    ?.addEventListener("click", () => void mutateSupervision("start"));
-  document
-    .querySelector("#resume-supervision")
-    ?.addEventListener("click", () => void mutateSupervision("resume"));
-  document
-    .querySelector("#pause-supervision")
-    ?.addEventListener("click", () => void mutateSupervision("pause"));
-  for (const button of document.querySelectorAll(".submit-feedback")) {
-    button.addEventListener("click", () =>
-      void submitFeedback(
-        button.dataset.workUnitId,
-        button.dataset.runId || null,
-      ),
-    );
+function renderTaskControl(exact) {
+  if (exact.phase === "terminal") return "";
+  if (state.live?.run?.status === "running") {
+    return '<button id="pause-task" class="secondary" type="button">暂停当前运行</button>';
   }
-  for (const button of document.querySelectorAll(".interrupt-run")) {
-    button.addEventListener("click", () =>
-      void interruptRun(button.dataset.runId),
-    );
+  if (exact.phase === "running") {
+    return '<button id="resume-task" class="secondary" type="button">继续</button>';
   }
+  return "";
+}
+
+function renderLivePanel() {
+  const live = state.live;
+  if (!live?.run || live.run.status !== "running") {
+    return '<div class="live-idle"><span class="status-dot"></span>当前没有运行中的 Agent</div>';
+  }
+  const items = live.progress?.items ?? [];
+  const latest = live.recent_activity?.at(-1);
+  return `
+    <div class="row">
+      <div><span class="live-pulse"></span><strong>${escapeHtml(stageLabel(live.run.operation))}运行中</strong> · 第 ${escapeHtml(live.run.attempt ?? 1)} 次尝试</div>
+      <span class="muted">${escapeHtml(activityLabel(latest))}</span>
+    </div>
+    ${
+      items.length === 0
+        ? ""
+        : `<ol class="live-todos">${items
+            .map(
+              (item) =>
+                `<li class="${item.completed ? "done" : ""}"><span>${item.completed ? "✓" : "·"}</span>${escapeHtml(item.text)}</li>`,
+            )
+            .join("")}</ol>`
+    }`;
+}
+
+function renderConversation(conversation) {
+  const messages = conversation?.messages ?? [];
+  if (messages.length === 0) {
+    return '<div class="empty">Planner 正在读取任务与仓库上下文。</div>';
+  }
+  return messages
+    .map(
+      (message) => `
+        <article class="message ${message.role === "human" ? "human-message" : "agent-message"}">
+          <div class="message-meta"><strong>${message.role === "human" ? "你" : stageAgentLabel(message.stage)}</strong><span>${formatRelativeTime(message.created_at)}</span></div>
+          <p>${escapeHtml(message.text)}</p>
+        </article>`,
+    )
+    .join("");
+}
+
+function renderComposer(exact) {
+  if (exact.phase === "terminal") return "";
+  const placeholder =
+    exact.phase === "planning"
+      ? "补充目标或回答 Planner 的问题…"
+      : exact.phase === "review"
+        ? "指出需要修改的地方；发送后会在同一计划下修正…"
+        : "补充信息或反馈当前实现…";
+  return `
+    <form id="task-message-form" class="composer">
+      <textarea id="task-message-input" rows="3" placeholder="${placeholder}" required></textarea>
+      <div class="composer-actions"><span class="muted">反馈是输入，不会被当作事实盲目执行。</span><button type="submit">发送</button></div>
+    </form>`;
+}
+
+function renderPlan(plan, exact) {
+  if (!plan) {
+    return `<div class="empty">对话完成后，Planner 会在这里给出可确认的语义计划。</div>${
+      exact.phase === "planning" && state.live?.run?.status !== "running"
+        ? '<button id="retry-planning" class="secondary" type="button">重试规划</button>'
+        : ""
+    }`;
+  }
+  const completed = ["review", "terminal"].includes(exact.phase);
+  return `
+    <ol class="plan-steps">${plan.steps
+      .map(
+        (step, index) =>
+          `<li class="${completed ? "done" : ""}"><span>${completed ? "✓" : index + 1}</span><p>${escapeHtml(step)}</p></li>`,
+      )
+      .join("")}</ol>
+    ${
+      plan.validation.length === 0
+        ? ""
+        : `<details><summary>验证方式</summary><ul>${plan.validation.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul></details>`
+    }`;
+}
+
+function renderPlanConfirmation(exact) {
+  const message = exact.planning_message;
+  if (!message) return "";
+  return `
+    <div class="plan-confirmation">
+      <p>${escapeHtml(message.text)}</p>
+      <button id="confirm-plan" type="button">确认计划并自动运行</button>
+      <details><summary>精确确认主体</summary><code>${escapeHtml(message.content_digest)}</code></details>
+    </div>`;
+}
+
+function renderGatePanel(gates) {
+  if (gates.length === 0) return "";
+  return `
+    <article class="surface gate-surface">
+      <p class="eyebrow">Needs input</p>
+      ${gates
+        .map(
+          (gate) => `
+            <div class="gate">
+              <h3>${escapeHtml(gate.question ?? gate.kind)}</h3>
+              <div class="actions">${gate.options
+                .map(
+                  (option) =>
+                    `<button class="secondary resolve-gate" type="button" data-gate-id="${escapeAttribute(gate.gate_id)}" data-option="${escapeAttribute(option)}">${escapeHtml(option)}</button>`,
+                )
+                .join("")}</div>
+            </div>`,
+        )
+        .join("")}
+    </article>`;
+}
+
+function renderBundlePanel(exact, bundle, quality, canAccept) {
+  if (!bundle) return "";
+  return `
+    <article class="surface review-surface">
+      <div class="section-title"><div><p class="eyebrow">Review</p><h3>候选变更</h3></div><span class="pill">${bundle.candidates.length} 个仓库</span></div>
+      <p>${escapeHtml(quality?.summary ?? "确定性验证已完成，等待最终审查。")}</p>
+      ${
+        quality?.findings?.length
+          ? `<ul>${quality.findings.map((finding) => `<li>${escapeHtml(finding.summary ?? finding.text ?? finding.code)}</li>`).join("")}</ul>`
+          : ""
+      }
+      <div class="candidate-summary">${bundle.candidates
+        .map(
+          (candidate) =>
+            `<div><strong>${escapeHtml(candidate.repository_id)}</strong><span>${candidate.changed_paths.length} 个文件</span></div>`,
+        )
+        .join("")}</div>
+      ${
+        bundle.human_decision
+          ? `<span class="pill">${escapeHtml(bundle.human_decision.decision)}</span>`
+          : `<div class="actions"><button id="accept-bundle" type="button" ${canAccept ? "" : "disabled"}>接受候选</button><button id="reject-bundle" class="danger" type="button">放弃任务</button></div>`
+      }
+      <p class="muted">需要修改时直接在左侧对话中反馈。</p>
+    </article>`;
+}
+
+function renderDeliveryPanel(exact, bundle) {
+  if (!bundle || bundle.human_decision?.decision !== "accept") return "";
+  const delivery = exact.delivery;
+  return `
+    <article class="surface delivery-surface">
+      <div class="section-title"><div><p class="eyebrow">Delivery</p><h3>GitHub 交付</h3></div><span class="pill ${pillClass(delivery.activity)}">${escapeHtml(deliveryLabel(delivery.activity))}</span></div>
+      ${delivery.deliveries
+        .map(
+          (item) =>
+            `<div class="delivery-row"><strong>${escapeHtml(item.repository_id)}</strong><span>${escapeHtml(item.state)}</span>${item.pull_request ? `<a href="${escapeAttribute(item.pull_request.url)}" target="_blank" rel="noreferrer">PR #${escapeHtml(item.pull_request.number)}</a>` : ""}</div>`,
+        )
+        .join("")}
+      <div class="actions">
+        ${delivery.delivery_count === 0 ? '<button id="publish-delivery" type="button">创建 Ready PR</button>' : '<button id="refresh-delivery" class="secondary" type="button">刷新合并状态</button>'}
+      </div>
+    </article>`;
+}
+
+function bindDetailActions() {
+  document.querySelector("#open-audit")?.addEventListener("click", () =>
+    void openAuditDialog(),
+  );
+  document.querySelector("#task-message-form")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    void sendTaskMessage();
+  });
+  document.querySelector("#confirm-plan")?.addEventListener("click", () =>
+    void confirmPlanMessage(),
+  );
+  document.querySelector("#retry-planning")?.addEventListener("click", () =>
+    void retryPlanning(),
+  );
+  document.querySelector("#resume-task")?.addEventListener("click", () =>
+    void runTaskController(),
+  );
+  document.querySelector("#pause-task")?.addEventListener("click", () =>
+    void pauseCurrentRun(),
+  );
+  document.querySelector("#accept-bundle")?.addEventListener("click", () =>
+    void decideBundle("accept"),
+  );
+  document.querySelector("#reject-bundle")?.addEventListener("click", () =>
+    void decideBundle("reject"),
+  );
+  document.querySelector("#publish-delivery")?.addEventListener("click", () =>
+    void publishDelivery(),
+  );
+  document.querySelector("#refresh-delivery")?.addEventListener("click", () =>
+    void refreshDelivery(),
+  );
   for (const button of document.querySelectorAll(".resolve-gate")) {
     button.addEventListener("click", () =>
       void resolveGate(button.dataset.gateId, button.dataset.option),
@@ -525,310 +439,463 @@ function renderDetail() {
   }
 }
 
-function renderPlanningTurn(turn) {
-  const user = turn.user_message;
-  const assistant = turn.assistant_message;
-  return `
-    <article class="conversation-turn">
-      ${
-        user === null
-          ? ""
-          : `<div class="message human-message">
-              <strong>Human</strong>
-              <p>${escapeHtml(user.text)}</p>
-              ${user.truncated ? '<span class="pill warn">truncated</span>' : ""}
-            </div>`
-      }
-      <div class="message agent-message">
-        <div class="row">
-          <strong>Planner</strong>
-          <div class="actions">
-            ${assistant.has_plan ? '<span class="pill">Plan</span>' : ""}
-            ${assistant.is_approvable ? '<span class="pill">approvable</span>' : ""}
-            ${assistant.truncated ? '<span class="pill warn">truncated</span>' : ""}
-          </div>
-        </div>
-        <p>${escapeHtml(assistant.text)}</p>
-      </div>
-    </article>`;
+function openCreateDialog() {
+  renderCreateDialog();
+  elements.createDialog.showModal();
 }
 
-function renderCreateForm() {
+function renderCreateDialog() {
   const projects = state.intake?.projects ?? [];
-  if (projects.length === 0) {
-    elements.detail.innerHTML =
-      '<div class="empty">Register a Project before creating a ChangeSet.</div>';
-    return;
-  }
-  const pending = readPendingCreate();
-  const draft = pending?.draft ?? null;
-  if (
-    !projects.some((project) => project.project_id === state.createProjectId)
-  ) {
-    state.createProjectId = draft?.project_id ?? projects[0].project_id;
-  }
   const project =
     projects.find((item) => item.project_id === state.createProjectId) ??
-    projects[0];
-  const selectedRepositoryIds = new Set(
-    draft?.project_id === project.project_id
-      ? draft.planning_repository_ids
-      : project.repositories.map((repository) => repository.repository_id),
+    projects[0] ??
+    null;
+  if (!project) {
+    elements.createContent.innerHTML = '<div class="empty">请先注册 Project。</div>';
+    return;
+  }
+  state.createProjectId = project.project_id;
+  const profile = state.intake.agent_profile;
+  elements.createContent.innerHTML = `
+    <form id="create-task-form" class="modal-form">
+      <div class="section-title"><div><p class="eyebrow">New task</p><h2>创建任务</h2></div><button id="close-create" class="icon-button" type="button" aria-label="关闭">×</button></div>
+      <label class="field"><span>你希望 Agent 完成什么？</span><textarea id="create-objective" rows="5" required autofocus placeholder="用一句话描述目标；Planner 会读取项目 Harness 并在需要时提问。"></textarea></label>
+      <label class="field"><span>项目</span><select id="create-project">${projects
+        .map(
+          (item) =>
+            `<option value="${escapeAttribute(item.project_id)}" ${item.project_id === project.project_id ? "selected" : ""}>${escapeHtml(item.project_id)}${item.description ? ` · ${escapeHtml(item.description)}` : ""}</option>`,
+        )
+        .join("")}</select></label>
+      <div class="configuration-summary"><span>默认执行 Runtime</span><strong>${escapeHtml(runtimeLabel(profile))}</strong><span>Review</span><strong>${escapeHtml(project.task_policy.bundle_review.default_mode)}</strong></div>
+      <details class="advanced-config"><summary>高级配置 · 仓库与基线</summary>
+        <p class="muted">Project 定义可用仓库；每个任务可以选择参与仓库和各自基线。留空时使用当前分支。</p>
+        ${project.repositories
+          .map(
+            (repository) => `
+              <article class="repository-choice">
+                <label class="repository-toggle"><input type="checkbox" data-repository-selected="${escapeAttribute(repository.repository_id)}" checked><strong>${escapeHtml(repository.repository_id)}</strong><span>${escapeHtml(repository.description ?? repository.default_target_ref)}</span></label>
+                <div class="two-columns"><label class="field"><span>基线分支</span><input data-branch-ref="${escapeAttribute(repository.repository_id)}" placeholder="当前分支"></label><label class="field"><span>目标分支</span><input data-target-ref="${escapeAttribute(repository.repository_id)}" placeholder="项目默认值"></label></div>
+              </article>`,
+          )
+          .join("")}
+      </details>
+      <div class="modal-actions"><button id="cancel-create" class="ghost" type="button">取消</button><button type="submit">创建并开始规划</button></div>
+    </form>`;
+  document.querySelector("#close-create")?.addEventListener("click", () =>
+    elements.createDialog.close(),
   );
-  const selections = new Map(
-    (draft?.project_id === project.project_id
-      ? draft.repository_selections
-      : []
-    ).map((selection) => [selection.repository_id, selection]),
+  document.querySelector("#cancel-create")?.addEventListener("click", () =>
+    elements.createDialog.close(),
   );
-  elements.detail.innerHTML = `
-    <section class="stack">
-      <div class="row">
-        <div>
-          <p class="eyebrow">New exact task</p>
-          <h2>Create ChangeSet</h2>
-        </div>
-        <span class="pill">existing Project</span>
-      </div>
-      <form id="create-changeset-form" class="stack">
-        <label class="field">
-          <span>Project</span>
-          <select id="create-project" name="project_id">
-            ${projects
-              .map(
-                (item) =>
-                  `<option value="${escapeAttribute(item.project_id)}" ${
-                    item.project_id === project.project_id ? "selected" : ""
-                  }>${escapeHtml(item.project_id)}${
-                    item.description ? ` — ${escapeHtml(item.description)}` : ""
-                  }</option>`,
-              )
-              .join("")}
-          </select>
-        </label>
-        <label class="field">
-          <span>Objective</span>
-          <textarea id="create-objective" rows="4" required>${escapeHtml(
-            draft?.project_id === project.project_id
-              ? draft.intent.objective
-              : "",
-          )}</textarea>
-        </label>
-        <label class="field">
-          <span>Rationale <small>optional</small></span>
-          <textarea id="create-rationale" rows="2">${escapeHtml(
-            draft?.project_id === project.project_id
-              ? draft.intent.rationale ?? ""
-              : "",
-          )}</textarea>
-        </label>
-        <div class="summary-grid">
-          <label class="field">
-            <span>Constraints <small>one per line</small></span>
-            <textarea id="create-constraints" rows="3">${escapeHtml(
-              draft?.project_id === project.project_id
-                ? draft.intent.constraints.join("\n")
-                : "",
-            )}</textarea>
-          </label>
-          <label class="field">
-            <span>Acceptance criteria <small>one per line</small></span>
-            <textarea id="create-acceptance" rows="3">${escapeHtml(
-              draft?.project_id === project.project_id
-                ? draft.intent.acceptance_criteria.join("\n")
-                : "",
-            )}</textarea>
-          </label>
-        </div>
-        <section class="stack">
-          <div>
-            <h3>Repositories</h3>
-            <p class="muted">Select at least one. Empty refs use each checkout's current branch.</p>
-          </div>
-          ${project.repositories
-            .map((repository) => {
-              const selection = selections.get(repository.repository_id);
-              return `
-                <article class="repository-choice" data-repository-choice="${escapeAttribute(
-                  repository.repository_id,
-                )}">
-                  <label class="repository-toggle">
-                    <input type="checkbox" data-repository-selected="${escapeAttribute(
-                      repository.repository_id,
-                    )}" ${
-                      selectedRepositoryIds.has(repository.repository_id)
-                        ? "checked"
-                        : ""
-                    }>
-                    <strong>${escapeHtml(repository.repository_id)}</strong>
-                    <span class="muted">${escapeHtml(
-                      repository.description ?? repository.default_target_ref,
-                    )}</span>
-                  </label>
-                  <div class="summary-grid">
-                    <label class="field">
-                      <span>Base branch <small>optional</small></span>
-                      <input data-branch-ref="${escapeAttribute(
-                        repository.repository_id,
-                      )}" value="${escapeAttribute(selection?.branch_ref ?? "")}">
-                    </label>
-                    <label class="field">
-                      <span>Delivery target <small>optional</small></span>
-                      <input data-target-ref="${escapeAttribute(
-                        repository.repository_id,
-                      )}" value="${escapeAttribute(selection?.target_ref ?? "")}">
-                    </label>
-                  </div>
-                </article>`;
-            })
-            .join("")}
-        </section>
-        <div class="summary-box">
-          <h3>Effective task configuration</h3>
-          <pre>${escapeHtml(
-            JSON.stringify(
-              {
-                agent_profile: state.intake.agent_profile,
-                task_policy: project.task_policy,
-              },
-              null,
-              2,
-            ),
-          )}</pre>
-        </div>
-        <div class="actions">
-          <button id="create-and-plan" type="submit">Create and Start Planning</button>
-        </div>
-      </form>
-    </section>`;
-  document
-    .querySelector("#create-project")
-    ?.addEventListener("change", (event) => {
-      state.createProjectId = event.target.value;
-      clearPendingCreate();
-      renderCreateForm();
-    });
-  document
-    .querySelector("#create-changeset-form")
-    ?.addEventListener("submit", (event) => {
-      event.preventDefault();
-      void createAndStartPlanning(project);
-    });
+  document.querySelector("#create-project")?.addEventListener("change", (event) => {
+    state.createProjectId = event.target.value;
+    renderCreateDialog();
+  });
+  document.querySelector("#create-task-form")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    void createTask(project);
+  });
 }
 
-async function createAndStartPlanning(project) {
-  const selectedIds = Array.from(
-    document.querySelectorAll("[data-repository-selected]:checked"),
-  ).map((element) => element.dataset.repositorySelected);
+async function createTask(project) {
   const objective = document.querySelector("#create-objective")?.value.trim();
-  if (!objective) {
-    state.error = new Error("Objective is required.");
-    render();
-    return;
-  }
-  if (selectedIds.length === 0) {
-    state.error = new Error("Select at least one Repository.");
-    render();
-    return;
-  }
+  const selectedIds = [...document.querySelectorAll("[data-repository-selected]:checked")].map(
+    (element) => element.dataset.repositorySelected,
+  );
+  if (!objective || selectedIds.length === 0) return;
   const draft = {
     project_id: project.project_id,
     intent: {
       objective,
-      rationale: nullableInputValue("#create-rationale"),
-      constraints: inputLines("#create-constraints"),
+      rationale: null,
+      constraints: [],
       non_goals: [],
-      acceptance_criteria: inputLines("#create-acceptance"),
+      acceptance_criteria: [],
       resolved_decisions: [],
       open_questions: [],
     },
     planning_repository_ids: selectedIds,
     repository_selections: selectedIds.map((repositoryId) => ({
       repository_id: repositoryId,
-      branch_ref: nullableInputValue(
-        `[data-branch-ref="${cssAttribute(repositoryId)}"]`,
-      ),
-      target_ref: nullableInputValue(
-        `[data-target-ref="${cssAttribute(repositoryId)}"]`,
-      ),
+      branch_ref: nullableValue(`[data-branch-ref="${cssAttribute(repositoryId)}"]`),
+      target_ref: nullableValue(`[data-target-ref="${cssAttribute(repositoryId)}"]`),
     })),
   };
   const pending = ensurePendingCreate(draft);
-  state.pendingAction = "ChangeSet creation and initial planning";
+  elements.createDialog.close();
   await withLoading(async () => {
     await apiPost("/api/local/v0/changesets", {
       idempotency_key: pending.idempotency_key,
       change_set_id: pending.change_set_id,
       ...draft,
     });
-    clearPendingCreate();
     state.selectedChangeSetId = pending.change_set_id;
     state.list = await apiGet("/api/local/v0/changesets?limit=20");
-
-    // 创建已经成为权威事实后，规划失败只能保留并重试同一任务，不能自动新建替代任务。
+    const planningKey = `initial-plan:${pending.change_set_id}`;
     let planningError = null;
-    const planning = ensurePendingPlanning(pending.change_set_id, null);
     try {
       await apiPost(
-        `/api/local/v0/changesets/${encodeURIComponent(
-          pending.change_set_id,
-        )}/planning-messages`,
-        { idempotency_key: planning.idempotency_key, message: null },
+        `/api/local/v0/changesets/${encodeURIComponent(pending.change_set_id)}/planning-messages`,
+        { idempotency_key: ensureAttempt(planningKey), message: null },
       );
-      clearPendingPlanning(pending.change_set_id);
+      attemptStore.delete(planningKey);
     } catch (error) {
       planningError = error;
     }
+    clearPendingCreate();
     await loadExact(pending.change_set_id);
     if (planningError) throw planningError;
+  });
+}
+
+async function retryPlanning() {
+  if (!state.exact || state.exact.phase !== "planning") return;
+  const attemptKey = `initial-plan:${state.exact.change_set_id}`;
+  await runMutation("重新规划", async () => {
+    await apiPost(
+      `/api/local/v0/changesets/${encodeURIComponent(state.exact.change_set_id)}/planning-messages`,
+      { idempotency_key: ensureAttempt(attemptKey), message: null },
+    );
+    attemptStore.delete(attemptKey);
+  });
+}
+
+async function sendTaskMessage() {
+  const input = document.querySelector("#task-message-input");
+  const message = input?.value.trim();
+  if (!state.exact || !message) return;
+  const attemptKey = `message:${state.exact.change_set_id}:${message}`;
+  const idempotencyKey = ensureAttempt(attemptKey);
+  input.value = "";
+  await runMutation("发送反馈", async () => {
+    await apiPost(
+      `/api/local/v0/changesets/${encodeURIComponent(state.exact.change_set_id)}/messages`,
+      { idempotency_key: idempotencyKey, message, actor: "human" },
+    );
+    attemptStore.delete(attemptKey);
+  });
+}
+
+async function confirmPlanMessage() {
+  const message = state.exact?.planning_message;
+  if (!message) return;
+  const attemptKey = `plan:${state.exact.change_set_id}:${message.message_id}:${message.content_digest}`;
+  const idempotencyKey = ensureAttempt(attemptKey);
+  await runMutation("确认计划并运行", async () => {
+    await apiPost(
+      `/api/local/v0/changesets/${encodeURIComponent(state.exact.change_set_id)}/plan-confirmation`,
+      {
+        idempotency_key: idempotencyKey,
+        message_id: message.message_id,
+        content_digest: message.content_digest,
+        actor: "human",
+        run_after_confirmation: true,
+      },
+    );
+    attemptStore.delete(attemptKey);
+  });
+}
+
+async function runTaskController() {
+  if (!state.exact) return;
+  const attemptKey = `controller:${state.exact.change_set_id}:${state.exact.updated_at}`;
+  await runMutation("继续任务", async () => {
+    await apiPost(
+      `/api/local/v0/changesets/${encodeURIComponent(state.exact.change_set_id)}/controller/run`,
+      { idempotency_key: ensureAttempt(attemptKey), actor: "human" },
+    );
+    attemptStore.delete(attemptKey);
+  });
+}
+
+async function pauseCurrentRun() {
+  const runId = state.live?.run?.run_id;
+  if (!state.exact || !runId) return;
+  const attemptKey = `interrupt:${state.exact.change_set_id}:${runId}`;
+  await runMutation("暂停当前运行", async () => {
+    await apiPost(
+      `/api/local/v0/changesets/${encodeURIComponent(state.exact.change_set_id)}/runs/${encodeURIComponent(runId)}/interrupt`,
+      { idempotency_key: ensureAttempt(attemptKey), actor: "human" },
+    );
+    attemptStore.delete(attemptKey);
+  });
+}
+
+async function resolveGate(gateId, option) {
+  if (!state.exact) return;
+  const attemptKey = `gate:${state.exact.change_set_id}:${gateId}:${option}`;
+  await runMutation("提交人工判断", async () => {
+    await apiPost(
+      `/api/local/v0/changesets/${encodeURIComponent(state.exact.change_set_id)}/gates/${encodeURIComponent(gateId)}/resolve`,
+      { idempotency_key: ensureAttempt(attemptKey), option, actor: "human" },
+    );
+    attemptStore.delete(attemptKey);
+  });
+}
+
+async function decideBundle(decision) {
+  const bundle = state.exact?.bundle;
+  if (!bundle) return;
+  const attemptKey = `bundle:${state.exact.change_set_id}:${bundle.revision}:${bundle.bundle_hash}:${decision}`;
+  await runMutation(decision === "accept" ? "接受候选" : "放弃任务", async () => {
+    await apiPost(
+      `/api/local/v0/changesets/${encodeURIComponent(state.exact.change_set_id)}/bundle-decisions`,
+      {
+        idempotency_key: ensureAttempt(attemptKey),
+        bundle_revision: bundle.revision,
+        bundle_hash: bundle.bundle_hash,
+        decision,
+        actor: "human",
+      },
+    );
+    attemptStore.delete(attemptKey);
+  });
+}
+
+async function publishDelivery() {
+  const bundle = state.exact?.bundle;
+  if (!bundle) return;
+  const attemptKey = `publish:${state.exact.change_set_id}:${bundle.bundle_id}`;
+  await runMutation("创建 Ready PR", async () => {
+    const result = await apiPost(
+      `/api/local/v0/changesets/${encodeURIComponent(state.exact.change_set_id)}/delivery/publish`,
+      { idempotency_key: ensureAttempt(attemptKey), actor: "human", title: null, body: null },
+    );
+    if (deliveryComplete(result)) attemptStore.delete(attemptKey);
+  });
+}
+
+async function refreshDelivery() {
+  const bundle = state.exact?.bundle;
+  if (!bundle) return;
+  const attemptKey = `refresh:${state.exact.change_set_id}:${bundle.bundle_id}`;
+  await runMutation("刷新交付状态", async () => {
+    const result = await apiPost(
+      `/api/local/v0/changesets/${encodeURIComponent(state.exact.change_set_id)}/delivery/refresh`,
+      { idempotency_key: ensureAttempt(attemptKey) },
+    );
+    if (deliveryComplete(result)) attemptStore.delete(attemptKey);
+  });
+}
+
+async function runMutation(label, work) {
+  state.pendingAction = label;
+  await withLoading(async () => {
+    await work();
+    if (state.selectedChangeSetId) {
+      state.list = await apiGet("/api/local/v0/changesets?limit=20");
+      await loadExact(state.selectedChangeSetId);
+    }
   });
   state.pendingAction = null;
   render();
 }
 
-async function sendPlanningMessage() {
-  if (!state.exact || state.exact.phase !== "planning") return;
-  const input = document.querySelector("#planning-message-input");
-  const text = input?.value.trim() ?? "";
-  const message =
-    state.exact.planning_conversation.total_turns === 0 && text.length === 0
-      ? null
-      : text;
-  if (message === "") {
-    state.error = new Error("A planning reply cannot be empty.");
-    render();
-    return;
+async function openAuditDialog() {
+  if (!state.exact) return;
+  state.audit = await apiGet(
+    `/api/local/v0/changesets/${encodeURIComponent(state.exact.change_set_id)}/audit`,
+  );
+  const audit = state.audit;
+  elements.auditContent.innerHTML = `
+    <div class="section-title"><div><p class="eyebrow">Audit</p><h2>任务审计</h2></div><button id="close-audit" class="icon-button" type="button">×</button></div>
+    <div class="metric-grid">${Object.entries(compactMetrics(audit))
+      .map(([key, value]) => `<div><span>${escapeHtml(metricLabel(key))}</span><strong>${escapeHtml(formatNumber(value))}</strong></div>`)
+      .join("")}</div>
+    <details open><summary>运行明细</summary><pre>${escapeHtml(JSON.stringify(audit.payload.runs, null, 2))}</pre></details>
+    <details><summary>验证与结果</summary><pre>${escapeHtml(JSON.stringify({ validation: audit.payload.validation, outcomes: audit.payload.outcomes, bundle_reviews: audit.payload.bundle_reviews }, null, 2))}</pre></details>
+    <details><summary>精确审计身份</summary><pre>${escapeHtml(JSON.stringify({ source_identity: audit.source_identity, payload_digest: audit.payload_digest, generated_at: audit.generated_at }, null, 2))}</pre></details>`;
+  document.querySelector("#close-audit")?.addEventListener("click", () =>
+    elements.auditDialog.close(),
+  );
+  elements.auditDialog.showModal();
+}
+
+function startLiveStream(changeSetId) {
+  state.streamController?.abort();
+  const controller = new AbortController();
+  state.streamController = controller;
+  void consumeLiveStream(changeSetId, controller);
+}
+
+async function consumeLiveStream(changeSetId, controller) {
+  while (!controller.signal.aborted && state.selectedChangeSetId === changeSetId) {
+    try {
+      const response = await fetch(
+        `/api/local/v0/changesets/${encodeURIComponent(changeSetId)}/events`,
+        { headers: sessionHeaders(), signal: controller.signal },
+      );
+      if (!response.ok || !response.body) throw new Error("实时事件连接失败。");
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      while (!controller.signal.aborted) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true }).replaceAll("\r", "");
+        let boundary = buffer.indexOf("\n\n");
+        while (boundary !== -1) {
+          const block = buffer.slice(0, boundary);
+          buffer = buffer.slice(boundary + 2);
+          const data = block
+            .split("\n")
+            .filter((line) => line.startsWith("data: "))
+            .map((line) => line.slice(6))
+            .join("\n");
+          if (data) receiveLiveProjection(JSON.parse(data));
+          boundary = buffer.indexOf("\n\n");
+        }
+      }
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      state.error = error;
+      renderStatus();
+    }
+    await delay(1_200, controller.signal);
   }
-  const pending = ensurePendingPlanning(state.exact.change_set_id, message);
-  await runMutation("planning message", async () => {
-    await apiPost(
-      `/api/local/v0/changesets/${encodeURIComponent(
-        state.exact.change_set_id,
-      )}/planning-messages`,
-      {
-        idempotency_key: pending.idempotency_key,
-        message,
-      },
-    );
-    clearPendingPlanning(state.exact.change_set_id);
-  });
 }
 
-function inputLines(selector) {
-  return (document.querySelector(selector)?.value ?? "")
-    .split(/\r?\n/u)
-    .map((line) => line.trim())
-    .filter(Boolean);
+function receiveLiveProjection(projection) {
+  if (projection.change_set_id !== state.selectedChangeSetId) return;
+  state.live = projection;
+  const panel = document.querySelector("#live-panel");
+  if (panel) panel.innerHTML = renderLivePanel();
+  renderStatus();
+  if (state.exact && projection.state_updated_at !== state.exact.updated_at) {
+    void refreshExactQuietly();
+  }
 }
 
-function nullableInputValue(selector) {
+async function refreshExactQuietly() {
+  if (state.quietRefreshing || !state.selectedChangeSetId) return;
+  state.quietRefreshing = true;
+  const changeSetId = state.selectedChangeSetId;
+  try {
+    const [exact, list] = await Promise.all([
+      apiGet(`/api/local/v0/changesets/${encodeURIComponent(changeSetId)}`),
+      apiGet("/api/local/v0/changesets?limit=20"),
+    ]);
+    if (state.selectedChangeSetId !== changeSetId) return;
+    state.exact = exact;
+    state.list = list;
+    render();
+  } catch (error) {
+    state.error = error;
+    renderStatus();
+  } finally {
+    state.quietRefreshing = false;
+  }
+}
+
+function compactMetrics(audit) {
+  const outcomes = audit?.payload?.outcomes ?? {};
+  const attempts = outcomes.runtime_attempts ?? {};
+  const feedback = outcomes.feedback_execution ?? {};
+  return {
+    tokens: audit?.payload?.usage?.observed_total_tokens ?? 0,
+    runs: audit?.payload?.runs?.referenced_count ?? 0,
+    failures: (attempts.failed ?? 0) + (attempts.interrupted ?? 0) + (attempts.cancelled ?? 0),
+    rework: Object.values(feedback).reduce((sum, value) => sum + value, 0),
+    duration_ms: audit?.payload?.timing?.provider_duration_sum?.observed_sum ?? 0,
+  };
+}
+
+function taskStatus(item) {
+  const projected = {
+    needs_input: { kind: "warn", label: "需要你的判断" },
+    needs_confirmation: { kind: "warn", label: "等待确认计划" },
+    planning: { kind: "running", label: "规划中" },
+    running: { kind: "running", label: "执行中" },
+    review: { kind: "warn", label: "等待审查候选" },
+    ready_for_delivery: { kind: "warn", label: "可以创建 PR" },
+    waiting_for_merge: { kind: "running", label: "等待 PR 合并" },
+    blocked: { kind: "danger", label: "执行受阻" },
+    complete: { kind: "complete", label: "已完成" },
+    abandoned: { kind: "danger", label: "已结束" },
+  }[item.operator_status];
+  if (projected) return projected;
+  if (item.phase === "terminal") {
+    return { kind: item.activity === "complete" ? "complete" : "danger", label: item.activity === "complete" ? "已完成" : "已结束" };
+  }
+  if ((item.gates?.length ?? 0) > 0) return { kind: "warn", label: "需要你的判断" };
+  if ((item.blockers?.length ?? 0) > 0) return { kind: "danger", label: "执行受阻" };
+  if (item.phase === "planning") {
+    return { kind: item.planning_message ? "warn" : "running", label: item.planning_message ? "等待确认计划" : "规划中" };
+  }
+  if (item.phase === "review") {
+    if (item.delivery?.activity === "running") return { kind: "running", label: "等待 PR 合并" };
+    if (item.bundle?.human_decision === "accept") return { kind: "warn", label: "可以创建 PR" };
+    return { kind: "warn", label: "等待审查候选" };
+  }
+  return { kind: "running", label: "执行中" };
+}
+
+function runtimeLabel(profile) {
+  if (!profile) return "默认 Runtime";
+  return [profile.runtime, profile.model].filter(Boolean).join(" · ");
+}
+
+function stageLabel(value) {
+  return ({ planning: "规划", running: "执行", execution: "执行", verification: "验证", review: "审查", supervision: "监督", terminal: "结束" })[value] ?? String(value ?? "任务");
+}
+
+function stageAgentLabel(value) {
+  return `${stageLabel(value)} Agent`;
+}
+
+function activityLabel(event) {
+  if (!event) return "正在准备";
+  if (event.item_type === "command_execution") return event.exit_code === null ? "正在执行命令" : `命令结束 (${event.exit_code})`;
+  if (event.item_type === "file_change") return `已更新 ${event.change_count ?? 0} 处文件`;
+  if (event.item_type === "todo_list") return "已更新任务进度";
+  if (event.type === "provider.turn.completed") return "Agent 回合已完成";
+  return "正在处理";
+}
+
+function deliveryLabel(value) {
+  return ({ ready: "可交付", running: "等待合并", blocked: "交付受阻", complete: "已合并" })[value] ?? value;
+}
+
+function metricLabel(value) {
+  return ({ tokens: "Token 总计", runs: "运行次数", failures: "失败/中断", rework: "返工次数", duration_ms: "Provider 时长 (ms)" })[value] ?? value;
+}
+
+function formatRelativeTime(value) {
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) return "未知时间";
+  const seconds = Math.max(0, Math.round((Date.now() - timestamp) / 1_000));
+  if (seconds < 60) return "刚刚";
+  if (seconds < 3_600) return `${Math.floor(seconds / 60)} 分钟前`;
+  if (seconds < 86_400) return `${Math.floor(seconds / 3_600)} 小时前`;
+  return `${Math.floor(seconds / 86_400)} 天前`;
+}
+
+function formatNumber(value) {
+  return Number(value ?? 0).toLocaleString("zh-CN");
+}
+
+// 顶部只展示便于快速判断成本的累计 Provider 时长，精确毫秒仍保留在审计视图。
+function formatDuration(value) {
+  const milliseconds = Number(value ?? 0);
+  if (!Number.isFinite(milliseconds) || milliseconds <= 0) return "0 秒";
+  const seconds = Math.round(milliseconds / 1_000);
+  if (seconds < 60) return `${seconds} 秒`;
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+  if (minutes < 60) return remainingSeconds === 0 ? `${minutes} 分钟` : `${minutes} 分 ${remainingSeconds} 秒`;
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  return remainingMinutes === 0 ? `${hours} 小时` : `${hours} 小时 ${remainingMinutes} 分`;
+}
+
+function nullableValue(selector) {
   const value = document.querySelector(selector)?.value.trim() ?? "";
   return value.length === 0 ? null : value;
 }
 
 function ensurePendingCreate(draft) {
   const fingerprint = JSON.stringify(draft);
-  const existing = readPendingCreate();
+  const existing = readJsonStorage("changefleet:create:pending");
   if (existing?.fingerprint === fingerprint) return existing;
   const pending = {
     fingerprint,
@@ -840,31 +907,8 @@ function ensurePendingCreate(draft) {
   return pending;
 }
 
-function readPendingCreate() {
-  return readJsonStorage("changefleet:create:pending");
-}
-
 function clearPendingCreate() {
   globalThis.localStorage.removeItem("changefleet:create:pending");
-}
-
-function ensurePendingPlanning(changeSetId, message) {
-  const existing = readPendingPlanning(changeSetId);
-  if (existing && existing.message === message) return existing;
-  const pending = {
-    message,
-    idempotency_key: globalThis.crypto.randomUUID(),
-  };
-  writeJsonStorage(`changefleet:planning:${changeSetId}`, pending);
-  return pending;
-}
-
-function readPendingPlanning(changeSetId) {
-  return readJsonStorage(`changefleet:planning:${changeSetId}`);
-}
-
-function clearPendingPlanning(changeSetId) {
-  globalThis.localStorage.removeItem(`changefleet:planning:${changeSetId}`);
 }
 
 function readJsonStorage(key) {
@@ -882,234 +926,21 @@ function writeJsonStorage(key, value) {
   globalThis.localStorage.setItem(key, JSON.stringify(value));
 }
 
-function cssAttribute(value) {
-  return globalThis.CSS.escape(String(value));
-}
-
-async function continueChangeSet() {
-  if (!state.exact || !["working", "review"].includes(state.exact.phase)) return;
-  const attemptKey = `execute:${state.exact.change_set_id}:${state.exact.updated_at}`;
-  const attemptId = ensureAttempt(attemptKey);
-  await runMutation("continue work", async () => {
-    await apiPost(
-      `/api/local/v0/changesets/${encodeURIComponent(state.exact.change_set_id)}/execute`,
-      {
-        idempotency_key: attemptId,
-        verification_admission_mode: null,
-        validation_attempt_budgets: [],
-      },
-    );
-    attemptStore.delete(attemptKey);
-  });
-}
-
-async function mutateSupervision(operation) {
-  if (!state.exact || !["working", "review"].includes(state.exact.phase)) return;
-  const attemptKey = `supervision:${operation}:${state.exact.change_set_id}:${state.exact.updated_at}`;
-  const attemptId = ensureAttempt(attemptKey);
-  await runMutation(`${operation} supervision`, async () => {
-    await apiPost(
-      `/api/local/v0/changesets/${encodeURIComponent(state.exact.change_set_id)}/supervision/${operation}`,
-      {
-        idempotency_key: attemptId,
-        actor: "human",
-        ...(operation === "pause" ? { reason: "operator_hold" } : {}),
-      },
-    );
-    attemptStore.delete(attemptKey);
-  });
-}
-
-async function submitFeedback(workUnitId, runId) {
-  if (!state.exact) return;
-  const summary = globalThis.prompt("Concise feedback summary");
-  if (!summary?.trim()) return;
-  const finding = globalThis.prompt("Actionable finding");
-  if (!finding?.trim()) return;
-  const attemptKey = `feedback:${state.exact.change_set_id}:${workUnitId}:${state.exact.updated_at}`;
-  const attemptId = ensureAttempt(attemptKey);
-  await runMutation("submit feedback", async () => {
-    await apiPost(
-      `/api/local/v0/changesets/${encodeURIComponent(state.exact.change_set_id)}/feedback`,
-      {
-        idempotency_key: attemptId,
-        phase: state.exact.phase,
-        work_unit_id: workUnitId,
-        run_id: runId,
-        feedback: {
-          summary: summary.trim(),
-          findings: [{ finding_id: "human-feedback", text: finding.trim() }],
-        },
-        actor: "human",
-      },
-    );
-    attemptStore.delete(attemptKey);
-  });
-}
-
-async function interruptRun(runId) {
-  if (!state.exact || !runId) return;
-  if (!globalThis.confirm(`Interrupt active Run ${runId}?`)) return;
-  const attemptKey = `interrupt:${state.exact.change_set_id}:${runId}`;
-  const attemptId = ensureAttempt(attemptKey);
-  await runMutation("interrupt run", async () => {
-    await apiPost(
-      `/api/local/v0/changesets/${encodeURIComponent(state.exact.change_set_id)}/runs/${encodeURIComponent(runId)}/interrupt`,
-      { idempotency_key: attemptId, actor: "human" },
-    );
-    attemptStore.delete(attemptKey);
-  });
-}
-
-async function resolveGate(gateId, option) {
-  if (!state.exact || !gateId || !option) return;
-  if (!globalThis.confirm(`Resolve Gate ${gateId} with ${option}?`)) return;
-  const attemptKey = `gate:${state.exact.change_set_id}:${gateId}:${option}`;
-  const attemptId = ensureAttempt(attemptKey);
-  await runMutation("resolve gate", async () => {
-    await apiPost(
-      `/api/local/v0/changesets/${encodeURIComponent(state.exact.change_set_id)}/gates/${encodeURIComponent(gateId)}/resolve`,
-      { idempotency_key: attemptId, option, actor: "human" },
-    );
-    attemptStore.delete(attemptKey);
-  });
-}
-
-async function confirmPlanMessage() {
-  const message = state.exact?.planning_message;
-  if (!message) return;
-  if (
-    !globalThis.confirm(
-      `Approve exact plan message ${message.message_id}\n${message.content_digest}`,
-    )
-  ) {
-    return;
-  }
-  const attemptKey = `plan:${state.exact.change_set_id}:${message.message_id}:${message.content_digest}`;
-  const attemptId = ensureAttempt(attemptKey);
-  await runMutation("plan approval", async () => {
-    await apiPost(
-      `/api/local/v0/changesets/${encodeURIComponent(state.exact.change_set_id)}/plan-confirmation`,
-      {
-        idempotency_key: attemptId,
-        message_id: message.message_id,
-        content_digest: message.content_digest,
-        actor: "human",
-      },
-    );
-    attemptStore.delete(attemptKey);
-  });
-}
-
-async function decideBundle(decision) {
-  const bundle = state.exact?.bundle;
-  if (!bundle) return;
-  if (
-    !globalThis.confirm(
-      `Confirm ${decision} for bundle revision ${bundle.revision}\n${bundle.bundle_hash}`,
-    )
-  ) {
-    return;
-  }
-  const attemptKey = `bundle:${state.exact.change_set_id}:${bundle.revision}:${bundle.bundle_hash}:${decision}`;
-  const attemptId = ensureAttempt(attemptKey);
-  await runMutation(`bundle ${decision}`, async () => {
-    await apiPost(
-      `/api/local/v0/changesets/${encodeURIComponent(state.exact.change_set_id)}/bundle-decisions`,
-      {
-        idempotency_key: attemptId,
-        bundle_revision: bundle.revision,
-        bundle_hash: bundle.bundle_hash,
-        decision,
-        actor: "human",
-      },
-    );
-    attemptStore.delete(attemptKey);
-  });
-}
-
-async function publishDelivery() {
-  const bundle = state.exact?.bundle;
-  if (!bundle) return;
-  if (
-    !globalThis.confirm(
-      `Publish accepted bundle ${bundle.bundle_id}\nThe same attempt id will be reused while the result remains ambiguous.`,
-    )
-  ) {
-    return;
-  }
-  const attemptKey = `publish:${state.exact.change_set_id}:${bundle.bundle_id}`;
-  const attemptId = ensureAttempt(attemptKey);
-  await runMutation("delivery publish", async () => {
-    const result = await apiPost(
-      `/api/local/v0/changesets/${encodeURIComponent(state.exact.change_set_id)}/delivery/publish`,
-      {
-        idempotency_key: attemptId,
-        actor: "human",
-        title: null,
-        body: null,
-      },
-    );
-    if (deliveryComplete(result)) {
-      attemptStore.delete(attemptKey);
-    }
-  });
-}
-
-async function refreshDelivery() {
-  const bundle = state.exact?.bundle;
-  if (!bundle) return;
-  const attemptKey = `refresh:${state.exact.change_set_id}:${bundle.bundle_id}`;
-  const attemptId = ensureAttempt(attemptKey);
-  await runMutation("delivery refresh", async () => {
-    const result = await apiPost(
-      `/api/local/v0/changesets/${encodeURIComponent(state.exact.change_set_id)}/delivery/refresh`,
-      {
-        idempotency_key: attemptId,
-      },
-    );
-    if (deliveryComplete(result)) {
-      attemptStore.delete(attemptKey);
-    }
-  });
-}
-
-async function runMutation(label, work) {
-  await withLoading(async () => {
-    state.pendingAction = label;
-    render();
-    await work();
-    await loadExact(state.selectedChangeSetId);
-  });
-  state.pendingAction = null;
-  render();
-}
-
-function clearFinishedAttempts() {
-  const bundle = state.exact?.bundle;
-  if (!bundle) return;
-  if (state.exact.bundle?.human_decision?.decision === "accept") {
-    attemptStore.delete(
-      `bundle:${state.exact.change_set_id}:${bundle.revision}:${bundle.bundle_hash}:accept`,
-    );
-  }
-  if (state.exact.bundle?.human_decision?.decision === "reject") {
-    attemptStore.delete(
-      `bundle:${state.exact.change_set_id}:${bundle.revision}:${bundle.bundle_hash}:reject`,
-    );
-  }
-  if (deliveryComplete(state.exact.delivery)) {
-    attemptStore.delete(`publish:${state.exact.change_set_id}:${bundle.bundle_id}`);
-    attemptStore.delete(`refresh:${state.exact.change_set_id}:${bundle.bundle_id}`);
-  }
-}
-
 function ensureAttempt(key) {
   const existing = attemptStore.get(key);
   if (existing) return existing;
   const value = globalThis.crypto.randomUUID();
   attemptStore.set(key, value);
   return value;
+}
+
+function clearFinishedAttempts() {
+  const bundle = state.exact?.bundle;
+  if (!bundle) return;
+  if (deliveryComplete(state.exact.delivery)) {
+    attemptStore.delete(`publish:${state.exact.change_set_id}:${bundle.bundle_id}`);
+    attemptStore.delete(`refresh:${state.exact.change_set_id}:${bundle.bundle_id}`);
+  }
 }
 
 function deliveryComplete(delivery) {
@@ -1121,19 +952,14 @@ function deliveryComplete(delivery) {
 }
 
 async function apiGet(path) {
-  const response = await fetch(path, {
-    headers: sessionHeaders(),
-  });
+  const response = await fetch(path, { headers: sessionHeaders() });
   return parseResponse(response);
 }
 
 async function apiPost(path, body) {
   const response = await fetch(path, {
     method: "POST",
-    headers: {
-      ...sessionHeaders(),
-      "Content-Type": "application/json; charset=utf-8",
-    },
+    headers: { ...sessionHeaders(), "Content-Type": "application/json; charset=utf-8" },
     body: JSON.stringify(body),
   });
   return parseResponse(response);
@@ -1148,19 +974,25 @@ function sessionHeaders() {
 
 async function parseResponse(response) {
   const payload = await response.json();
-  if (!response.ok) {
-    throw new Error(payload.error?.message ?? `HTTP ${response.status}`);
-  }
+  if (!response.ok) throw new Error(payload.error?.message ?? `HTTP ${response.status}`);
   return payload;
 }
 
+function delay(milliseconds, signal) {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, milliseconds);
+    signal?.addEventListener("abort", () => {
+      clearTimeout(timer);
+      resolve();
+    }, { once: true });
+  });
+}
+
 function pillClass(value) {
-  if (["failed", "rejected", "candidate_diverged", "closed_unmerged"].includes(value)) {
-    return "danger";
-  }
-  if (["decision_required", "integration_stale", "delivering"].includes(value)) {
-    return "warn";
-  }
+  if (["danger", "failed", "blocked"].includes(value)) return "danger";
+  if (["warn", "waiting"].includes(value)) return "warn";
+  if (["running"].includes(value)) return "running";
+  if (["complete"].includes(value)) return "complete";
   return "";
 }
 
@@ -1171,12 +1003,8 @@ function updateLocation(changeSetId) {
   globalThis.history.replaceState({}, "", url);
 }
 
-function readBootstrap() {
-  const element = document.querySelector("#changefleet-bootstrap");
-  if (!(element instanceof HTMLScriptElement)) {
-    throw new Error("Missing ChangeFleet bootstrap payload.");
-  }
-  return JSON.parse(element.textContent ?? "{}");
+function cssAttribute(value) {
+  return globalThis.CSS.escape(String(value));
 }
 
 function escapeHtml(value) {
@@ -1184,9 +1012,16 @@ function escapeHtml(value) {
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;");
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
 }
 
 function escapeAttribute(value) {
-  return escapeHtml(value).replaceAll("'", "&#39;");
+  return escapeHtml(value);
+}
+
+function readBootstrap() {
+  const element = document.querySelector("#changefleet-bootstrap");
+  if (!(element instanceof HTMLScriptElement)) throw new Error("缺少 ChangeFleet 启动信息。");
+  return JSON.parse(element.textContent ?? "{}");
 }

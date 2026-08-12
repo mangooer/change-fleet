@@ -171,8 +171,9 @@ test(
         change_set_id: "real-change",
         message_id: planned.message.message_id,
         content_digest: planned.message.content_digest,
+        run_after_confirmation: true,
       });
-      assert.equal(confirmation.supervision.status, "review_ready");
+      assert.equal(confirmation.controller.status, "review_ready");
     } catch (error) {
       // 真实 Provider 失败时输出有界命令审计和文件名，但不输出推理或凭据。
       const failedState = await service.readChangeSet("real-change");
@@ -255,7 +256,7 @@ test(
       ),
       { code: "ENOENT" },
     );
-    assert.equal(confirmation.supervision.bundle.revision, 1);
+    assert.equal(confirmation.controller.bundle.revision, 1);
     assert.equal(state.phase, "review");
     assert.deepEqual(
       state.run_references.map((reference) => reference.operation),

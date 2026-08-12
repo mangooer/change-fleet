@@ -35,6 +35,15 @@ describe("Codex SDK Runtime protocol", () => {
       type: "conversation_message",
       message: {
         text: "The exact plan is ready for approval.",
+        intent_draft: {
+          objective: "Implement the requested API behavior.",
+          rationale: null,
+          constraints: [],
+          non_goals: [],
+          acceptance_criteria: ["The requested API behavior works."],
+          resolved_decisions: [],
+          open_questions: [],
+        },
         plan: {
           summary: "Implement the requested API behavior.",
           steps: ["Update the API implementation."],
