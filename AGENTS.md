@@ -5,23 +5,18 @@ small as Agent Runtimes improve.
 
 ## Start With Current Authority
 
-For every task:
-
-1. Read `docs/current-state.md` and the active WorkItem or Proposal.
-2. Inspect Git status and the current diff; preserve unrelated user changes.
-3. Read only relevant sections of `SPEC.md`, architecture, decisions, protocols, and evidence.
+For every task, read `docs/current-state.md` and the active WorkItem or Proposal, inspect Git
+status and the current diff, then load only the relevant sections of `SPEC.md`, architecture,
+decisions, protocols, and evidence.
 
 Do not read the complete `SPEC.md`, all proposals, or all WorkItems by default. Do not reconstruct
 current truth by replaying history.
 
-Authority is divided deliberately:
-
-- `SPEC.md`: accepted product contract;
-- `docs/current-state.md`: current implementation, gaps, and next task;
-- decisions: durable accepted rationale;
-- Repository Design Proposals: chronological product or architecture changes;
-- Development WorkItems: confirmed implementation demand and concise evidence;
-- Git and linked artifacts: exact implementation and operational history.
+Authority is divided deliberately: `SPEC.md` owns the accepted product contract;
+`docs/current-state.md` owns the current implementation projection, gaps, and next task; decisions
+own durable accepted rationale; Repository Design Proposals and Development WorkItems own accepted
+change history and concise execution evidence; Git and linked artifacts own exact implementation
+history.
 
 Design Proposals and WorkItems are repository Harness, not Runtime output. Runtime uses ChangeSet,
 ChangePlanRevision, WorkUnit, Run, and CandidateBundle records.
@@ -93,14 +88,8 @@ it never happened.
 
 ## Validation And Project Memory
 
-Follow `docs/validation.md`. Documentation-only work currently requires:
-
-```sh
-git diff --check
-```
-
-Also inspect affected links, authority projections, and eager Harness file sizes. Never report a
-nonexistent or unexecuted command as passed.
+Follow `docs/validation.md` for check selection and `docs/harness.md` for Harness maintenance
+rules. Never report a nonexistent or unexecuted command as passed.
 
 For every executed check report the exact command, exit code, scope, concise observation, and
 relevant unverified boundary. Do not paste full output into project memory.
