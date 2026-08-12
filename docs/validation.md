@@ -76,6 +76,9 @@ Development WorkItem, also run `npm run check:harness` under Node.js 24. This is
 repository tooling; it is not a product command and does not impose a command or format on a
 registered repository.
 
+`docs/harness.md` remains the authority for eager-file size limits, loading order, and projection
+maintenance. This document owns validation selection and command requirements.
+
 | Package command | Scope |
 | --- | --- |
 | `npm run check:harness` | ChangeFleet WorkItem frontmatter and eager repository-Harness limits |

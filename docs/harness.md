@@ -125,6 +125,9 @@ and small explicitly requested repository maintenance may continue. Durable impl
 not start until an accepted Repository Design Proposal, when required, and a confirmed `todo`
 Development WorkItem authorize it.
 
+`WORKFLOW.md` should only restate this startup route for Runtime entry. Do not duplicate the
+loading map, validation policy, or broader maintenance rules there.
+
 Do not preload:
 
 - all Repository Design Proposals or closed Development WorkItems;
@@ -235,24 +238,15 @@ Detailed output belongs in linked artifacts. The Development WorkItem records on
 Do not manufacture a new Development WorkItem merely because an Agent retries or a plan changes. A
 new WorkItem represents new confirmed implementation demand, not a new conversation turn.
 
-## Validation Selection Discipline
+## Validation Routing
 
-Each WorkItem selects validation from `docs/validation.md` rather than inheriting a mandatory full
-suite. Its validation table identifies required, conditional, and explicitly excluded gates with a
-short reason. Reassess that selection against the final diff before review.
+`docs/validation.md` owns gate selection, command requirements, and evidence fields. This document
+adds only two Harness-specific rules:
 
-During implementation, run the smallest affected test. Every changed test file must execute, and
-every changed production boundary needs a direct behavioral check. Escalate to the nearest owning
-suite when dependency impact is uncertain; do not claim an unexecuted broader suite passed.
-
-Reserve `npm run check` for accepted full-gate triggers such as shared contracts, schemas,
-dependencies, the test runner, several crossed tiers, an unknown dependency boundary, or explicit
-WorkItem or release policy. Run it once after the code stabilizes. Documentation-only work does not
-run Node tests, and evidence-only edits after a valid code-bound gate do not require it again.
-
-Historical WorkItems retain the gates they explicitly required. This policy changes future
-selection and review discipline; it does not rewrite recorded evidence or retroactively weaken an
-accepted WorkItem.
+- documentation maintenance still inspects affected links, authority pointers, and eager resource
+  sizes; and
+- branch-local Harness projections update in the same Candidate as the implementation they
+  describe.
 
 ## Executable Surface Discipline
 
@@ -335,7 +329,7 @@ deferred.
 
 Before reporting documentation changes ready:
 
-1. run `git diff --check`;
+1. follow `docs/validation.md` for required commands;
 2. inspect every changed link and authority pointer;
 3. verify `docs/current-state.md` still describes current, not proposed-as-implemented, facts;
 4. inspect eager-resource byte sizes;
