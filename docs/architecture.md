@@ -297,31 +297,36 @@ explicit JSON route allowlist. It is not a daemon, Codex App Server, remote API,
 bus, or second authority graph.
 
 The adapter calls shared application operations for ChangeSet creation, planning turns, exact Plan
-approval, Bundle decisions, and GitHub publish/refresh. Bounded queries provide the recent list,
+activation, Bundle decisions, and GitHub publish/refresh. Bounded queries provide the recent list,
 exact current view, and safe existing-Project intake options. HTTP requests cannot select a control
 root, raw operation, host path, AgentProfile, credential, executable, or unrestricted catalog
 object. The adapter does not invoke the CLI parser or expose raw Store, Runtime, Git, workspace, or
 provider helpers. The isolated audit CLI retains its stronger read-only process composition; an
 audit view inside the lifecycle server does not claim that boundary.
 
-Creation and initial planning are separate idempotent mutations. A successful creation survives a
-failed Planner attempt as one visible retryable ChangeSet. Every planning response carries one
-complete bounded Intent draft; exact Plan-message approval confirms that draft and Plan in one
-transaction. The console persists only opaque attempt identity and unfinished form input needed to
-retry the same browser action; persisted Core state remains authority.
+Creation and initial planning remain separate idempotent kernel operations behind one browser
+action. `TaskControlStore` keeps a durable local command queue, frozen local authorization,
+operator hold, and append-only safe timeline outside the ChangeSet aggregate. The foreground
+`AutonomousTaskController` holds one per-ChangeSet worker lease, recovers interrupted commands on
+startup, and returns HTTP 202 after command acceptance. A successful creation survives a failed
+Planner attempt as one visible retryable ChangeSet; persisted Core state remains domain authority.
 
-The current view reconstructs one stage-aware conversation from linked planning, Feedback, and
-Run-outcome evidence under explicit bounds. A fresh Planner receives the current draft, human input,
+The current view reads one stage-aware safe timeline while exact planning and Run artifacts remain
+linked audit evidence. A fresh Planner receives the current draft and human input,
 and immediately preceding assistant response; it does not receive a transcript replay. A bounded
 SSE projection exposes sanitized current Run activity and Agent todo progress without logs, command
 output, diffs, reasoning, or evidence bodies. Browser actions carry caller attempt identity and
 exact Plan, Bundle, or delivery subjects; browser state never becomes lifecycle authority or Agent
 context.
 
-One deterministic Task Controller selects the existing exact execution path or configured Agentic
-supervision path after Plan confirmation. The UI never asks an operator to choose between them.
+A Planner returns `ready | needs_input`. Ready output lets task policy activate the exact Plan and
+invoke one deterministic Task Controller; needs-input output stops at one human request. The Task
+Controller selects the existing exact execution path or configured Agentic supervision path. The
+UI never asks an operator to choose between them or routinely confirm a Plan.
 ChangeSet lifecycle is `planning | running | review | terminal`; delivery remains an attached
 external process under review rather than a fifth task phase.
+The operator projection is only `running | needs_feedback | needs_review | waiting_for_merge |
+complete | cancelled` plus a deterministic reason.
 
 The local trust boundary requires exact loopback and Host, same-origin requests, no CORS, an
 in-memory session/CSRF nonce, bounded JSON mutations, restrictive security headers, safe errors,
@@ -447,8 +452,9 @@ Feedback routing through existing services. It adds no aggregate phase or recove
 
 ### DeliveryCoordinator
 
-Owns one stable delivery request for every Candidate in the accepted current Bundle. It separates
-Bundle acceptance from explicit publication, freezes a confirmed GitHub binding revision, acquires
+Owns one stable delivery request for every Candidate in the accepted current Bundle. It keeps
+Bundle acceptance distinct from publication while allowing already frozen task policy to enqueue
+publication automatically, freezes a confirmed GitHub binding revision, acquires
 the `repository_id + target_ref` operation lease, verifies the exact target and Candidate, and
 persists enough identity to recover ambiguous external writes after restart.
 

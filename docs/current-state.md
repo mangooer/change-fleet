@@ -27,7 +27,14 @@ accepted contract; decisions own rationale; WorkItems and Git own execution evid
 - Completed [WI-0040](work-items/WI-0040-unified-task-control-local-vertical-slice.md) implements
   accepted Proposal 0030 and Decision 0032 on `codex/wi-0040-unified-task-control`; it replaces the
   operation-oriented local route with one task-first controller flow. Its first bounded real local
-  self-iteration has completed on the branch; review and merge remain pending.
+  self-iteration and Harness calibration have landed on that branch.
+- Accepted [0031](proposals/0031-autonomous-task-conversation-and-operator-inbox.md) is recorded by
+  Decision 0033. Completed
+  [WI-0041](work-items/WI-0041-autonomous-task-conversation-local-vertical-slice.md) on
+  `codex/wi-0041-autonomous-task-conversation` atomically replaces the ordinary local route with
+  policy-activated Plans, one asynchronous task conversation, six operator states, and recoverable
+  Delivery. Its deterministic full check passes; paid Provider and real GitHub use remain a later
+  bounded gate.
 
 ## Current Implementation Focus
 
@@ -37,8 +44,11 @@ accepted contract; decisions own rationale; WorkItems and Git own execution evid
 - ChangeSet creation freezes visible repositories, branches, base SHAs, and targets; optional
   confirmed Repository Harness overlays stay immutable input only.
 - Verification and review bind exact Candidates, selected checks, and separate Runtime usage.
-- The branch-local operator route uses one bounded conversation, joint Intent-and-Plan
-  confirmation, one Task Controller, sanitized SSE activity, and on-demand audit detail.
+- The branch-local operator route durably accepts commands, automatically binds ready Plans, stops
+  for human input, uses one safe conversation over separate internal Runs, and advances through
+  review and authorized Delivery without routine operation clicks.
+- Default views expose only six operator states with deterministic reasons; exact lifecycle, Run,
+  Candidate, Bundle, delivery, and audit facts remain separate authority.
 - Authority chronology stays in the [Decision Index](decisions/README.md) and
   [Proposal Index](proposals/INDEX.md) rather than this projection.
 
@@ -56,9 +66,9 @@ accepted contract; decisions own rationale; WorkItems and Git own execution evid
 - Bundle-level independent quality review supports one selected reviewer and bounded repair.
   Multiple reviewers, Candidate comparison, normalized scoring, and automatic model routing remain
   deferred.
-- Provider-native live feedback steering and durable session continuation remain optimizations;
-  current feedback is queued for the same Plan's next Run. Current SSE streams sanitized activity,
-  not model text deltas or provider-thread control.
+- Provider-native text streaming, live feedback steering, and durable Provider-session continuation
+  remain optimizations. The persisted task timeline contains safe completed messages and status
+  events; SSE streams sanitized activity, not raw reasoning or provider-thread control.
 - Simultaneous independent WorkUnit Provider dispatch remains unproven; the foreground scheduler
   still advances exact eligible units serially.
 - Runtime Kit, Codex App Server, another Provider, Linear, pricing, dashboards, and continuous
@@ -68,10 +78,9 @@ accepted contract; decisions own rationale; WorkItems and Git own execution evid
 
 ## Next Recommended Task
 
-Land WI-0040 together with this Harness calibration. Then use the evidence from the completed first
-real self-iteration and this review to choose one defect-fix WorkItem; do not preemptively create
-or confirm a new WorkItem or Proposal, and do not jump ahead to tracker routing, Runtime role
-catalogs, or Candidate comparison.
+Use one bounded real self-iteration from the exact WI-0041 baseline to evaluate autonomous
+conversation quality, operator-state transitions, Delivery recovery, and Provider cost. Keep that
+external gate separate from the deterministic implementation result.
 
 ## Maintenance Contract
 

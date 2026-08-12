@@ -14,6 +14,7 @@ const state = {
   createProjectId: null,
   streamController: null,
   quietRefreshing: false,
+  pendingMessages: [],
 };
 
 const elements = {
@@ -126,9 +127,12 @@ function renderList() {
     elements.list.innerHTML = '<div class="empty">还没有任务。</div>';
   } else {
     const groups = [
-      ["进行中", items.filter((item) => ["planning", "running"].includes(item.phase))],
-      ["待审查", items.filter((item) => item.phase === "review")],
-      ["已结束", items.filter((item) => item.phase === "terminal")],
+      ["待反馈", items.filter((item) => item.operator_status === "needs_feedback")],
+      ["待审查", items.filter((item) => item.operator_status === "needs_review")],
+      ["等待合入", items.filter((item) => item.operator_status === "waiting_for_merge")],
+      ["进行中", items.filter((item) => item.operator_status === "running")],
+      ["已完成", items.filter((item) => item.operator_status === "complete")],
+      ["已取消", items.filter((item) => item.operator_status === "cancelled")],
     ];
     elements.list.innerHTML = groups
       .filter(([, group]) => group.length > 0)
@@ -212,7 +216,7 @@ function renderDetail() {
           <div><p class="eyebrow">Conversation</p><h3>任务对话</h3></div>
           <span class="muted">当前阶段：${escapeHtml(stageLabel(exact.phase))}</span>
         </div>
-        <div class="conversation">${renderConversation(exact.conversation)}</div>
+        <div class="conversation">${renderConversation(exact.conversation, state.pendingMessages)}</div>
         ${renderComposer(exact)}
       </article>
 
@@ -223,7 +227,6 @@ function renderDetail() {
             ${exact.current_revisions.plan_revision ? `<span class="pill">r${escapeHtml(exact.current_revisions.plan_revision)}</span>` : ""}
           </div>
           ${renderPlan(currentPlan, exact)}
-          ${renderPlanConfirmation(exact)}
         </article>
         ${renderGatePanel(exact.gates)}
         ${renderBundlePanel(exact, bundle, quality, canAccept)}
@@ -236,13 +239,19 @@ function renderDetail() {
 
 function renderTaskControl(exact) {
   if (exact.phase === "terminal") return "";
+  const controls = [];
   if (state.live?.run?.status === "running") {
-    return '<button id="pause-task" class="secondary" type="button">暂停当前运行</button>';
+    controls.push('<button id="pause-task" class="secondary" type="button">暂停当前运行</button>');
   }
-  if (exact.phase === "running") {
-    return '<button id="resume-task" class="secondary" type="button">继续</button>';
+  if (
+    state.live?.run?.status !== "running" &&
+    exact.operator_status === "needs_feedback" &&
+    exact.phase === "running"
+  ) {
+    controls.push('<button id="resume-task" class="secondary" type="button">继续</button>');
   }
-  return "";
+  controls.push('<button id="cancel-task" class="danger" type="button">取消任务</button>');
+  return controls.join("");
 }
 
 function renderLivePanel() {
@@ -269,17 +278,17 @@ function renderLivePanel() {
     }`;
 }
 
-function renderConversation(conversation) {
-  const messages = conversation?.messages ?? [];
+function renderConversation(conversation, pendingMessages = []) {
+  const messages = [...(conversation?.messages ?? []), ...pendingMessages];
   if (messages.length === 0) {
     return '<div class="empty">Planner 正在读取任务与仓库上下文。</div>';
   }
   return messages
     .map(
       (message) => `
-        <article class="message ${message.role === "human" ? "human-message" : "agent-message"}">
-          <div class="message-meta"><strong>${message.role === "human" ? "你" : stageAgentLabel(message.stage)}</strong><span>${formatRelativeTime(message.created_at)}</span></div>
-          <p>${escapeHtml(message.text)}</p>
+        <article class="message ${message.role === "human" ? "human-message" : "agent-message"} ${message.pending ? "pending-message" : ""}">
+          <div class="message-meta"><strong>${message.role === "human" ? "你" : message.role === "system" ? "ChangeFleet" : stageAgentLabel(message.stage)}</strong><span>${formatRelativeTime(message.created_at)}</span></div>
+          <p>${escapeHtml(message.text)}</p>${message.pending ? '<span class="muted">正在发送…</span>' : ""}
         </article>`,
     )
     .join("");
@@ -321,17 +330,6 @@ function renderPlan(plan, exact) {
         ? ""
         : `<details><summary>验证方式</summary><ul>${plan.validation.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul></details>`
     }`;
-}
-
-function renderPlanConfirmation(exact) {
-  const message = exact.planning_message;
-  if (!message) return "";
-  return `
-    <div class="plan-confirmation">
-      <p>${escapeHtml(message.text)}</p>
-      <button id="confirm-plan" type="button">确认计划并自动运行</button>
-      <details><summary>精确确认主体</summary><code>${escapeHtml(message.content_digest)}</code></details>
-    </div>`;
 }
 
 function renderGatePanel(gates) {
@@ -385,9 +383,26 @@ function renderBundlePanel(exact, bundle, quality, canAccept) {
 function renderDeliveryPanel(exact, bundle) {
   if (!bundle || bundle.human_decision?.decision !== "accept") return "";
   const delivery = exact.delivery;
+  const missingBindings = exact.repositories.filter(
+    (repository) => repository.delivery_binding.status === "missing",
+  );
+  const publishing =
+    exact.task_control?.current_command?.kind === "publish" &&
+    ["accepted", "running"].includes(exact.task_control.current_command.status);
   return `
     <article class="surface delivery-surface">
       <div class="section-title"><div><p class="eyebrow">Delivery</p><h3>GitHub 交付</h3></div><span class="pill ${pillClass(delivery.activity)}">${escapeHtml(deliveryLabel(delivery.activity))}</span></div>
+      ${
+        missingBindings.length === 0
+          ? ""
+          : `<form id="delivery-binding-form" class="modal-form compact-form">
+              <p>先确认缺失的 GitHub 交付绑定，再重试创建 PR。</p>
+              <label class="field"><span>仓库</span><select id="delivery-binding-repository">${missingBindings.map((repository) => `<option value="${escapeAttribute(repository.repository_id)}">${escapeHtml(repository.repository_id)}</option>`).join("")}</select></label>
+              <label class="field"><span>GitHub 仓库</span><input id="delivery-binding-github" required placeholder="owner/repository"></label>
+              <label class="field"><span>Git remote</span><input id="delivery-binding-remote" required value="origin"></label>
+              <button type="submit">确认绑定</button>
+            </form>`
+      }
       ${delivery.deliveries
         .map(
           (item) =>
@@ -395,7 +410,7 @@ function renderDeliveryPanel(exact, bundle) {
         )
         .join("")}
       <div class="actions">
-        ${delivery.delivery_count === 0 ? '<button id="publish-delivery" type="button">创建 Ready PR</button>' : '<button id="refresh-delivery" class="secondary" type="button">刷新合并状态</button>'}
+        ${delivery.delivery_count === 0 ? publishing ? '<button type="button" disabled>正在创建 Ready PR…</button>' : '<button id="publish-delivery" type="button">重试创建 Ready PR</button>' : '<button id="refresh-delivery" class="secondary" type="button">刷新合并状态</button>'}
       </div>
     </article>`;
 }
@@ -408,9 +423,6 @@ function bindDetailActions() {
     event.preventDefault();
     void sendTaskMessage();
   });
-  document.querySelector("#confirm-plan")?.addEventListener("click", () =>
-    void confirmPlanMessage(),
-  );
   document.querySelector("#retry-planning")?.addEventListener("click", () =>
     void retryPlanning(),
   );
@@ -420,11 +432,14 @@ function bindDetailActions() {
   document.querySelector("#pause-task")?.addEventListener("click", () =>
     void pauseCurrentRun(),
   );
+  document.querySelector("#cancel-task")?.addEventListener("click", () =>
+    void cancelTask(),
+  );
   document.querySelector("#accept-bundle")?.addEventListener("click", () =>
     void decideBundle("accept"),
   );
   document.querySelector("#reject-bundle")?.addEventListener("click", () =>
-    void decideBundle("reject"),
+    void cancelTask(),
   );
   document.querySelector("#publish-delivery")?.addEventListener("click", () =>
     void publishDelivery(),
@@ -432,6 +447,10 @@ function bindDetailActions() {
   document.querySelector("#refresh-delivery")?.addEventListener("click", () =>
     void refreshDelivery(),
   );
+  document.querySelector("#delivery-binding-form")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    void configureDeliveryBinding();
+  });
   for (const button of document.querySelectorAll(".resolve-gate")) {
     button.addEventListener("click", () =>
       void resolveGate(button.dataset.gateId, button.dataset.option),
@@ -531,30 +550,22 @@ async function createTask(project) {
     });
     state.selectedChangeSetId = pending.change_set_id;
     state.list = await apiGet("/api/local/v0/changesets?limit=20");
-    const planningKey = `initial-plan:${pending.change_set_id}`;
-    let planningError = null;
-    try {
-      await apiPost(
-        `/api/local/v0/changesets/${encodeURIComponent(pending.change_set_id)}/planning-messages`,
-        { idempotency_key: ensureAttempt(planningKey), message: null },
-      );
-      attemptStore.delete(planningKey);
-    } catch (error) {
-      planningError = error;
-    }
     clearPendingCreate();
     await loadExact(pending.change_set_id);
-    if (planningError) throw planningError;
   });
 }
 
 async function retryPlanning() {
   if (!state.exact || state.exact.phase !== "planning") return;
-  const attemptKey = `initial-plan:${state.exact.change_set_id}`;
+  const attemptKey = `retry-planning:${state.exact.change_set_id}:${state.exact.updated_at}`;
   await runMutation("重新规划", async () => {
     await apiPost(
-      `/api/local/v0/changesets/${encodeURIComponent(state.exact.change_set_id)}/planning-messages`,
-      { idempotency_key: ensureAttempt(attemptKey), message: null },
+      `/api/local/v0/changesets/${encodeURIComponent(state.exact.change_set_id)}/messages`,
+      {
+        idempotency_key: ensureAttempt(attemptKey),
+        message: "请根据当前任务上下文继续规划。",
+        actor: "human",
+      },
     );
     attemptStore.delete(attemptKey);
   });
@@ -567,6 +578,16 @@ async function sendTaskMessage() {
   const attemptKey = `message:${state.exact.change_set_id}:${message}`;
   const idempotencyKey = ensureAttempt(attemptKey);
   input.value = "";
+  const pendingMessage = {
+    message_id: `pending:${idempotencyKey}`,
+    role: "human",
+    stage: state.exact.phase,
+    text: message,
+    created_at: new Date().toISOString(),
+    pending: true,
+  };
+  state.pendingMessages.push(pendingMessage);
+  renderDetail();
   await runMutation("发送反馈", async () => {
     await apiPost(
       `/api/local/v0/changesets/${encodeURIComponent(state.exact.change_set_id)}/messages`,
@@ -574,26 +595,10 @@ async function sendTaskMessage() {
     );
     attemptStore.delete(attemptKey);
   });
-}
-
-async function confirmPlanMessage() {
-  const message = state.exact?.planning_message;
-  if (!message) return;
-  const attemptKey = `plan:${state.exact.change_set_id}:${message.message_id}:${message.content_digest}`;
-  const idempotencyKey = ensureAttempt(attemptKey);
-  await runMutation("确认计划并运行", async () => {
-    await apiPost(
-      `/api/local/v0/changesets/${encodeURIComponent(state.exact.change_set_id)}/plan-confirmation`,
-      {
-        idempotency_key: idempotencyKey,
-        message_id: message.message_id,
-        content_digest: message.content_digest,
-        actor: "human",
-        run_after_confirmation: true,
-      },
-    );
-    attemptStore.delete(attemptKey);
-  });
+  state.pendingMessages = state.pendingMessages.filter(
+    (candidate) => candidate.message_id !== pendingMessage.message_id,
+  );
+  renderDetail();
 }
 
 async function runTaskController() {
@@ -615,6 +620,18 @@ async function pauseCurrentRun() {
   await runMutation("暂停当前运行", async () => {
     await apiPost(
       `/api/local/v0/changesets/${encodeURIComponent(state.exact.change_set_id)}/runs/${encodeURIComponent(runId)}/interrupt`,
+      { idempotency_key: ensureAttempt(attemptKey), actor: "human" },
+    );
+    attemptStore.delete(attemptKey);
+  });
+}
+
+async function cancelTask() {
+  if (!state.exact || !globalThis.confirm("确定取消这个任务吗？任务将停止自动运行，并释放未交付的工作区资源。")) return;
+  const attemptKey = `cancel:${state.exact.change_set_id}`;
+  await runMutation("取消任务", async () => {
+    await apiPost(
+      `/api/local/v0/changesets/${encodeURIComponent(state.exact.change_set_id)}/cancel`,
       { idempotency_key: ensureAttempt(attemptKey), actor: "human" },
     );
     attemptStore.delete(attemptKey);
@@ -675,6 +692,26 @@ async function refreshDelivery() {
       { idempotency_key: ensureAttempt(attemptKey) },
     );
     if (deliveryComplete(result)) attemptStore.delete(attemptKey);
+  });
+}
+
+async function configureDeliveryBinding() {
+  if (!state.exact) return;
+  const repositoryId = document.querySelector("#delivery-binding-repository")?.value;
+  const githubRepository = document.querySelector("#delivery-binding-github")?.value.trim();
+  const pushRemote = document.querySelector("#delivery-binding-remote")?.value.trim();
+  if (!repositoryId || !githubRepository || !pushRemote) return;
+  const attemptKey = `binding:${state.exact.project_id}:${repositoryId}:${githubRepository}:${pushRemote}`;
+  await runMutation("确认 GitHub 交付绑定", async () => {
+    await apiPost(
+      `/api/local/v0/projects/${encodeURIComponent(state.exact.project_id)}/repositories/${encodeURIComponent(repositoryId)}/github-delivery`,
+      {
+        idempotency_key: ensureAttempt(attemptKey),
+        github_repository: githubRepository,
+        push_remote: pushRemote,
+      },
+    );
+    attemptStore.delete(attemptKey);
   });
 }
 
@@ -778,6 +815,7 @@ async function refreshExactQuietly() {
     if (state.selectedChangeSetId !== changeSetId) return;
     state.exact = exact;
     state.list = list;
+    clearFinishedAttempts();
     render();
   } catch (error) {
     state.error = error;
@@ -802,32 +840,15 @@ function compactMetrics(audit) {
 
 function taskStatus(item) {
   const projected = {
-    needs_input: { kind: "warn", label: "需要你的判断" },
-    needs_confirmation: { kind: "warn", label: "等待确认计划" },
-    planning: { kind: "running", label: "规划中" },
-    running: { kind: "running", label: "执行中" },
-    review: { kind: "warn", label: "等待审查候选" },
-    ready_for_delivery: { kind: "warn", label: "可以创建 PR" },
-    waiting_for_merge: { kind: "running", label: "等待 PR 合并" },
-    blocked: { kind: "danger", label: "执行受阻" },
+    running: { kind: "running", label: "进行中" },
+    needs_feedback: { kind: "warn", label: "待反馈" },
+    needs_review: { kind: "warn", label: "待审查" },
+    waiting_for_merge: { kind: "running", label: "等待合入" },
     complete: { kind: "complete", label: "已完成" },
-    abandoned: { kind: "danger", label: "已结束" },
+    cancelled: { kind: "danger", label: "已取消" },
   }[item.operator_status];
   if (projected) return projected;
-  if (item.phase === "terminal") {
-    return { kind: item.activity === "complete" ? "complete" : "danger", label: item.activity === "complete" ? "已完成" : "已结束" };
-  }
-  if ((item.gates?.length ?? 0) > 0) return { kind: "warn", label: "需要你的判断" };
-  if ((item.blockers?.length ?? 0) > 0) return { kind: "danger", label: "执行受阻" };
-  if (item.phase === "planning") {
-    return { kind: item.planning_message ? "warn" : "running", label: item.planning_message ? "等待确认计划" : "规划中" };
-  }
-  if (item.phase === "review") {
-    if (item.delivery?.activity === "running") return { kind: "running", label: "等待 PR 合并" };
-    if (item.bundle?.human_decision === "accept") return { kind: "warn", label: "可以创建 PR" };
-    return { kind: "warn", label: "等待审查候选" };
-  }
-  return { kind: "running", label: "执行中" };
+  return { kind: "running", label: "进行中" };
 }
 
 function runtimeLabel(profile) {
@@ -937,6 +958,10 @@ function ensureAttempt(key) {
 function clearFinishedAttempts() {
   const bundle = state.exact?.bundle;
   if (!bundle) return;
+  if (state.exact.task_control?.current_command?.status === "failed") {
+    // 后台发布失败后必须为人工重试分配新命令身份，不能重放已失败的幂等键。
+    attemptStore.delete(`publish:${state.exact.change_set_id}:${bundle.bundle_id}`);
+  }
   if (deliveryComplete(state.exact.delivery)) {
     attemptStore.delete(`publish:${state.exact.change_set_id}:${bundle.bundle_id}`);
     attemptStore.delete(`refresh:${state.exact.change_set_id}:${bundle.bundle_id}`);

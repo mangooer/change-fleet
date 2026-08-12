@@ -1862,6 +1862,12 @@ export class ChangeFleetService {
         const intentDraft = normalizeIntentDraft(
           outcome.message.intent_draft,
         );
+        const disposition = outcome.message.disposition;
+        invariant(
+          ["ready", "needs_input"].includes(disposition),
+          "INVALID_PLAN",
+          "Planning message disposition is invalid",
+        );
         const planContent =
           outcome.message.plan === null
             ? null
@@ -1873,18 +1879,25 @@ export class ChangeFleetService {
           "INVALID_PLAN",
           "An approvable Plan cannot retain unresolved Intent questions",
         );
+        invariant(
+          (disposition === "ready") === (planContent !== null),
+          "INVALID_PLAN",
+          "Planning message disposition does not match its Plan content",
+        );
         const workspaceControlSummary =
           createTaskWorkspaceControlSummary(initialState);
         const contentDigest = sha256({
+          disposition,
           text,
           intent_draft: intentDraft,
           plan_content: planContent,
           workspace_control_digest: workspaceControlSummary.control_digest,
         });
         planningMessage = {
-          schema_version: 3,
+          schema_version: 4,
           message_id: this.idFactory("planning-message"),
           role: "assistant",
+          disposition,
           text,
           intent_draft: intentDraft,
           plan_content: planContent,
@@ -2016,7 +2029,7 @@ export class ChangeFleetService {
             run_id: runId,
             role: planningMessage.role,
             content_digest: planningMessage.content_digest,
-            has_plan: planningMessage.plan_content !== null,
+            has_plan: planningMessage.disposition === "ready",
             artifact_reference: structuredClone(planningMessageArtifact),
             created_at: planningMessage.created_at,
           };
@@ -2028,7 +2041,10 @@ export class ChangeFleetService {
           state.updated_at = this.now();
           return {
             change_set_id,
-            status: reference.has_plan ? "plan_ready" : "planning",
+            status:
+              planningMessage.disposition === "ready"
+                ? "plan_ready"
+                : "needs_input",
             message: structuredClone(planningMessage),
             artifact_reference: structuredClone(planningMessageArtifact),
           };
@@ -2097,9 +2113,14 @@ export class ChangeFleetService {
       planningMessage.message_id === message_id &&
         planningMessage.content_digest === content_digest &&
         planningMessage.plan_content !== null &&
+        (planningMessage.disposition === undefined ||
+          planningMessage.disposition === "ready") &&
         planningMessage.workspace_control_digest ===
           createTaskWorkspaceControlSummary(initialState).control_digest &&
         sha256({
+          ...(planningMessage.schema_version >= 4
+            ? { disposition: planningMessage.disposition }
+            : {}),
           text: planningMessage.text,
           intent_draft: planningMessage.intent_draft,
           plan_content: planningMessage.plan_content,

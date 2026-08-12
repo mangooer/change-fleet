@@ -121,11 +121,12 @@ export const PLANNING_OUTCOME_SCHEMA = Object.freeze({
         {
           type: "object",
           properties: {
+            disposition: { type: "string", enum: ["ready", "needs_input"] },
             text: { type: "string" },
             intent_draft: INTENT_DRAFT_SCHEMA,
             plan: { anyOf: [PLAN_SCHEMA, { type: "null" }] },
           },
-          required: ["text", "intent_draft", "plan"],
+          required: ["disposition", "text", "intent_draft", "plan"],
           additionalProperties: false,
         },
         { type: "null" },
@@ -473,6 +474,7 @@ export function assertStructuredOutcome(operation, outcome) {
   if (operation === "planning" && outcome.type === "conversation_message") {
     if (
       !outcome.message ||
+      !["ready", "needs_input"].includes(outcome.message.disposition) ||
       typeof outcome.message.text !== "string" ||
       !outcome.message.intent_draft ||
       !("plan" in outcome.message) ||
@@ -480,6 +482,14 @@ export function assertStructuredOutcome(operation, outcome) {
     ) {
       throw new Error(
         "conversation_message requires one message and a null request",
+      );
+    }
+    if (
+      (outcome.message.disposition === "ready") !==
+      (outcome.message.plan !== null)
+    ) {
+      throw new Error(
+        "planning disposition must match whether the message contains a Plan",
       );
     }
     return outcome;

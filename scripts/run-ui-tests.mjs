@@ -5,10 +5,12 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
 import { ChangeFleetService } from "../src/application/change-fleet-service.js";
+import { AutonomousTaskController } from "../src/application/autonomous-task-controller.js";
 import { ChangeSetViewService } from "../src/application/changeset-view-service.js";
 import { createOperatorApplication } from "../src/application/operator-application.js";
 import { RuntimeAuditQueryService } from "../src/application/runtime-audit-query-service.js";
 import { startLocalConsoleServer } from "../src/cli/local-console-server.js";
+import { TaskControlStore } from "../src/adapters/filesystem/task-control-store.js";
 import {
   FixtureBindingDeliveryGitAdapter,
   ScriptedGithubPullRequestAdapter,
@@ -32,7 +34,7 @@ try {
   const page = await browser.newPage();
   page.on("dialog", (dialog) => dialog.accept());
   const refreshAttempts = [];
-  const planningAttempts = [];
+  const taskMessages = [];
   page.on("request", (request) => {
     if (
       request.method() === "POST" &&
@@ -41,11 +43,8 @@ try {
       const payload = request.postDataJSON();
       refreshAttempts.push(payload.idempotency_key);
     }
-    if (
-      request.method() === "POST" &&
-      request.url().endsWith("/planning-messages")
-    ) {
-      planningAttempts.push(request.postDataJSON().idempotency_key);
+    if (request.method() === "POST" && request.url().endsWith("/messages")) {
+      taskMessages.push(request.postDataJSON());
     }
   });
   await page.goto(`http://${server.host}:${server.port}/`, {
@@ -80,24 +79,21 @@ try {
   await page
     .getByRole("button", { name: "重试规划", exact: true })
     .click();
-  await page.getByRole("button", { name: "确认计划并自动运行" }).waitFor();
   await page.waitForSelector("text=The deterministic fixture produced an approvable plan.");
-  if (
-    planningAttempts.length !== 2 ||
-    planningAttempts[0] !== planningAttempts[1]
-  ) {
-    throw new Error("Planning retry did not preserve the same attempt identity.");
+  await page.waitForSelector("text=待审查", { timeout: 90_000 });
+  if (await page.getByRole("button", { name: "确认计划并自动运行" }).count()) {
+    throw new Error("Ordinary task flow still exposed a manual Plan confirmation action.");
+  }
+  if (taskMessages.length !== 1) {
+    throw new Error("Planning recovery was not routed through the single task conversation.");
   }
   await page.reload({ waitUntil: "domcontentloaded" });
-  await page.getByRole("button", { name: "确认计划并自动运行" }).waitFor();
-  await page.getByRole("button", { name: "确认计划并自动运行" }).click();
-  await page.waitForSelector("text=等待审查候选", { timeout: 90_000 });
+  await page.waitForSelector("text=待审查", { timeout: 90_000 });
   await page.locator('[data-change-set-id="change"]').click();
   await page.waitForSelector("text=候选变更");
   await page.waitForSelector("text=api");
   await page.waitForSelector("text=web");
   await page.getByRole("button", { name: "接受候选" }).click();
-  await page.getByRole("button", { name: "创建 Ready PR" }).click();
   await page.waitForSelector('a[href^="https://github.com/fixture/api/pull/"]');
   await page.waitForSelector('a[href^="https://github.com/fixture/web/pull/"]');
 
@@ -282,6 +278,13 @@ async function createFixture(root) {
     idempotency_key: "execute",
     change_set_id: "change",
   });
+  const taskControlStore = new TaskControlStore(path.join(root, "control"));
+  await taskControlStore.initialize();
+  const taskController = new AutonomousTaskController({
+    service,
+    taskControlStore,
+  });
+  await taskController.start();
   const queryService = new ChangeSetViewService({
     controlStore: service.controlStore,
     runStore: service.runStore,
@@ -291,16 +294,40 @@ async function createFixture(root) {
       evidenceStore: service.evidenceStore,
     }),
     agentProfile: TEST_AGENT_PROFILE,
+    taskControlStore,
+  });
+  const operatorApplication = createOperatorApplication(service, {
+    operationHandlers: {
+      "changeset.create": (request) => taskController.createChangeSet(request),
+      "changeset.message": (request) => taskController.sendTaskMessage(request),
+      "changeset.run.interrupt": (request) => taskController.interruptRun(request),
+      "changeset.controller.run": (request) =>
+        taskController.runTaskController(request),
+      "changeset.close": (request) => taskController.cancelChangeSet(request),
+      "changeset.bundle.decide": (request) =>
+        taskController.recordBundleDecision(request),
+      "changeset.delivery.publish": (request) =>
+        taskController.publishDelivery(request),
+      "changeset.delivery.refresh": (request) =>
+        taskController.refreshDelivery(request),
+    },
   });
   return {
     repositories,
     github,
     service,
-    startServer() {
-      return startLocalConsoleServer({
+    async startServer() {
+      const localServer = await startLocalConsoleServer({
         queryService,
-        operatorApplication: createOperatorApplication(service),
+        operatorApplication,
       });
+      return {
+        ...localServer,
+        async close() {
+          await taskController.stop();
+          await localServer.close();
+        },
+      };
     },
   };
 }

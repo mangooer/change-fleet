@@ -24,6 +24,11 @@ describe("changeset view service", () => {
     assert.equal(typeof first.next_cursor, "string");
     assert.equal(Object.hasOwn(first.items[0], "commands"), false);
     assert.equal(Object.hasOwn(first.items[0], "run_references"), false);
+    assert.equal(
+      ["needs_feedback", "needs_review"].includes(first.items[0].operator_status),
+      true,
+    );
+    assert.equal(typeof first.items[0].operator_reason, "string");
 
     const second = await viewService.listChangeSets({
       limit: 1,
@@ -40,6 +45,8 @@ describe("changeset view service", () => {
     assert.equal(exact.bundle.candidates.length, 1);
     assert.equal(exact.bundle.candidates[0].changed_paths.includes("feature.txt"), true);
     assert.equal(exact.repositories[0].delivery_binding.status, "missing");
+    assert.equal(exact.operator_status, "needs_review");
+    assert.equal(exact.operator_reason, "candidate_bundle_ready");
     assert.equal(Object.hasOwn(exact, "transcript"), false);
 
     const audit = await viewService.readAuditView("change-2");

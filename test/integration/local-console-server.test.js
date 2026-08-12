@@ -27,6 +27,70 @@ import {
 } from "../support/scripted-runtime.js";
 
 describe("local console server", () => {
+  test("returns 202 for accepted background task commands and exposes delivery binding setup", async () => {
+    const calls = [];
+    const server = await startLocalConsoleServer({
+      queryService: {
+        readIntakeOptions: async () => ({ projects: [] }),
+        listChangeSets: async () => ({ items: [] }),
+        readChangeSetView: async () => ({}),
+        readLiveTaskView: async () => ({}),
+        readAuditView: async () => ({}),
+      },
+      operatorApplication: {
+        execute: async (operation, request) => {
+          calls.push({ operation, request });
+          return operation === "changeset.controller.run"
+            ? { accepted: true, command: { status: "accepted" } }
+            : { status: "configured" };
+        },
+      },
+    });
+    try {
+      const bootstrap = extractBootstrap(await fetchText(server, "/"));
+      const headers = {
+        "X-ChangeFleet-Session": bootstrap.session_nonce,
+        "X-ChangeFleet-CSRF": bootstrap.csrf_nonce,
+        Origin: `http://${server.host}:${server.port}`,
+        "Content-Type": "application/json; charset=utf-8",
+      };
+      const accepted = await fetch(
+        `http://${server.host}:${server.port}/api/local/v0/changesets/change/controller/run`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ idempotency_key: "resume-1", actor: "human" }),
+        },
+      );
+      assert.equal(accepted.status, 202);
+      assert.equal((await accepted.json()).accepted, true);
+
+      const configured = await fetch(
+        `http://${server.host}:${server.port}/api/local/v0/projects/project/repositories/api/github-delivery`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            idempotency_key: "binding-1",
+            github_repository: "owner/repository",
+            push_remote: "origin",
+          }),
+        },
+      );
+      assert.equal(configured.status, 200);
+      assert.equal((await configured.json()).status, "configured");
+      assert.deepEqual(
+        calls.map((call) => call.operation),
+        [
+          "changeset.controller.run",
+          "project.repository_delivery.github.configure",
+        ],
+      );
+    } finally {
+      await server.close();
+    }
+  });
+
   test("delegates supervision start, pause, and resume through the shared operation boundary", async () => {
     const calls = [];
     const server = await startLocalConsoleServer({

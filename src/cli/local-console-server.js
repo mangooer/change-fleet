@@ -28,10 +28,12 @@ const GET_ROUTES = Object.freeze([
 ]);
 const POST_ROUTES = Object.freeze([
   /^\/api\/local\/v0\/changesets$/u,
+  /^\/api\/local\/v0\/projects\/[A-Za-z0-9._-]+\/repositories\/[A-Za-z0-9._-]+\/github-delivery$/u,
   /^\/api\/local\/v0\/changesets\/[A-Za-z0-9._-]+\/messages$/u,
   /^\/api\/local\/v0\/changesets\/[A-Za-z0-9._-]+\/planning-messages$/u,
   /^\/api\/local\/v0\/changesets\/[A-Za-z0-9._-]+\/plan-confirmation$/u,
   /^\/api\/local\/v0\/changesets\/[A-Za-z0-9._-]+\/controller\/run$/u,
+  /^\/api\/local\/v0\/changesets\/[A-Za-z0-9._-]+\/cancel$/u,
   /^\/api\/local\/v0\/changesets\/[A-Za-z0-9._-]+\/bundle-decisions$/u,
   /^\/api\/local\/v0\/changesets\/[A-Za-z0-9._-]+\/feedback$/u,
   /^\/api\/local\/v0\/changesets\/[A-Za-z0-9._-]+\/execute$/u,
@@ -293,13 +295,32 @@ async function handlePostApi({
 }) {
   if (url.pathname === "/api/local/v0/changesets") {
     const body = normalizeCreateChangeSetBody(await readJsonBody(request));
-    sendJson(
+    sendMutationResult(
       response,
-      200,
       await operatorApplication.execute("changeset.create", {
         ...body,
         actor: "human",
       }),
+    );
+    return;
+  }
+  const bindingMatch = url.pathname.match(
+    /^\/api\/local\/v0\/projects\/(?<projectId>[A-Za-z0-9._-]+)\/repositories\/(?<repositoryId>[A-Za-z0-9._-]+)\/github-delivery$/u,
+  );
+  if (bindingMatch?.groups) {
+    const body = normalizeGithubDeliveryBindingBody(await readJsonBody(request));
+    sendJson(
+      response,
+      200,
+      await operatorApplication.execute(
+        "project.repository_delivery.github.configure",
+        {
+          ...body,
+          project_id: bindingMatch.groups.projectId,
+          repository_id: bindingMatch.groups.repositoryId,
+          actor: "human",
+        },
+      ),
     );
     return;
   }
@@ -336,16 +357,15 @@ async function handlePostApi({
     return;
   }
   const match = url.pathname.match(
-    /^\/api\/local\/v0\/changesets\/(?<changeSetId>[A-Za-z0-9._-]+)\/(?<tail>messages|planning-messages|plan-confirmation|controller\/run|bundle-decisions|feedback|execute|delivery\/publish|delivery\/refresh|supervision\/(?:start|pause|resume))$/u,
+    /^\/api\/local\/v0\/changesets\/(?<changeSetId>[A-Za-z0-9._-]+)\/(?<tail>messages|planning-messages|plan-confirmation|controller\/run|cancel|bundle-decisions|feedback|execute|delivery\/publish|delivery\/refresh|supervision\/(?:start|pause|resume))$/u,
   );
   invariant(match?.groups, "CHANGE_SET_NOT_FOUND", "Route not found");
   const changeSetId = match.groups.changeSetId;
   normalizeId("change_set_id", changeSetId);
   if (match.groups.tail === "messages") {
     const body = normalizeTaskMessageBody(await readJsonBody(request));
-    sendJson(
+    sendMutationResult(
       response,
-      200,
       await operatorApplication.execute("changeset.message", {
         ...body,
         change_set_id: changeSetId,
@@ -379,10 +399,20 @@ async function handlePostApi({
   }
   if (match.groups.tail === "controller/run") {
     const body = normalizeControllerBody(await readJsonBody(request));
-    sendJson(
+    sendMutationResult(
       response,
-      200,
       await operatorApplication.execute("changeset.controller.run", {
+        ...body,
+        change_set_id: changeSetId,
+      }),
+    );
+    return;
+  }
+  if (match.groups.tail === "cancel") {
+    const body = normalizeControllerBody(await readJsonBody(request));
+    sendMutationResult(
+      response,
+      await operatorApplication.execute("changeset.close", {
         ...body,
         change_set_id: changeSetId,
       }),
@@ -391,9 +421,8 @@ async function handlePostApi({
   }
   if (match.groups.tail === "bundle-decisions") {
     const body = normalizeBundleDecisionBody(await readJsonBody(request));
-    sendJson(
+    sendMutationResult(
       response,
-      200,
       await operatorApplication.execute("changeset.bundle.decide", {
         ...body,
         change_set_id: changeSetId,
@@ -443,9 +472,8 @@ async function handlePostApi({
   }
   if (match.groups.tail === "delivery/publish") {
     const body = normalizePublishBody(await readJsonBody(request));
-    sendJson(
+    sendMutationResult(
       response,
-      200,
       await operatorApplication.execute("changeset.delivery.publish", {
         ...body,
         change_set_id: changeSetId,
@@ -454,14 +482,18 @@ async function handlePostApi({
     return;
   }
   const body = normalizeRefreshBody(await readJsonBody(request));
-  sendJson(
+  sendMutationResult(
     response,
-    200,
     await operatorApplication.execute("changeset.delivery.refresh", {
       ...body,
       change_set_id: changeSetId,
     }),
   );
+}
+
+function sendMutationResult(response, result) {
+  // 后台命令只返回“已接受”，不能把尚未发生的 Agent 结果伪装成同步成功。
+  sendJson(response, result?.accepted === true || result?.delivery_command ? 202 : 200, result);
 }
 
 function normalizeCreateChangeSetBody(body) {
@@ -527,6 +559,25 @@ function normalizeCreateChangeSetBody(body) {
     intent: normalizeConsoleIntent(body.intent),
     planning_repository_ids: planningRepositoryIds,
     repository_selections: repositorySelections,
+  };
+}
+
+function normalizeGithubDeliveryBindingBody(body) {
+  requireExactFields(body, [
+    "idempotency_key",
+    "github_repository",
+    "push_remote",
+  ]);
+  return {
+    idempotency_key: requireNonEmptyString(
+      body.idempotency_key,
+      "idempotency_key",
+    ),
+    github_repository: requireNonEmptyString(
+      body.github_repository,
+      "github_repository",
+    ),
+    push_remote: requireNonEmptyString(body.push_remote, "push_remote"),
   };
 }
 

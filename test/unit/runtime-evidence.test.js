@@ -164,6 +164,7 @@ describe("Runtime identity and evidence", () => {
     const planOutcome = {
       type: "conversation_message",
       message: {
+        disposition: "ready",
         text: "ready",
         intent_draft: {
           objective: "Implement the requested behavior.",

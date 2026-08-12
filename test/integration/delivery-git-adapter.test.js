@@ -46,6 +46,14 @@ describe("delivery Git adapter", () => {
       }),
       repository.base_sha,
     );
+    await assert.rejects(
+      adapter.readRemoteRef({
+        repository: registered,
+        pushRemote: "origin",
+        ref: "refs/heads/missing-target",
+      }),
+      { code: "DELIVERY_TARGET_NOT_FOUND" },
+    );
     const first = await adapter.publishExactCandidate({
       repository: registered,
       pushRemote: "origin",

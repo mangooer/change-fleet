@@ -35,7 +35,7 @@ export const OPERATOR_OPERATIONS = Object.freeze(
   Object.keys(OPERATION_METHODS),
 );
 
-export function createOperatorApplication(service) {
+export function createOperatorApplication(service, { operationHandlers = {} } = {}) {
   invariant(
     service && typeof service === "object",
     "INVALID_OPERATOR_APPLICATION",
@@ -44,6 +44,16 @@ export function createOperatorApplication(service) {
 
   const handlers = {};
   for (const [operation, method] of Object.entries(OPERATION_METHODS)) {
+    const override = operationHandlers[operation];
+    if (override !== undefined) {
+      invariant(
+        typeof override === "function",
+        "INVALID_OPERATOR_APPLICATION",
+        `Operator override for ${operation} must be callable`,
+      );
+      handlers[operation] = override;
+      continue;
+    }
     invariant(
       typeof service[method] === "function",
       "INVALID_OPERATOR_APPLICATION",
@@ -53,6 +63,15 @@ export function createOperatorApplication(service) {
       operation === "changeset.read"
         ? (request) => service[method](request.change_set_id)
         : (request) => service[method](request);
+  }
+
+  // 覆盖只能替换既有公开操作，不能借此绕过白名单新增控制面入口。
+  for (const operation of Object.keys(operationHandlers)) {
+    invariant(
+      Object.hasOwn(OPERATION_METHODS, operation),
+      "UNSUPPORTED_OPERATOR_OPERATION",
+      `Operator override is not allowed: ${operation}`,
+    );
   }
 
   return Object.freeze({

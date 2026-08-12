@@ -15,7 +15,13 @@ const MAX_PLANNING_CONVERSATION_BYTES = 48 * 1024;
 
 // 该读模型只为本地 review/delivery console 提供有界投影；它不暴露 transcript、diff、日志或原始证据正文。
 export class ChangeSetViewService {
-  constructor({ controlStore, runStore, auditQueryService, agentProfile }) {
+  constructor({
+    controlStore,
+    runStore,
+    auditQueryService,
+    agentProfile,
+    taskControlStore = null,
+  }) {
     invariant(
       controlStore && typeof controlStore.readChangeSet === "function",
       "INVALID_OPERATOR_APPLICATION",
@@ -43,6 +49,7 @@ export class ChangeSetViewService {
     this.runStore = runStore;
     this.auditQueryService = auditQueryService;
     this.agentProfile = normalizeAgentProfile(agentProfile);
+    this.taskControlStore = taskControlStore;
   }
 
   async readIntakeOptions() {
@@ -65,7 +72,11 @@ export class ChangeSetViewService {
         ? 0
         : states.findIndex((state) => compareCursor(state, cursor) < 0);
     const page = states.slice(startIndex === -1 ? states.length : startIndex);
-    const items = page.slice(0, limit).map(projectListEntry);
+    const items = await Promise.all(
+      page.slice(0, limit).map(async (state) =>
+        projectListEntry(state, await this.readTaskControl(state.change_set_id)),
+      ),
+    );
     return {
       limit,
       items,
@@ -75,9 +86,10 @@ export class ChangeSetViewService {
 
   async readChangeSetView(changeSetId) {
     normalizeId("change_set_id", changeSetId);
-    const [state, catalog] = await Promise.all([
+    const [state, catalog, taskControl] = await Promise.all([
       this.controlStore.readChangeSet(changeSetId),
       this.controlStore.readCatalog(),
+      this.readTaskControl(changeSetId),
     ]);
     const messageReference = state.planning_message_references.find(
       (reference) =>
@@ -92,6 +104,7 @@ export class ChangeSetViewService {
     const conversation = await this.readTaskConversation(
       state,
       planningConversation,
+      taskControl,
     );
     return projectExactChangeSet(
       state,
@@ -99,6 +112,7 @@ export class ChangeSetViewService {
       planningMessage,
       planningConversation,
       conversation,
+      taskControl,
     );
   }
 
@@ -151,7 +165,22 @@ export class ChangeSetViewService {
     return projectAuditView(audit);
   }
 
-  async readTaskConversation(state, planningConversation) {
+  async readTaskConversation(state, planningConversation, taskControl) {
+    if ((taskControl?.timeline.length ?? 0) > 0) {
+      return {
+        messages: taskControl.timeline.map((event) => ({
+          message_id: event.event_id,
+          role: event.role,
+          stage: event.stage,
+          kind: event.kind,
+          text: event.text,
+          created_at: event.created_at,
+        })),
+        shown_messages: taskControl.timeline.length,
+        total_messages: taskControl.timeline.length,
+        truncated: false,
+      };
+    }
     const messages = planningConversation.turns.flatMap((turn) => [
       ...(turn.user_message === null
         ? []
@@ -225,7 +254,10 @@ export class ChangeSetViewService {
 
   async readLiveTaskView(changeSetId) {
     normalizeId("change_set_id", changeSetId);
-    const state = await this.controlStore.readChangeSet(changeSetId);
+    const [state, taskControl] = await Promise.all([
+      this.controlStore.readChangeSet(changeSetId),
+      this.readTaskControl(changeSetId),
+    ]);
     const reference =
       state.run_references.find((candidate) => candidate.status === "running") ??
       state.run_references.at(-1) ??
@@ -237,7 +269,12 @@ export class ChangeSetViewService {
             limit: 128,
             tail: true,
           });
-    return projectLiveTask(state, reference, events);
+    return projectLiveTask(state, reference, events, taskControl);
+  }
+
+  async readTaskControl(changeSetId) {
+    if (!this.taskControlStore) return null;
+    return this.taskControlStore.readTask(changeSetId, { allowMissing: true });
   }
 
   async readAllChangeSets() {
@@ -271,8 +308,10 @@ export class ChangeSetViewService {
   }
 }
 
-function projectLiveTask(state, reference, events) {
+function projectLiveTask(state, reference, events, taskControl) {
   const delivery = createDeliveryProjection(state);
+  const operator = deriveOperatorProjection(state, delivery, taskControl);
+  const updatedAt = latestTimestamp(state.updated_at, taskControl?.updated_at);
   const visible = events.filter((event) =>
     [
       "provider.item.started",
@@ -294,10 +333,11 @@ function projectLiveTask(state, reference, events) {
   return {
     change_set_id: state.change_set_id,
     phase: state.phase,
-    operator_status: deriveOperatorStatus(state, delivery),
+    operator_status: operator.status,
+    operator_reason: operator.reason,
     activity: derivePresentationActivity(state),
-    state_updated_at: state.updated_at,
-    cursor: `${state.updated_at}:${
+    state_updated_at: updatedAt,
+    cursor: `${updatedAt}:${
       visible.at(-1)?.event_id ?? reference?.run_id ?? "idle"
     }`,
     run:
@@ -432,18 +472,20 @@ function boundedPlanningText(value, alreadyTruncated = false) {
   return { text: projected, truncated: true };
 }
 
-function projectListEntry(state) {
+function projectListEntry(state, taskControl) {
   const delivery = createDeliveryProjection(state);
+  const operator = deriveOperatorProjection(state, delivery, taskControl);
   return {
     change_set_id: state.change_set_id,
     project_id: state.project_id,
     phase: state.phase,
-    operator_status: deriveOperatorStatus(state, delivery),
+    operator_status: operator.status,
+    operator_reason: operator.reason,
     activity:
       state.phase === "review" || state.phase === "terminal"
         ? delivery.activity
         : derivePresentationActivity(state),
-    updated_at: state.updated_at,
+    updated_at: latestTimestamp(state.updated_at, taskControl?.updated_at),
     current_intent: currentIntentSummary(state),
     current_revisions: currentRevisionSummary(state),
     blockers: summarizeBlockers(state.blockers ?? []),
@@ -467,8 +509,10 @@ function projectExactChangeSet(
   planningMessage,
   planningConversation,
   conversation,
+  taskControl,
 ) {
   const delivery = createDeliveryProjection(state);
+  const operator = deriveOperatorProjection(state, delivery, taskControl);
   const currentSelection =
     state.repository_selection_revisions.find(
       (revision) =>
@@ -491,12 +535,13 @@ function projectExactChangeSet(
     change_set_id: state.change_set_id,
     project_id: state.project_id,
     phase: state.phase,
-    operator_status: deriveOperatorStatus(state, delivery),
+    operator_status: operator.status,
+    operator_reason: operator.reason,
     activity:
       state.phase === "review" || state.phase === "terminal"
         ? delivery.activity
         : derivePresentationActivity(state),
-    updated_at: state.updated_at,
+    updated_at: latestTimestamp(state.updated_at, taskControl?.updated_at),
     current_intent: currentIntentSummary(state),
     current_revisions: currentRevisionSummary(state),
     blockers: summarizeBlockers(state.blockers ?? []),
@@ -521,6 +566,7 @@ function projectExactChangeSet(
           },
     planning_conversation: planningConversation,
     conversation,
+    task_control: projectTaskControl(taskControl),
     task_workspace: projectTaskWorkspace(state.task_workspace),
     plan:
       currentPlan === null
@@ -656,24 +702,73 @@ function projectTaskWorkspace(workspace) {
   };
 }
 
-function deriveOperatorStatus(state, delivery) {
+function deriveOperatorProjection(state, delivery, taskControl) {
   if (state.phase === "terminal") {
-    return state.terminal_outcome === "done" ? "complete" : "abandoned";
+    return state.terminal_outcome === "done"
+      ? { status: "complete", reason: "delivery_merged" }
+      : { status: "cancelled", reason: terminalCancellationReason(state) };
   }
-  if ((state.gates ?? []).some((gate) => gate.status === "open")) {
-    return "needs_input";
+
+  const openGate = (state.gates ?? []).find((gate) => gate.status === "open");
+  if (openGate) {
+    return { status: "needs_feedback", reason: `gate:${openGate.kind}` };
   }
-  if ((state.blockers ?? []).some((blocker) => blocker.resolved_at === undefined)) {
-    return "blocked";
+  const blocker = (state.blockers ?? []).find(
+    (candidate) => candidate.resolved_at === undefined,
+  );
+  if (blocker) {
+    return {
+      status: "needs_feedback",
+      reason: `blocker:${blocker.code ?? blocker.kind ?? "unresolved"}`,
+    };
   }
+
+  const commands = taskControl?.commands ?? [];
+  if (taskControl?.hold) {
+    return {
+      status: "needs_feedback",
+      reason: `hold:${taskControl.hold.reason}`,
+    };
+  }
+  const activeCommand = commands.find((command) =>
+    ["accepted", "running"].includes(command.status),
+  );
+  if (activeCommand) {
+    return { status: "running", reason: `command:${activeCommand.kind}` };
+  }
+  const lastCommand = commands.at(-1) ?? null;
+  if (lastCommand?.status === "failed") {
+    return {
+      status: "needs_feedback",
+      reason: commandFailureReason(lastCommand.error?.code),
+    };
+  }
+
   if (state.phase === "planning") {
-    return state.current_approvable_plan_message_id === null
-      ? "planning"
-      : "needs_confirmation";
+    if (state.current_approvable_plan_message_id !== null) {
+      return taskControl?.authorization?.plan_activation === "automatic"
+        ? { status: "running", reason: "plan_activation_pending" }
+        : { status: "needs_feedback", reason: "plan_confirmation_required" };
+    }
+    const latestPlanningMessage = state.planning_message_references.at(-1);
+    return latestPlanningMessage && latestPlanningMessage.has_plan === false
+      ? { status: "needs_feedback", reason: "planner_input_required" }
+      : { status: "running", reason: "planning" };
   }
-  if (state.phase === "running") return "running";
-  if (delivery.activity === "running") return "waiting_for_merge";
-  if (delivery.activity === "blocked") return "blocked";
+
+  if (state.phase === "running") {
+    const hold = state.supervision_control?.hold;
+    return hold
+      ? { status: "needs_feedback", reason: `hold:${hold.reason ?? "operator"}` }
+      : { status: "running", reason: "execution" };
+  }
+
+  if (delivery.activity === "running") {
+    return { status: "waiting_for_merge", reason: "pull_request_open" };
+  }
+  if (delivery.activity === "blocked") {
+    return { status: "needs_feedback", reason: "delivery_blocked" };
+  }
   const bundle = state.bundles.at(-1);
   const accepted = (state.decisions ?? []).some(
     (decision) =>
@@ -682,7 +777,55 @@ function deriveOperatorStatus(state, delivery) {
       decision.bundle_hash === bundle?.bundle_hash &&
       decision.decision === "accept",
   );
-  return accepted ? "ready_for_delivery" : "review";
+  return accepted
+    ? { status: "needs_feedback", reason: "delivery_publish_required" }
+    : { status: "needs_review", reason: "candidate_bundle_ready" };
+}
+
+function projectTaskControl(taskControl) {
+  if (!taskControl) return null;
+  const currentCommand =
+    taskControl.commands.find((command) =>
+      ["accepted", "running"].includes(command.status),
+    ) ?? taskControl.commands.at(-1) ?? null;
+  return {
+    authorization: structuredClone(taskControl.authorization),
+    hold: structuredClone(taskControl.hold ?? null),
+    current_command:
+      currentCommand === null
+        ? null
+        : {
+            command_id: currentCommand.command_id,
+            kind: currentCommand.kind,
+            status: currentCommand.status,
+            attempt: currentCommand.attempt,
+            accepted_at: currentCommand.accepted_at,
+            started_at: currentCommand.started_at ?? null,
+            error: structuredClone(currentCommand.error ?? null),
+          },
+  };
+}
+
+function commandFailureReason(code) {
+  if (code === "GITHUB_DELIVERY_BINDING_REQUIRED") {
+    return "delivery_binding_required";
+  }
+  if (code === "DELIVERY_TARGET_NOT_FOUND") return "delivery_target_not_found";
+  if (code === "GIT_REMOTE_READ_FAILED") return "delivery_remote_unavailable";
+  return `command_failed:${code ?? "unknown"}`;
+}
+
+function terminalCancellationReason(state) {
+  const decision = (state.decisions ?? []).at(-1);
+  return decision?.type === "bundle_review" && decision.decision === "reject"
+    ? "candidate_rejected"
+    : "operator_cancelled";
+}
+
+function latestTimestamp(...values) {
+  return values
+    .filter((value) => typeof value === "string")
+    .sort((left, right) => right.localeCompare(left))[0];
 }
 
 function projectRepository(selection, project) {

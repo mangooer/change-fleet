@@ -137,7 +137,7 @@ describe("application failure and revision boundaries", () => {
       idempotency_key: "question",
       change_set_id: "change-1",
     });
-    assert.equal(question.status, "planning");
+    assert.equal(question.status, "needs_input");
     assert.equal(
       (await service.readChangeSet("change-1"))
         .current_approvable_plan_message_id,

@@ -95,6 +95,14 @@ export class ScriptedRuntime {
         ) {
           sequencedOutcome.message.intent_draft = currentIntentDraft(invocation);
         }
+        if (
+          sequencedOutcome.type === "conversation_message" &&
+          sequencedOutcome.message &&
+          !sequencedOutcome.message.disposition
+        ) {
+          sequencedOutcome.message.disposition =
+            sequencedOutcome.message.plan === null ? "needs_input" : "ready";
+        }
         return {
           outcome: structuredClone(sequencedOutcome),
           provider_evidence: testProviderEvidence(),
@@ -114,6 +122,7 @@ export class ScriptedRuntime {
         outcome: {
           type: "conversation_message",
           message: {
+            disposition: "ready",
             text: "The deterministic fixture produced an approvable plan.",
             intent_draft: currentIntentDraft(invocation),
             plan,

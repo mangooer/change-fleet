@@ -34,6 +34,7 @@ describe("Codex SDK Runtime protocol", () => {
     const finalResponse = JSON.stringify({
       type: "conversation_message",
       message: {
+        disposition: "ready",
         text: "The exact plan is ready for approval.",
         intent_draft: {
           objective: "Implement the requested API behavior.",

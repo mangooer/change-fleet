@@ -54,6 +54,13 @@ export class DeliveryGitAdapter {
       ref,
     ]);
     if (result.exit_code === 2 && allowMissing) return null;
+    if (result.exit_code === 2) {
+      throw gitError(
+        "DELIVERY_TARGET_NOT_FOUND",
+        `Delivery target ${ref} does not exist on remote ${pushRemote}`,
+        result,
+      );
+    }
     if (result.exit_code !== 0) {
       throw gitError(
         "GIT_REMOTE_READ_FAILED",

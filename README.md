@@ -211,17 +211,18 @@ node ./bin/changefleet.js serve --config changefleet.json [--port 4311]
 
 `changefleet serve` opens a loopback-only task console. A new-task dialog accepts the objective and
 an existing Project; Repository bases are optional advanced input. One conversation handles Planner
-clarification and later Feedback. One exact confirmation binds Intent and semantic Plan and starts
-the deterministic Task Controller by default. The task view shows semantic steps, bounded live
+clarification and later Feedback. Planner output marked ready is bound and started automatically by
+task policy; uncertainty appears as `needs_feedback` in the same conversation. The inbox exposes
+only `running | needs_feedback | needs_review | waiting_for_merge | complete | cancelled`. The task view shows semantic steps, bounded live
 activity, effective Runtime, compact cost/retry metrics, necessary Gates, Bundle review, and GitHub
 delivery. Exact evidence and full metrics are loaded on demand in the audit dialog.
 
 `changeset plan` may include a bounded `message` string to continue the planning conversation. Its
 result is an Agent message with a complete current `intent_draft` and optional `plan_content`, not a
-Plan revision. A fresh Planner receives that draft, the current message, and only the immediately
-preceding assistant response. `changeset plan confirm` binds the exact message digest, confirms
-Intent and Plan atomically, and may run the shared Task Controller. The browser uses this confirm-
-and-run path and one stage-aware task-message operation; low-level execute and supervision commands
+Plan revision. The message carries `ready | needs_input`; only ready output has Plan content. A
+fresh Planner receives that draft, the current message, and only the immediately preceding
+assistant response. `changeset plan confirm` remains an exact diagnostic operation; the browser's
+frozen task policy uses it internally before the shared Task Controller. Low-level execute and supervision commands
 remain compatibility and diagnostic surfaces, not the ordinary workflow.
 
 At confirmation, Core binds the semantic Plan to the TaskWorkspace's accepted supervision,
@@ -257,8 +258,8 @@ ordinary Runtime input.
 
 ChangeSets persist only `planning | running | review | terminal`; WorkUnits persist only
 `execution | verification | complete` plus disposition. UI and CLI activity is derived as
-`ready | running | waiting | blocked | complete` from Runs, Gates, Blockers, delivery records, and
-exact artifacts.
+six operator states from Runs, Gates, Blockers, task commands, holds, delivery records, and exact
+artifacts. These presentation states do not add domain lifecycle phases.
 
 `changeset close` accepts only `idempotency_key`, `change_set_id`, `actor`, and a `reason` with one
 of `no_longer_needed`, `restart_on_new_base`, `route_abandoned`, `duplicate`, or `other` plus a
