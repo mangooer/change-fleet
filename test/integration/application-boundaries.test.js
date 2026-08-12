@@ -102,6 +102,72 @@ describe("application failure and revision boundaries", () => {
     );
   });
 
+  test("carries an assistant question into the next planning turn without replaying older history", async (t) => {
+    const fixture = await createApplicationFixture(t, "planning-question");
+    const runtime = new ScriptedRuntime({
+      plan: fixture.plan,
+      planningOutcomes: [
+        {
+          type: "conversation_message",
+          message: {
+            text: "Should the implementation preserve the current public route?",
+            plan: null,
+          },
+          request: null,
+        },
+        {
+          type: "conversation_message",
+          message: {
+            text: "The clarified answer is now reflected in the Plan.",
+            plan: fixture.plan,
+          },
+          request: null,
+        },
+      ],
+    });
+    const service = await ChangeFleetService.open({
+      controlRoot: fixture.controlRoot,
+      workspaceRoot: fixture.workspaceRoot,
+      runtime,
+      agentProfile: TEST_AGENT_PROFILE,
+    });
+    await registerAndCreate(service, fixture);
+
+    const question = await service.planChangeSet({
+      idempotency_key: "question",
+      change_set_id: "change-1",
+    });
+    assert.equal(question.status, "planning");
+    assert.equal(
+      (await service.readChangeSet("change-1"))
+        .current_approvable_plan_message_id,
+      null,
+    );
+
+    const answer = await service.planChangeSet({
+      idempotency_key: "answer",
+      change_set_id: "change-1",
+      message: "Yes. Preserve that public route.",
+    });
+    assert.equal(answer.status, "plan_ready");
+    const secondProjection = runtime.invocations[1].context_projection;
+    assert.deepEqual(secondProjection.planning_conversation, {
+      user_message: "Yes. Preserve that public route.",
+      previous_assistant_message: {
+        message_id: question.message.message_id,
+        content_digest: question.message.content_digest,
+        text: question.message.text,
+        plan_content: null,
+      },
+    });
+    assert.equal(
+      JSON.stringify(secondProjection).includes(
+        "The clarified answer is now reflected in the Plan.",
+      ),
+      false,
+    );
+  });
+
   test("requires bounded request-revision feedback in only the current Runtime projection", async (t) => {
     const fixture = await createApplicationFixture(t, "revision-feedback");
     const runtime = new ScriptedRuntime({

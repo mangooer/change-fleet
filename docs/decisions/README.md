@@ -36,6 +36,7 @@ projection.
 | [0028](0028-shared-application-orchestration-boundary.md) | Shared application orchestration boundary | Accepted |
 | [0029](0029-optional-project-semantic-checks.md) | Optional project semantic checks with mandatory structural preflight | Accepted |
 | [0030](0030-persistent-task-workspaces-and-linked-repositories.md) | Persistent task workspaces, linked repositories, and semantic Plans | Accepted |
+| [0031](0031-local-changeset-intake-and-conversational-planning.md) | Local ChangeSet intake and conversational planning | Accepted |
 
 Changing one of these boundaries requires a proposal. When a decision is superseded, preserve this
 record and point to the later accepted authority.

@@ -2,10 +2,13 @@ const bootstrap = readBootstrap();
 
 // 浏览器模块只维护展示状态、确认步骤与 attempt identity；精确语义、幂等与持久化仍由共享应用操作负责。
 const state = {
+  intake: null,
   list: null,
   selectedChangeSetId: bootstrap.selected_change_set_id ?? null,
   exact: null,
   audit: null,
+  createMode: false,
+  createProjectId: null,
   loading: false,
   pendingAction: null,
   error: null,
@@ -15,6 +18,7 @@ const elements = {
   list: document.querySelector("#changeset-list"),
   detail: document.querySelector("#changeset-detail"),
   loadMore: document.querySelector("#load-more"),
+  newChangeSet: document.querySelector("#new-changeset"),
   status: document.querySelector("#status"),
 };
 
@@ -31,18 +35,37 @@ const attemptStore = {
 };
 
 elements.loadMore.addEventListener("click", () => void loadMore());
+elements.newChangeSet.addEventListener("click", () => showCreateForm());
 void loadInitial();
 
 async function loadInitial() {
   await withLoading(async () => {
-    state.list = await apiGet("/api/local/v0/changesets?limit=20");
+    [state.intake, state.list] = await Promise.all([
+      apiGet("/api/local/v0/intake/options"),
+      apiGet("/api/local/v0/changesets?limit=20"),
+    ]);
+    state.createProjectId =
+      readPendingCreate()?.draft?.project_id ??
+      state.intake.projects[0]?.project_id ??
+      null;
     if (!state.selectedChangeSetId && state.list.items.length > 0) {
       state.selectedChangeSetId = state.list.items[0].change_set_id;
     }
     if (state.selectedChangeSetId) {
       await loadExact(state.selectedChangeSetId);
+    } else {
+      state.createMode = true;
     }
   });
+}
+
+function showCreateForm() {
+  state.createMode = true;
+  state.selectedChangeSetId = null;
+  state.exact = null;
+  state.audit = null;
+  updateLocation(null);
+  render();
 }
 
 async function loadMore() {
@@ -59,6 +82,7 @@ async function loadMore() {
 }
 
 async function loadExact(changeSetId) {
+  state.createMode = false;
   state.selectedChangeSetId = changeSetId;
   updateLocation(changeSetId);
   const [exact, audit] = await Promise.all([
@@ -106,6 +130,7 @@ function renderList() {
   if (!state.list) {
     elements.list.innerHTML = '<div class="empty">No recent ChangeSets.</div>';
     elements.loadMore.disabled = true;
+    elements.newChangeSet.disabled = true;
     return;
   }
   elements.list.innerHTML = state.list.items
@@ -129,9 +154,15 @@ function renderList() {
     );
   }
   elements.loadMore.disabled = !state.list.next_cursor || state.loading;
+  elements.newChangeSet.disabled =
+    state.loading || (state.intake?.projects.length ?? 0) === 0;
 }
 
 function renderDetail() {
+  if (state.createMode) {
+    renderCreateForm();
+    return;
+  }
   if (!state.exact || !state.audit) {
     elements.detail.innerHTML = '<div class="empty">Select one ChangeSet.</div>';
     return;
@@ -154,6 +185,8 @@ function renderDetail() {
       qualityReview === null &&
       !explicitBundleGate);
   const planningMessage = state.exact.planning_message;
+  const planningConversation = state.exact.planning_conversation;
+  const pendingPlanning = readPendingPlanning(state.exact.change_set_id);
   const delivery = state.exact.delivery;
   const publishAttempt = bundle
     ? attemptStore.get(`publish:${state.exact.change_set_id}:${bundle.bundle_id}`)
@@ -212,13 +245,52 @@ function renderDetail() {
     <section class="section stack">
       <div class="row">
         <h3>Planning Conversation</h3>
-        ${planningMessage ? '<span class="pill">exact approval subject</span>' : ""}
+        <span class="pill">${escapeHtml(
+          `${planningConversation.shown_turns}/${planningConversation.total_turns} turns`,
+        )}</span>
       </div>
+      <div class="conversation">
+        ${
+          planningConversation.turns.length === 0
+            ? '<div class="summary-box muted">No planning turn yet.</div>'
+            : planningConversation.turns.map(renderPlanningTurn).join("")
+        }
+      </div>
+      ${
+        planningConversation.truncated
+          ? '<p class="muted">Older or oversized planning text remains linked audit evidence and is not loaded here.</p>'
+          : ""
+      }
+      ${
+        state.exact.phase === "planning"
+          ? `
+            <form id="planning-message-form" class="planning-composer">
+              <label class="field">
+                <span>${planningConversation.total_turns === 0 ? "Start planning" : "Reply to Planner"}</span>
+                <textarea id="planning-message-input" rows="3" placeholder="${
+                  planningConversation.total_turns === 0
+                    ? "Optional initial guidance; the confirmed intent is already available."
+                    : "Describe the required clarification or revision."
+                }">${escapeHtml(pendingPlanning?.message ?? "")}</textarea>
+              </label>
+              <div class="actions">
+                <button id="send-planning-message" type="submit">${
+                  planningConversation.total_turns === 0
+                    ? "Start Planning"
+                    : "Send Planning Message"
+                }</button>
+              </div>
+            </form>`
+          : ""
+      }
       ${
         planningMessage
           ? `
-            <div class="summary-box">
-              <p>${escapeHtml(planningMessage.text)}</p>
+            <div class="summary-box exact-plan-subject">
+              <div class="row">
+                <strong>Exact approval subject</strong>
+                <span class="pill">current</span>
+              </div>
               <p>Message <code>${escapeHtml(planningMessage.message_id)}</code></p>
               <p>Digest <code>${escapeHtml(planningMessage.content_digest)}</code></p>
               <pre>${escapeHtml(JSON.stringify(planningMessage.plan, null, 2))}</pre>
@@ -227,7 +299,7 @@ function renderDetail() {
               </div>
             </div>
           `
-          : '<div class="summary-box muted">No plan message is currently awaiting approval.</div>'
+          : '<div class="summary-box muted">No Plan-bearing message is currently awaiting approval.</div>'
       }
     </section>
     <section class="section stack">
@@ -404,6 +476,12 @@ function renderDetail() {
     .querySelector("#confirm-plan")
     ?.addEventListener("click", () => void confirmPlanMessage());
   document
+    .querySelector("#planning-message-form")
+    ?.addEventListener("submit", (event) => {
+      event.preventDefault();
+      void sendPlanningMessage();
+    });
+  document
     .querySelector("#accept-bundle")
     ?.addEventListener("click", () => void decideBundle("accept"));
   document
@@ -445,6 +523,367 @@ function renderDetail() {
       void resolveGate(button.dataset.gateId, button.dataset.option),
     );
   }
+}
+
+function renderPlanningTurn(turn) {
+  const user = turn.user_message;
+  const assistant = turn.assistant_message;
+  return `
+    <article class="conversation-turn">
+      ${
+        user === null
+          ? ""
+          : `<div class="message human-message">
+              <strong>Human</strong>
+              <p>${escapeHtml(user.text)}</p>
+              ${user.truncated ? '<span class="pill warn">truncated</span>' : ""}
+            </div>`
+      }
+      <div class="message agent-message">
+        <div class="row">
+          <strong>Planner</strong>
+          <div class="actions">
+            ${assistant.has_plan ? '<span class="pill">Plan</span>' : ""}
+            ${assistant.is_approvable ? '<span class="pill">approvable</span>' : ""}
+            ${assistant.truncated ? '<span class="pill warn">truncated</span>' : ""}
+          </div>
+        </div>
+        <p>${escapeHtml(assistant.text)}</p>
+      </div>
+    </article>`;
+}
+
+function renderCreateForm() {
+  const projects = state.intake?.projects ?? [];
+  if (projects.length === 0) {
+    elements.detail.innerHTML =
+      '<div class="empty">Register a Project before creating a ChangeSet.</div>';
+    return;
+  }
+  const pending = readPendingCreate();
+  const draft = pending?.draft ?? null;
+  if (
+    !projects.some((project) => project.project_id === state.createProjectId)
+  ) {
+    state.createProjectId = draft?.project_id ?? projects[0].project_id;
+  }
+  const project =
+    projects.find((item) => item.project_id === state.createProjectId) ??
+    projects[0];
+  const selectedRepositoryIds = new Set(
+    draft?.project_id === project.project_id
+      ? draft.planning_repository_ids
+      : project.repositories.map((repository) => repository.repository_id),
+  );
+  const selections = new Map(
+    (draft?.project_id === project.project_id
+      ? draft.repository_selections
+      : []
+    ).map((selection) => [selection.repository_id, selection]),
+  );
+  elements.detail.innerHTML = `
+    <section class="stack">
+      <div class="row">
+        <div>
+          <p class="eyebrow">New exact task</p>
+          <h2>Create ChangeSet</h2>
+        </div>
+        <span class="pill">existing Project</span>
+      </div>
+      <form id="create-changeset-form" class="stack">
+        <label class="field">
+          <span>Project</span>
+          <select id="create-project" name="project_id">
+            ${projects
+              .map(
+                (item) =>
+                  `<option value="${escapeAttribute(item.project_id)}" ${
+                    item.project_id === project.project_id ? "selected" : ""
+                  }>${escapeHtml(item.project_id)}${
+                    item.description ? ` — ${escapeHtml(item.description)}` : ""
+                  }</option>`,
+              )
+              .join("")}
+          </select>
+        </label>
+        <label class="field">
+          <span>Objective</span>
+          <textarea id="create-objective" rows="4" required>${escapeHtml(
+            draft?.project_id === project.project_id
+              ? draft.intent.objective
+              : "",
+          )}</textarea>
+        </label>
+        <label class="field">
+          <span>Rationale <small>optional</small></span>
+          <textarea id="create-rationale" rows="2">${escapeHtml(
+            draft?.project_id === project.project_id
+              ? draft.intent.rationale ?? ""
+              : "",
+          )}</textarea>
+        </label>
+        <div class="summary-grid">
+          <label class="field">
+            <span>Constraints <small>one per line</small></span>
+            <textarea id="create-constraints" rows="3">${escapeHtml(
+              draft?.project_id === project.project_id
+                ? draft.intent.constraints.join("\n")
+                : "",
+            )}</textarea>
+          </label>
+          <label class="field">
+            <span>Acceptance criteria <small>one per line</small></span>
+            <textarea id="create-acceptance" rows="3">${escapeHtml(
+              draft?.project_id === project.project_id
+                ? draft.intent.acceptance_criteria.join("\n")
+                : "",
+            )}</textarea>
+          </label>
+        </div>
+        <section class="stack">
+          <div>
+            <h3>Repositories</h3>
+            <p class="muted">Select at least one. Empty refs use each checkout's current branch.</p>
+          </div>
+          ${project.repositories
+            .map((repository) => {
+              const selection = selections.get(repository.repository_id);
+              return `
+                <article class="repository-choice" data-repository-choice="${escapeAttribute(
+                  repository.repository_id,
+                )}">
+                  <label class="repository-toggle">
+                    <input type="checkbox" data-repository-selected="${escapeAttribute(
+                      repository.repository_id,
+                    )}" ${
+                      selectedRepositoryIds.has(repository.repository_id)
+                        ? "checked"
+                        : ""
+                    }>
+                    <strong>${escapeHtml(repository.repository_id)}</strong>
+                    <span class="muted">${escapeHtml(
+                      repository.description ?? repository.default_target_ref,
+                    )}</span>
+                  </label>
+                  <div class="summary-grid">
+                    <label class="field">
+                      <span>Base branch <small>optional</small></span>
+                      <input data-branch-ref="${escapeAttribute(
+                        repository.repository_id,
+                      )}" value="${escapeAttribute(selection?.branch_ref ?? "")}">
+                    </label>
+                    <label class="field">
+                      <span>Delivery target <small>optional</small></span>
+                      <input data-target-ref="${escapeAttribute(
+                        repository.repository_id,
+                      )}" value="${escapeAttribute(selection?.target_ref ?? "")}">
+                    </label>
+                  </div>
+                </article>`;
+            })
+            .join("")}
+        </section>
+        <div class="summary-box">
+          <h3>Effective task configuration</h3>
+          <pre>${escapeHtml(
+            JSON.stringify(
+              {
+                agent_profile: state.intake.agent_profile,
+                task_policy: project.task_policy,
+              },
+              null,
+              2,
+            ),
+          )}</pre>
+        </div>
+        <div class="actions">
+          <button id="create-and-plan" type="submit">Create and Start Planning</button>
+        </div>
+      </form>
+    </section>`;
+  document
+    .querySelector("#create-project")
+    ?.addEventListener("change", (event) => {
+      state.createProjectId = event.target.value;
+      clearPendingCreate();
+      renderCreateForm();
+    });
+  document
+    .querySelector("#create-changeset-form")
+    ?.addEventListener("submit", (event) => {
+      event.preventDefault();
+      void createAndStartPlanning(project);
+    });
+}
+
+async function createAndStartPlanning(project) {
+  const selectedIds = Array.from(
+    document.querySelectorAll("[data-repository-selected]:checked"),
+  ).map((element) => element.dataset.repositorySelected);
+  const objective = document.querySelector("#create-objective")?.value.trim();
+  if (!objective) {
+    state.error = new Error("Objective is required.");
+    render();
+    return;
+  }
+  if (selectedIds.length === 0) {
+    state.error = new Error("Select at least one Repository.");
+    render();
+    return;
+  }
+  const draft = {
+    project_id: project.project_id,
+    intent: {
+      objective,
+      rationale: nullableInputValue("#create-rationale"),
+      constraints: inputLines("#create-constraints"),
+      non_goals: [],
+      acceptance_criteria: inputLines("#create-acceptance"),
+      resolved_decisions: [],
+      open_questions: [],
+    },
+    planning_repository_ids: selectedIds,
+    repository_selections: selectedIds.map((repositoryId) => ({
+      repository_id: repositoryId,
+      branch_ref: nullableInputValue(
+        `[data-branch-ref="${cssAttribute(repositoryId)}"]`,
+      ),
+      target_ref: nullableInputValue(
+        `[data-target-ref="${cssAttribute(repositoryId)}"]`,
+      ),
+    })),
+  };
+  const pending = ensurePendingCreate(draft);
+  state.pendingAction = "ChangeSet creation and initial planning";
+  await withLoading(async () => {
+    await apiPost("/api/local/v0/changesets", {
+      idempotency_key: pending.idempotency_key,
+      change_set_id: pending.change_set_id,
+      ...draft,
+    });
+    clearPendingCreate();
+    state.selectedChangeSetId = pending.change_set_id;
+    state.list = await apiGet("/api/local/v0/changesets?limit=20");
+
+    // 创建已经成为权威事实后，规划失败只能保留并重试同一任务，不能自动新建替代任务。
+    let planningError = null;
+    const planning = ensurePendingPlanning(pending.change_set_id, null);
+    try {
+      await apiPost(
+        `/api/local/v0/changesets/${encodeURIComponent(
+          pending.change_set_id,
+        )}/planning-messages`,
+        { idempotency_key: planning.idempotency_key, message: null },
+      );
+      clearPendingPlanning(pending.change_set_id);
+    } catch (error) {
+      planningError = error;
+    }
+    await loadExact(pending.change_set_id);
+    if (planningError) throw planningError;
+  });
+  state.pendingAction = null;
+  render();
+}
+
+async function sendPlanningMessage() {
+  if (!state.exact || state.exact.phase !== "planning") return;
+  const input = document.querySelector("#planning-message-input");
+  const text = input?.value.trim() ?? "";
+  const message =
+    state.exact.planning_conversation.total_turns === 0 && text.length === 0
+      ? null
+      : text;
+  if (message === "") {
+    state.error = new Error("A planning reply cannot be empty.");
+    render();
+    return;
+  }
+  const pending = ensurePendingPlanning(state.exact.change_set_id, message);
+  await runMutation("planning message", async () => {
+    await apiPost(
+      `/api/local/v0/changesets/${encodeURIComponent(
+        state.exact.change_set_id,
+      )}/planning-messages`,
+      {
+        idempotency_key: pending.idempotency_key,
+        message,
+      },
+    );
+    clearPendingPlanning(state.exact.change_set_id);
+  });
+}
+
+function inputLines(selector) {
+  return (document.querySelector(selector)?.value ?? "")
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function nullableInputValue(selector) {
+  const value = document.querySelector(selector)?.value.trim() ?? "";
+  return value.length === 0 ? null : value;
+}
+
+function ensurePendingCreate(draft) {
+  const fingerprint = JSON.stringify(draft);
+  const existing = readPendingCreate();
+  if (existing?.fingerprint === fingerprint) return existing;
+  const pending = {
+    fingerprint,
+    draft,
+    change_set_id: `change-${globalThis.crypto.randomUUID()}`,
+    idempotency_key: globalThis.crypto.randomUUID(),
+  };
+  writeJsonStorage("changefleet:create:pending", pending);
+  return pending;
+}
+
+function readPendingCreate() {
+  return readJsonStorage("changefleet:create:pending");
+}
+
+function clearPendingCreate() {
+  globalThis.localStorage.removeItem("changefleet:create:pending");
+}
+
+function ensurePendingPlanning(changeSetId, message) {
+  const existing = readPendingPlanning(changeSetId);
+  if (existing && existing.message === message) return existing;
+  const pending = {
+    message,
+    idempotency_key: globalThis.crypto.randomUUID(),
+  };
+  writeJsonStorage(`changefleet:planning:${changeSetId}`, pending);
+  return pending;
+}
+
+function readPendingPlanning(changeSetId) {
+  return readJsonStorage(`changefleet:planning:${changeSetId}`);
+}
+
+function clearPendingPlanning(changeSetId) {
+  globalThis.localStorage.removeItem(`changefleet:planning:${changeSetId}`);
+}
+
+function readJsonStorage(key) {
+  const value = globalThis.localStorage.getItem(key);
+  if (value === null) return null;
+  try {
+    return JSON.parse(value);
+  } catch {
+    globalThis.localStorage.removeItem(key);
+    return null;
+  }
+}
+
+function writeJsonStorage(key, value) {
+  globalThis.localStorage.setItem(key, JSON.stringify(value));
+}
+
+function cssAttribute(value) {
+  return globalThis.CSS.escape(String(value));
 }
 
 async function continueChangeSet() {
@@ -727,7 +1166,8 @@ function pillClass(value) {
 
 function updateLocation(changeSetId) {
   const url = new URL(globalThis.location.href);
-  url.searchParams.set("change_set_id", changeSetId);
+  if (changeSetId === null) url.searchParams.delete("change_set_id");
+  else url.searchParams.set("change_set_id", changeSetId);
   globalThis.history.replaceState({}, "", url);
 }
 

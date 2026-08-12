@@ -1,5 +1,6 @@
 import { readdir } from "node:fs/promises";
 
+import { normalizeAgentProfile } from "../domain/agent-profile.js";
 import { createDeliveryProjection } from "../domain/github-delivery.js";
 import { ChangeFleetError, invariant } from "../domain/errors.js";
 import { normalizeId } from "../domain/model.js";
@@ -8,10 +9,13 @@ import { derivePresentationActivity } from "../domain/lifecycle.js";
 const DEFAULT_PAGE_SIZE = 20;
 const MAX_PAGE_SIZE = 50;
 const AUDIT_DETAIL_ROWS = 10;
+const MAX_PLANNING_CONVERSATION_TURNS = 12;
+const MAX_PLANNING_MESSAGE_BYTES = 8 * 1024;
+const MAX_PLANNING_CONVERSATION_BYTES = 48 * 1024;
 
 // 该读模型只为本地 review/delivery console 提供有界投影；它不暴露 transcript、diff、日志或原始证据正文。
 export class ChangeSetViewService {
-  constructor({ controlStore, runStore, auditQueryService }) {
+  constructor({ controlStore, runStore, auditQueryService, agentProfile }) {
     invariant(
       controlStore && typeof controlStore.readChangeSet === "function",
       "INVALID_OPERATOR_APPLICATION",
@@ -23,7 +27,9 @@ export class ChangeSetViewService {
       "ChangeSet view service requires catalog reads",
     );
     invariant(
-      runStore && typeof runStore.readJsonArtifact === "function",
+      runStore &&
+        typeof runStore.readJsonArtifact === "function" &&
+        typeof runStore.readEvents === "function",
       "INVALID_OPERATOR_APPLICATION",
       "ChangeSet view service requires linked Run artifact reads",
     );
@@ -36,6 +42,18 @@ export class ChangeSetViewService {
     this.controlStore = controlStore;
     this.runStore = runStore;
     this.auditQueryService = auditQueryService;
+    this.agentProfile = normalizeAgentProfile(agentProfile);
+  }
+
+  async readIntakeOptions() {
+    const catalog = await this.controlStore.readCatalog();
+    return {
+      schema_version: 1,
+      agent_profile: projectAgentProfile(this.agentProfile),
+      projects: Object.values(catalog.projects ?? {})
+        .sort((left, right) => left.project_id.localeCompare(right.project_id))
+        .map(projectIntakeOption),
+    };
   }
 
   async listChangeSets(query = {}) {
@@ -65,16 +83,58 @@ export class ChangeSetViewService {
       (reference) =>
         reference.message_id === state.current_approvable_plan_message_id,
     );
-    const planningMessage = messageReference
-      ? await this.runStore.readJsonArtifact(
-          messageReference.artifact_reference,
-        )
-      : null;
+    const [planningMessage, planningConversation] = await Promise.all([
+      messageReference
+        ? this.runStore.readJsonArtifact(messageReference.artifact_reference)
+        : null,
+      this.readPlanningConversation(state),
+    ]);
     return projectExactChangeSet(
       state,
       catalog.projects?.[state.project_id] ?? null,
       planningMessage,
+      planningConversation,
     );
+  }
+
+  async readPlanningConversation(state) {
+    // 人类视图从已链接证据重建最近轮次；ChangeSet 聚合和 Agent 上下文都不复制完整正文。
+    const references = state.planning_message_references ?? [];
+    const recent = references.slice(-MAX_PLANNING_CONVERSATION_TURNS);
+    const turns = [];
+    let encodedBytes = 0;
+    let truncated = recent.length < references.length;
+    for (const reference of [...recent].reverse()) {
+      const [assistant, inputEvents] = await Promise.all([
+        this.runStore.readJsonArtifact(reference.artifact_reference),
+        this.runStore.readEvents(reference.run_id, {
+          type: "planning.input",
+          limit: 1,
+        }),
+      ]);
+      const turn = projectPlanningTurn({
+        reference,
+        assistant,
+        inputEvent: inputEvents[0] ?? null,
+        approvableMessageId: state.current_approvable_plan_message_id,
+      });
+      const turnBytes = Buffer.byteLength(JSON.stringify(turn), "utf8");
+      if (
+        turns.length > 0 &&
+        encodedBytes + turnBytes > MAX_PLANNING_CONVERSATION_BYTES
+      ) {
+        truncated = true;
+        break;
+      }
+      turns.unshift(turn);
+      encodedBytes += turnBytes;
+    }
+    return {
+      turns,
+      shown_turns: turns.length,
+      total_turns: references.length,
+      truncated,
+    };
   }
 
   async readAuditView(changeSetId) {
@@ -117,6 +177,113 @@ export class ChangeSetViewService {
   }
 }
 
+function projectAgentProfile(profile) {
+  // 凭据选择只属于服务端 Runtime 装配；浏览器只看本次任务真正生效的非敏感摘要。
+  return {
+    profile_id: profile.profile_id,
+    revision: profile.revision,
+    provider: profile.provider,
+    runtime: profile.runtime,
+    model: profile.model,
+    reasoning: profile.reasoning,
+    permissions: profile.permissions,
+    network_access: profile.network_access,
+    skills: [...profile.skills],
+  };
+}
+
+function projectIntakeOption(project) {
+  return {
+    project_id: project.project_id,
+    description: project.description,
+    repositories: [...project.repositories]
+      .sort((left, right) =>
+        left.repository_id.localeCompare(right.repository_id),
+      )
+      .map((repository) => ({
+        repository_id: repository.repository_id,
+        description: repository.description,
+        default_target_ref: repository.default_target_ref,
+        delivery_configured:
+          repository.current_delivery_binding_revision !== null,
+      })),
+    task_policy: {
+      verification: {
+        minimum_mode: project.verification_policy.minimum_mode,
+        default_attempt_timeout_ms:
+          project.verification_policy.default_attempt_timeout_ms,
+        max_attempt_timeout_ms:
+          project.verification_policy.max_attempt_timeout_ms,
+      },
+      supervision: structuredClone(project.supervision_policy),
+      bundle_review: {
+        default_mode: project.bundle_review_policy.default_mode,
+        max_attempts: project.bundle_review_policy.max_attempts,
+        reviewer:
+          project.bundle_review_policy.default_agent_profile_id === null
+            ? null
+            : {
+                profile_id:
+                  project.bundle_review_policy.default_agent_profile_id,
+                revision:
+                  project.bundle_review_policy
+                    .default_agent_profile_revision,
+              },
+      },
+    },
+  };
+}
+
+function projectPlanningTurn({
+  reference,
+  assistant,
+  inputEvent,
+  approvableMessageId,
+}) {
+  return {
+    run_id: reference.run_id,
+    user_message: projectPlanningInput(inputEvent),
+    assistant_message: {
+      message_id: assistant.message_id,
+      ...boundedPlanningText(assistant.text),
+      has_plan: reference.has_plan,
+      is_approvable: reference.message_id === approvableMessageId,
+      created_at: assistant.created_at,
+    },
+  };
+}
+
+function projectPlanningInput(event) {
+  if (event === null) return null;
+  const value = event.payload?.text;
+  if (typeof value === "string") {
+    return { ...boundedPlanningText(value), created_at: event.at };
+  }
+  if (value && typeof value.preview === "string") {
+    return {
+      ...boundedPlanningText(value.preview, true),
+      created_at: event.at,
+    };
+  }
+  return null;
+}
+
+function boundedPlanningText(value, alreadyTruncated = false) {
+  const text = String(value ?? "");
+  if (Buffer.byteLength(text, "utf8") <= MAX_PLANNING_MESSAGE_BYTES) {
+    return { text, truncated: alreadyTruncated };
+  }
+  let projected = "";
+  let bytes = 0;
+  for (const character of text) {
+    const characterBytes = Buffer.byteLength(character, "utf8");
+    if (bytes + characterBytes > MAX_PLANNING_MESSAGE_BYTES) break;
+    projected += character;
+    bytes += characterBytes;
+  }
+  return { text: projected, truncated: true };
+}
+
 function projectListEntry(state) {
   const delivery = createDeliveryProjection(state);
   return {
@@ -145,7 +312,12 @@ function projectListEntry(state) {
   };
 }
 
-function projectExactChangeSet(state, project, planningMessage) {
+function projectExactChangeSet(
+  state,
+  project,
+  planningMessage,
+  planningConversation,
+) {
   const delivery = createDeliveryProjection(state);
   const currentSelection =
     state.repository_selection_revisions.find(
@@ -195,6 +367,7 @@ function projectExactChangeSet(state, project, planningMessage) {
               planningMessage.workspace_control_summary,
             ),
           },
+    planning_conversation: planningConversation,
     plan:
       currentPlan === null
         ? null

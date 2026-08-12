@@ -31,6 +31,7 @@ describe("local console server", () => {
     const calls = [];
     const server = await startLocalConsoleServer({
       queryService: {
+        readIntakeOptions: async () => ({ projects: [] }),
         listChangeSets: async () => ({ items: [] }),
         readChangeSetView: async () => ({}),
         readAuditView: async () => ({}),
@@ -174,6 +175,118 @@ describe("local console server", () => {
       assert.equal(
         (await fixture.service.readChangeSet("plan-only")).phase,
         "review",
+      );
+    } finally {
+      await server.close();
+    }
+  });
+
+  test("creates one bounded existing-Project task and sends planning messages through explicit routes", async (t) => {
+    const fixture = await createReviewFixture(t, {
+      repositoryIds: ["api", "web"],
+    });
+    const server = await fixture.startServer();
+    try {
+      const bootstrap = extractBootstrap(await fetchText(server, "/"));
+      const headers = {
+        "X-ChangeFleet-Session": bootstrap.session_nonce,
+        "X-ChangeFleet-CSRF": bootstrap.csrf_nonce,
+        Origin: `http://${server.host}:${server.port}`,
+        "Content-Type": "application/json; charset=utf-8",
+      };
+      const options = await fetchJson(server, "/api/local/v0/intake/options", {
+        headers,
+      });
+      assert.deepEqual(
+        options.projects[0].repositories.map((item) => item.repository_id),
+        ["api", "web"],
+      );
+      assert.equal(JSON.stringify(options).includes(fixture.controlRoot), false);
+      assert.equal(
+        JSON.stringify(options).includes("credential_profile_id"),
+        false,
+      );
+
+      const created = await fetchJson(server, "/api/local/v0/changesets", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          idempotency_key: "console-create",
+          change_set_id: "console-created",
+          project_id: "project",
+          intent: {
+            objective: "Create and plan from the local console",
+            rationale: null,
+            constraints: ["Keep the existing shared operations"],
+            non_goals: [],
+            acceptance_criteria: ["Prepare both RepositoryWorkspaces"],
+            resolved_decisions: [],
+            open_questions: [],
+          },
+          planning_repository_ids: ["api", "web"],
+          repository_selections: [
+            { repository_id: "api", branch_ref: null, target_ref: null },
+            { repository_id: "web", branch_ref: null, target_ref: null },
+          ],
+        }),
+      });
+      assert.equal(created.change_set_id, "console-created");
+      assert.equal(created.repositories.length, 2);
+
+      const planned = await fetchJson(
+        server,
+        "/api/local/v0/changesets/console-created/planning-messages",
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            idempotency_key: "console-plan",
+            message: null,
+          }),
+        },
+      );
+      assert.equal(planned.status, "plan_ready");
+      const exact = await fetchJson(
+        server,
+        "/api/local/v0/changesets/console-created",
+        { headers },
+      );
+      assert.equal(exact.planning_conversation.total_turns, 1);
+      assert.equal(
+        exact.planning_conversation.turns[0].assistant_message.message_id,
+        planned.message.message_id,
+      );
+
+      const rejected = await fetch(
+        `http://${server.host}:${server.port}/api/local/v0/changesets`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            idempotency_key: "unsafe-create",
+            change_set_id: "unsafe",
+            project_id: "project",
+            intent: {
+              objective: "Unsafe",
+              rationale: null,
+              constraints: [],
+              non_goals: [],
+              acceptance_criteria: [],
+              resolved_decisions: [],
+              open_questions: [],
+            },
+            planning_repository_ids: ["api"],
+            repository_selections: [
+              { repository_id: "api", branch_ref: null, target_ref: null },
+            ],
+            agent_profile: TEST_AGENT_PROFILE,
+          }),
+        },
+      );
+      assert.equal(rejected.status, 400);
+      await assert.rejects(
+        fixture.service.readChangeSet("unsafe"),
+        { code: "CHANGE_SET_NOT_FOUND" },
       );
     } finally {
       await server.close();
@@ -434,6 +547,7 @@ async function createReviewFixture(
       runStore: service.runStore,
       evidenceStore: service.evidenceStore,
     }),
+    agentProfile: TEST_AGENT_PROFILE,
   });
   const operatorApplication = createOperatorApplication(service);
   return {

@@ -1580,15 +1580,12 @@ export class ChangeFleetService {
       ],
       humanGates: ["multi_repository_plan_confirmation"],
     });
-    const currentMessageReference =
-      initialState.planning_message_references.find(
-        (reference) =>
-          reference.message_id ===
-          initialState.current_approvable_plan_message_id,
-      ) ?? null;
-    const currentApprovableMessage = currentMessageReference
+    // 新规划尝试只继承紧邻回复；即使上一条只是提问，也能保持对话连续而不重放全历史。
+    const previousMessageReference =
+      initialState.planning_message_references.at(-1) ?? null;
+    const previousAssistantMessage = previousMessageReference
       ? await this.runStore.readJsonArtifact(
-          currentMessageReference.artifact_reference,
+          previousMessageReference.artifact_reference,
         )
       : null;
     const contextProjection = createContextProjection({
@@ -1612,7 +1609,7 @@ export class ChangeFleetService {
       })),
       planningConversation: {
         user_message: userMessage,
-        current_approvable_message: currentApprovableMessage,
+        previous_assistant_message: previousAssistantMessage,
       },
       feedback:
         initialState.current_feedback_id === null

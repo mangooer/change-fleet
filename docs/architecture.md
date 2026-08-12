@@ -288,24 +288,33 @@ carry no public compatibility promise. Temporary development scripts remain outs
 command tree, contain no unique lifecycle logic, and are removed at their WorkItem boundary unless
 a confirmed follow-up owns them. A generic command bus and public service graph remain deferred.
 
-### LocalReviewAndDeliveryConsole
+### LocalTaskConsole
 
-Decision 0016 accepts the next unimplemented operator adapter as one foreground local process. A
-retained experimental `changefleet serve` command will compose exactly one configured control root,
-bind only loopback, serve repository-owned HTML/CSS/browser modules, and expose a small explicit
-JSON route allowlist. It is not a daemon, Codex App Server, remote API, generic operation bus, or
-second authority graph.
+Decisions 0016 and 0031 define one foreground local operator adapter. The experimental
+`changefleet serve` command composes exactly one configured control root and production Agent
+Runtime, binds only loopback, serves repository-owned HTML/CSS/browser modules, and exposes a small
+explicit JSON route allowlist. It is not a daemon, Codex App Server, remote API, generic operation
+bus, or second authority graph.
 
-The adapter will call the existing `OperatorApplication` for exact Bundle decisions and GitHub
-publish/refresh, plus one new bounded `changeset.list` query and existing exact read/audit queries.
-It will not invoke the CLI parser or receive raw Store, Runtime, Git, workspace, or provider helper
-methods as HTTP operations. The existing isolated audit CLI retains its stronger read-only process
-composition; an audit view inside the lifecycle server does not claim that boundary.
+The adapter calls shared application operations for ChangeSet creation, planning turns, exact Plan
+approval, Bundle decisions, and GitHub publish/refresh. Bounded queries provide the recent list,
+exact current view, and safe existing-Project intake options. HTTP requests cannot select a control
+root, raw operation, host path, AgentProfile, credential, executable, or unrestricted catalog
+object. The adapter does not invoke the CLI parser or expose raw Store, Runtime, Git, workspace, or
+provider helpers. The isolated audit CLI retains its stronger read-only process composition; an
+audit view inside the lifecycle server does not claim that boundary.
 
-The first view is current-subject only and bounded. Full logs, transcripts, diffs, GitHub payloads,
-and evidence bodies remain linked on-demand artifacts. Browser actions carry caller attempt
-identity and exact Bundle or delivery subjects; browser state never becomes lifecycle authority or
-Agent context.
+Creation and initial planning are separate idempotent mutations. A successful creation survives a
+failed Planner attempt as one visible retryable ChangeSet. The console persists only opaque attempt
+identity and unfinished form input needed to retry the same browser action; persisted Core state
+remains authority.
+
+The current view reconstructs a recent planning conversation from linked evidence under turn,
+per-message, and total-byte bounds. A fresh Planner attempt receives the current human input and
+the immediately preceding assistant response, including a response without Plan content; it does
+not receive a transcript replay. Full logs, transcripts, diffs, GitHub payloads, and evidence bodies
+remain linked on-demand artifacts. Browser actions carry caller attempt identity and exact Plan,
+Bundle, or delivery subjects; browser state never becomes lifecycle authority or Agent context.
 
 The local trust boundary requires exact loopback and Host, same-origin requests, no CORS, an
 in-memory session/CSRF nonce, bounded JSON mutations, restrictive security headers, safe errors,

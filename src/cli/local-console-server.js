@@ -11,11 +11,14 @@ import { normalizeId } from "../domain/model.js";
 import { readConsoleAsset, renderIndexHtml } from "../ui/local-console/index.js";
 
 const MAX_JSON_BODY_BYTES = 16 * 1024;
+const MAX_INTENT_ITEMS = 20;
+const MAX_INTENT_TEXT_BYTES = 2 * 1024;
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "::1"]);
 const GET_ROUTES = Object.freeze([
   /^\/$/u,
   /^\/app\.css$/u,
   /^\/app\.js$/u,
+  /^\/api\/local\/v0\/intake\/options$/u,
   /^\/api\/local\/v0\/changesets$/u,
   /^\/api\/local\/v0\/changesets\/[A-Za-z0-9._-]+$/u,
   /^\/api\/local\/v0\/changesets\/[A-Za-z0-9._-]+\/audit$/u,
@@ -23,6 +26,8 @@ const GET_ROUTES = Object.freeze([
   /^\/api\/local\/v0\/changesets\/[A-Za-z0-9._-]+\/supervision$/u,
 ]);
 const POST_ROUTES = Object.freeze([
+  /^\/api\/local\/v0\/changesets$/u,
+  /^\/api\/local\/v0\/changesets\/[A-Za-z0-9._-]+\/planning-messages$/u,
   /^\/api\/local\/v0\/changesets\/[A-Za-z0-9._-]+\/plan-confirmation$/u,
   /^\/api\/local\/v0\/changesets\/[A-Za-z0-9._-]+\/bundle-decisions$/u,
   /^\/api\/local\/v0\/changesets\/[A-Za-z0-9._-]+\/feedback$/u,
@@ -49,6 +54,7 @@ export async function startLocalConsoleServer({
   );
   invariant(
     queryService &&
+      typeof queryService.readIntakeOptions === "function" &&
       typeof queryService.listChangeSets === "function" &&
       typeof queryService.readChangeSetView === "function" &&
       typeof queryService.readAuditView === "function",
@@ -173,6 +179,10 @@ async function handleGetApi({
   queryService,
   operatorApplication,
 }) {
+  if (url.pathname === "/api/local/v0/intake/options") {
+    sendJson(response, 200, await queryService.readIntakeOptions());
+    return;
+  }
   if (url.pathname === "/api/local/v0/changesets") {
     sendJson(
       response,
@@ -223,6 +233,18 @@ async function handlePostApi({
   url,
   operatorApplication,
 }) {
+  if (url.pathname === "/api/local/v0/changesets") {
+    const body = normalizeCreateChangeSetBody(await readJsonBody(request));
+    sendJson(
+      response,
+      200,
+      await operatorApplication.execute("changeset.create", {
+        ...body,
+        actor: "human",
+      }),
+    );
+    return;
+  }
   const interruptMatch = url.pathname.match(
     /^\/api\/local\/v0\/changesets\/(?<changeSetId>[A-Za-z0-9._-]+)\/runs\/(?<runId>[A-Za-z0-9._-]+)\/interrupt$/u,
   );
@@ -256,11 +278,23 @@ async function handlePostApi({
     return;
   }
   const match = url.pathname.match(
-    /^\/api\/local\/v0\/changesets\/(?<changeSetId>[A-Za-z0-9._-]+)\/(?<tail>plan-confirmation|bundle-decisions|feedback|execute|delivery\/publish|delivery\/refresh|supervision\/(?:start|pause|resume))$/u,
+    /^\/api\/local\/v0\/changesets\/(?<changeSetId>[A-Za-z0-9._-]+)\/(?<tail>planning-messages|plan-confirmation|bundle-decisions|feedback|execute|delivery\/publish|delivery\/refresh|supervision\/(?:start|pause|resume))$/u,
   );
   invariant(match?.groups, "CHANGE_SET_NOT_FOUND", "Route not found");
   const changeSetId = match.groups.changeSetId;
   normalizeId("change_set_id", changeSetId);
+  if (match.groups.tail === "planning-messages") {
+    const body = normalizePlanningMessageBody(await readJsonBody(request));
+    sendJson(
+      response,
+      200,
+      await operatorApplication.execute("changeset.plan", {
+        ...body,
+        change_set_id: changeSetId,
+      }),
+    );
+    return;
+  }
   if (match.groups.tail === "plan-confirmation") {
     const body = normalizePlanConfirmationBody(await readJsonBody(request));
     sendJson(
@@ -346,6 +380,127 @@ async function handlePostApi({
       change_set_id: changeSetId,
     }),
   );
+}
+
+function normalizeCreateChangeSetBody(body) {
+  // 浏览器只能表达任务意图和已注册仓库选择；Runtime、路径与 Harness 选择不能穿过该边界。
+  requireExactFields(body, [
+    "idempotency_key",
+    "change_set_id",
+    "project_id",
+    "intent",
+    "planning_repository_ids",
+    "repository_selections",
+  ]);
+  const planningRepositoryIds = normalizeBoundedStringArray(
+    body.planning_repository_ids,
+    "planning_repository_ids",
+    { minimum: 1, maximum: 32 },
+  );
+  invariant(
+    new Set(planningRepositoryIds).size === planningRepositoryIds.length,
+    "INVALID_OPERATOR_REQUEST",
+    "planning_repository_ids must be unique",
+  );
+  invariant(
+    Array.isArray(body.repository_selections) &&
+      body.repository_selections.length === planningRepositoryIds.length,
+    "INVALID_OPERATOR_REQUEST",
+    "repository_selections must match the selected Repositories",
+  );
+  const repositorySelections = body.repository_selections.map((selection) => {
+    requireExactFields(selection, [
+      "repository_id",
+      "branch_ref",
+      "target_ref",
+    ]);
+    const repositoryId = requireNonEmptyString(
+      selection.repository_id,
+      "repository_id",
+    );
+    invariant(
+      planningRepositoryIds.includes(repositoryId),
+      "INVALID_OPERATOR_REQUEST",
+      "repository_selections contains an unselected Repository",
+    );
+    return {
+      repository_id: repositoryId,
+      branch_ref: optionalNullableString(selection.branch_ref, "branch_ref"),
+      target_ref: optionalNullableString(selection.target_ref, "target_ref"),
+    };
+  });
+  invariant(
+    new Set(repositorySelections.map((item) => item.repository_id)).size ===
+      repositorySelections.length,
+    "INVALID_OPERATOR_REQUEST",
+    "repository_selections must be unique",
+  );
+  return {
+    idempotency_key: requireNonEmptyString(
+      body.idempotency_key,
+      "idempotency_key",
+    ),
+    change_set_id: requireNonEmptyString(body.change_set_id, "change_set_id"),
+    project_id: requireNonEmptyString(body.project_id, "project_id"),
+    intent: normalizeConsoleIntent(body.intent),
+    planning_repository_ids: planningRepositoryIds,
+    repository_selections: repositorySelections,
+  };
+}
+
+function normalizeConsoleIntent(intent) {
+  requireExactFields(intent, [
+    "objective",
+    "rationale",
+    "constraints",
+    "non_goals",
+    "acceptance_criteria",
+    "resolved_decisions",
+    "open_questions",
+  ]);
+  return {
+    objective: requireBoundedText(intent.objective, "intent.objective"),
+    rationale: optionalBoundedText(intent.rationale, "intent.rationale"),
+    constraints: normalizeBoundedStringArray(
+      intent.constraints,
+      "intent.constraints",
+    ),
+    non_goals: normalizeBoundedStringArray(
+      intent.non_goals,
+      "intent.non_goals",
+    ),
+    acceptance_criteria: normalizeBoundedStringArray(
+      intent.acceptance_criteria,
+      "intent.acceptance_criteria",
+    ),
+    resolved_decisions: normalizeBoundedStringArray(
+      intent.resolved_decisions,
+      "intent.resolved_decisions",
+    ),
+    open_questions: normalizeBoundedStringArray(
+      intent.open_questions,
+      "intent.open_questions",
+    ),
+    source: "local_console",
+  };
+}
+
+function normalizePlanningMessageBody(body) {
+  // null 表示首次规划；后续轮次必须携带一条有界、非空的人类消息。
+  requireExactFields(body, ["idempotency_key", "message"]);
+  invariant(
+    body.message === null ||
+      (typeof body.message === "string" && body.message.trim().length > 0),
+    "INVALID_OPERATOR_REQUEST",
+    "Planning message must be a non-empty string or null",
+  );
+  return {
+    idempotency_key: requireNonEmptyString(
+      body.idempotency_key,
+      "idempotency_key",
+    ),
+    message: body.message === null ? null : body.message.trim(),
+  };
 }
 
 function normalizePlanConfirmationBody(body) {
@@ -509,6 +664,38 @@ function requireExactFields(value, allowed) {
       `Mutation request body is missing ${key}`,
     );
   }
+}
+
+function normalizeBoundedStringArray(
+  value,
+  field,
+  { minimum = 0, maximum = MAX_INTENT_ITEMS } = {},
+) {
+  invariant(
+    Array.isArray(value) &&
+      value.length >= minimum &&
+      value.length <= maximum,
+    "INVALID_OPERATOR_REQUEST",
+    `${field} must contain between ${minimum} and ${maximum} items`,
+  );
+  return value.map((item, index) =>
+    requireBoundedText(item, `${field}[${index}]`),
+  );
+}
+
+function requireBoundedText(value, field) {
+  const normalized = requireNonEmptyString(value, field).trim();
+  invariant(
+    Buffer.byteLength(normalized, "utf8") <= MAX_INTENT_TEXT_BYTES,
+    "INVALID_OPERATOR_REQUEST",
+    `${field} is too large`,
+  );
+  return normalized;
+}
+
+function optionalBoundedText(value, field) {
+  if (value === null || value === undefined) return null;
+  return requireBoundedText(value, field);
 }
 
 function requireNonEmptyString(value, field) {

@@ -30,22 +30,25 @@ export function renderIndexHtml({
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>ChangeFleet Local Review Console</title>
+    <title>ChangeFleet Local Console</title>
     <link rel="stylesheet" href="/app.css">
   </head>
   <body>
     <main class="shell">
       <header class="hero">
-        <p class="eyebrow">Loopback Review Surface</p>
-        <h1>ChangeFleet Local Review Console</h1>
-        <p class="hero-copy">Bounded recent ChangeSets, exact current state, audit summary, bundle review, and GitHub delivery.</p>
+        <p class="eyebrow">Loopback Task Surface</p>
+        <h1>ChangeFleet Local Console</h1>
+        <p class="hero-copy">Create one exact task, plan with an Agent, review bounded evidence, and publish human-controlled delivery.</p>
         <div id="status" class="status">Initializing local session.</div>
       </header>
       <section class="layout">
         <aside class="panel sidebar" aria-label="Recent ChangeSets">
           <div class="panel-header">
             <h2>Recent ChangeSets</h2>
-            <button id="load-more" class="ghost" type="button">More</button>
+            <div class="actions">
+              <button id="new-changeset" type="button">New</button>
+              <button id="load-more" class="ghost" type="button">More</button>
+            </div>
           </div>
           <div id="changeset-list" class="changeset-list"></div>
         </aside>

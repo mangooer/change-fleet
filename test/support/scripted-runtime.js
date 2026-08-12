@@ -19,6 +19,8 @@ export const TEST_AGENT_PROFILE = Object.freeze({
 export class ScriptedRuntime {
   constructor({
     plan,
+    planningOutcomes = null,
+    planningFailures = null,
     contextMeasurement = {
       classification: "enforced",
       used_tokens: 600,
@@ -39,6 +41,8 @@ export class ScriptedRuntime {
     feedbackFileContent = null,
   }) {
     this.plan = plan;
+    this.planningOutcomes = planningOutcomes;
+    this.planningFailures = planningFailures;
     this.contextMeasurement = contextMeasurement;
     this.interruptRepository = interruptRepository;
     this.failRepository = failRepository;
@@ -54,6 +58,7 @@ export class ScriptedRuntime {
     this.feedbackExecutionOutcome = feedbackExecutionOutcome;
     this.feedbackFileContent = feedbackFileContent;
     this.verificationInvocationCount = 0;
+    this.planningInvocationCount = 0;
     this.supervisionInvocationCount = 0;
     this.reviewInvocationCount = 0;
     this.interrupted = false;
@@ -67,6 +72,27 @@ export class ScriptedRuntime {
   async invoke(invocation) {
     this.invocations.push(structuredClone(invocation));
     if (invocation.operation === "planning") {
+      // 显式序列只服务持久的规划对话测试；未配置时仍沿用默认确定性 Plan。
+      const invocationIndex = this.planningInvocationCount;
+      const sequencedOutcome = Array.isArray(this.planningOutcomes)
+        ? this.planningOutcomes[invocationIndex]
+        : null;
+      this.planningInvocationCount += 1;
+      const sequencedFailure = Array.isArray(this.planningFailures)
+        ? this.planningFailures[invocationIndex]
+        : null;
+      if (sequencedFailure) {
+        throw new ChangeFleetError(
+          sequencedFailure.code ?? "SCRIPTED_PLANNING_FAILURE",
+          sequencedFailure.message ?? "Scripted planning failed",
+        );
+      }
+      if (sequencedOutcome) {
+        return {
+          outcome: structuredClone(sequencedOutcome),
+          provider_evidence: testProviderEvidence(),
+        };
+      }
       const plan = structuredClone(this.plan);
       // 确定性 Runtime 逐项采纳夹具反馈，用来验证 Core 的覆盖约束而不模拟语义判断质量。
       plan.revision_feedback_assessments ??=

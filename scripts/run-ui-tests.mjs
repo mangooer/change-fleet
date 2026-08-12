@@ -32,6 +32,7 @@ try {
   const page = await browser.newPage();
   page.on("dialog", (dialog) => dialog.accept());
   const refreshAttempts = [];
+  const planningAttempts = [];
   page.on("request", (request) => {
     if (
       request.method() === "POST" &&
@@ -40,10 +41,60 @@ try {
       const payload = request.postDataJSON();
       refreshAttempts.push(payload.idempotency_key);
     }
+    if (
+      request.method() === "POST" &&
+      request.url().endsWith("/planning-messages")
+    ) {
+      planningAttempts.push(request.postDataJSON().idempotency_key);
+    }
   });
   await page.goto(`http://${server.host}:${server.port}/`, {
     waitUntil: "networkidle",
   });
+  await page.getByRole("button", { name: "New" }).click();
+  await page
+    .getByLabel("Objective")
+    .fill("Create and plan one exact task from the browser");
+  await page
+    .getByLabel("Acceptance criteria one per line")
+    .fill("Prepare both RepositoryWorkspaces");
+  await page
+    .getByRole("button", { name: "Create and Start Planning" })
+    .click();
+  await page
+    .getByRole("button", { name: "Start Planning", exact: true })
+    .waitFor();
+  const createdChangeSetId = new URL(page.url()).searchParams.get(
+    "change_set_id",
+  );
+  if (!createdChangeSetId?.startsWith("change-")) {
+    throw new Error("Browser creation did not select the new ChangeSet.");
+  }
+  const afterPlanningFailure = await fixture.service.readChangeSet(
+    createdChangeSetId,
+  );
+  if (
+    afterPlanningFailure.phase !== "planning" ||
+    afterPlanningFailure.planning_message_references.length !== 0
+  ) {
+    throw new Error("Failed initial planning did not preserve one retryable ChangeSet.");
+  }
+  await page
+    .getByRole("button", { name: "Start Planning", exact: true })
+    .click();
+  await page.waitForSelector("text=Exact approval subject");
+  await page.waitForSelector("text=The deterministic fixture produced an approvable plan.");
+  if (
+    planningAttempts.length !== 2 ||
+    planningAttempts[0] !== planningAttempts[1]
+  ) {
+    throw new Error("Planning retry did not preserve the same attempt identity.");
+  }
+  await page.reload({ waitUntil: "networkidle" });
+  await page.waitForSelector("text=1/1 turns");
+  await page.getByRole("button", { name: "Approve Exact Plan Message" }).click();
+  await page.waitForSelector("text=current plan");
+  await page.locator('[data-change-set-id="change"]').click();
   await page.waitForSelector("text=Bundle Subject");
   await page.waitForSelector("text=Work Units");
   await page.waitForSelector("text=api");
@@ -167,6 +218,14 @@ async function createFixture(root) {
   }
   const runtime = new ScriptedRuntime({
     plan: createTwoRepositoryPlan(await writeCombinedCheckScript(root, 2)),
+    planningFailures: [
+      null,
+      {
+        code: "SCRIPTED_PLANNING_FAILURE",
+        message: "The first browser planning attempt failed",
+      },
+      null,
+    ],
   });
   const github = new ScriptedGithubPullRequestAdapter({
     resolveRefs: async ({ githubRepository, headBranch, targetRef }) => {
@@ -232,6 +291,7 @@ async function createFixture(root) {
       runStore: service.runStore,
       evidenceStore: service.evidenceStore,
     }),
+    agentProfile: TEST_AGENT_PROFILE,
   });
   return {
     repositories,

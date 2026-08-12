@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
 import { Readable } from "node:stream";
 import path from "node:path";
 import { describe, test } from "node:test";
@@ -15,6 +17,7 @@ import {
   loadLocalCliConfig,
   loadStructuredRequest,
 } from "../../src/cli/local-input.js";
+import { executeServeCommand } from "../../src/cli/serve-command.js";
 import { ChangeFleetError } from "../../src/domain/errors.js";
 
 describe("unified local CLI grammar", () => {
@@ -406,6 +409,61 @@ describe("local CLI composition and presentation", () => {
     );
     assert.equal(exitCode, 0);
     assert.equal(stdout, "serving config.json\n");
+  });
+
+  test("composes the configured production Runtime into the planning-capable console", async (t) => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "changefleet-serve-unit-"));
+    t.after(() => rm(root, { recursive: true, force: true }));
+    const configPath = path.join(root, "changefleet.json");
+    await writeFile(configPath, JSON.stringify(validConfig()), "utf8");
+    const runtime = { kind: "configured-runtime" };
+    let openedWith = null;
+    let stdout = "";
+    const controlStore = {
+      changeSetsRoot: path.join(root, "control", "changesets"),
+      readChangeSet: async () => ({}),
+      readCatalog: async () => ({ projects: {} }),
+    };
+    const service = new Proxy(
+      {
+        controlStore,
+        runStore: {
+          read: async () => ({}),
+          readJsonArtifact: async () => ({}),
+          readEvents: async () => [],
+        },
+        evidenceStore: { read: async () => ({}) },
+      },
+      {
+        get(target, property) {
+          // Proxy 只补齐应用方法；不能伪装成 Promise，否则 openService 的 await 会一直等待。
+          if (property === "then") return undefined;
+          return property in target ? target[property] : async () => ({});
+        },
+      },
+    );
+    const signalHandlers = {
+      on(signal, listener) {
+        if (signal === "SIGTERM") queueMicrotask(listener);
+      },
+      off() {},
+    };
+
+    await executeServeCommand(
+      { config_path: configPath, port: 0 },
+      {
+        stdout: { write: (value) => (stdout += value) },
+        runtimeFactory: () => runtime,
+        openService: async (options) => {
+          openedWith = options;
+          return service;
+        },
+        signalHandlers,
+      },
+    );
+
+    assert.equal(openedWith.runtime, runtime);
+    assert.match(stdout, /^ChangeFleet local console listening on http:\/\/127\.0\.0\.1:\d+\/$/mu);
   });
 });
 

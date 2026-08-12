@@ -71,7 +71,7 @@ describe("Runtime context admission", () => {
     assert.equal(projection.repository_harness_selection.revision, 1);
   });
 
-  test("projects only the current planning input and exact approvable message", () => {
+  test("projects only the current planning input and immediately preceding assistant message", () => {
     const result = createContextProjection({
       operation: "planning",
       changeSet,
@@ -83,11 +83,11 @@ describe("Runtime context admission", () => {
       historyReferences: [{ kind: "run", run_id: "run-reference-only" }],
       planningConversation: {
         user_message: "Revise the current proposal.",
-        current_approvable_message: {
+        previous_assistant_message: {
           message_id: "message-current",
           content_digest: "a".repeat(64),
-          text: "Current proposal",
-          plan_content: { rationale: "current" },
+          text: "Which compatibility boundary should the Plan preserve?",
+          plan_content: null,
           transcript: "must-not-project",
         },
       },
@@ -100,11 +100,11 @@ describe("Runtime context admission", () => {
     });
     assert.deepEqual(result.planning_conversation, {
       user_message: "Revise the current proposal.",
-      current_approvable_message: {
+      previous_assistant_message: {
         message_id: "message-current",
         content_digest: "a".repeat(64),
-        text: "Current proposal",
-        plan_content: { rationale: "current" },
+        text: "Which compatibility boundary should the Plan preserve?",
+        plan_content: null,
       },
     });
     assert.equal(JSON.stringify(result).includes("must-not-project"), false);

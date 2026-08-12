@@ -1,6 +1,6 @@
 # Current State
 
-Updated: 2026-08-11
+Updated: 2026-08-12
 
 This project's accepted direction, implementation, active gaps, and the next task. `SPEC.md` owns
 the contract; Decisions own rationale; WorkItems and Git own implementation evidence.
@@ -23,8 +23,12 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 
 ## Branch-Local Work
 
-- No additional unaccepted implementation is projected here. Git owns exact landing and delivery
-  history.
+- Accepted [0029](proposals/0029-local-changeset-intake-and-conversational-planning.md) is recorded
+  by Decision 0031. Confirmed
+  [WI-0039](work-items/WI-0039-local-changeset-intake-and-conversational-planning.md) is accepted and
+  complete branch-locally. It adds safe existing-Project intake, bounded planning conversation,
+  partial-failure retry, and the adjacent Planner reply projection without changing lifecycle
+  authority.
 
 ## Accepted Product Direction
 
@@ -45,7 +49,8 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 - WorkUnits may run in parallel; delivery to one `repository_id + target_ref` is serialized, and
   cross-repository compensation never promises universal atomic rollback.
 - GitHub delivery publishes exact Candidates to human-merged PRs and records bounded results.
-- A loopback console and experimental CLI expose the same shared operations; debug audit remains
+- A loopback console and experimental CLI use shared operations. The branch-local console can create
+  an existing-Project ChangeSet and conduct bounded planning conversation; debug audit stays
   isolated and read-only.
 - The first production Provider uses the pinned Codex SDK, a narrow Runtime port, one fresh thread
   per attempt, structured outcomes, persistent exact-base task worktrees, and WorkUnit-scoped writes.
@@ -69,21 +74,15 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 
 ## Accepted Decisions
 
-- The [Decision Index](decisions/README.md) owns rationale. Decision 0029 separates structural
-  preflight from optional project checks. Decision 0030 owns the TaskWorkspace and semantic-Plan
-  replacement completed branch-locally by WI-0037.
+- The [Decision Index](decisions/README.md) owns rationale. Decision 0030 owns persistent
+  TaskWorkspaces and semantic Plans; Decision 0031 accepts local ChangeSet intake and planning.
 
 ## Repository Design Proposals
 
 - The [Proposal Index](proposals/INDEX.md) owns chronology; Decisions retain superseded, rejected,
   and deferred boundaries.
-- Accepted Proposals through 0025 are landed through WI-0021. Accepted
-  [0026](proposals/0026-shared-application-orchestration-boundary.md) is recorded by Decision 0028;
-  its implementation is complete through WI-0029 in this history.
-- Accepted [0027](proposals/0027-optional-project-semantic-checks.md) is recorded by Decision 0029
-  and implemented by completed WI-0035 in this history.
-- Accepted [0028](proposals/0028-persistent-task-workspaces-and-linked-repositories.md) is recorded by
-  Decision 0030 and implemented by completed WI-0037.
+- Accepted Proposals 0026 through 0029 are recorded by Decisions 0028 through 0031 and implemented
+  by completed WorkItems through WI-0039.
 
 ## Open Questions
 
@@ -110,8 +109,9 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 
 ## Next Recommended Task
 
-Discuss a minimal ChangeSet intake vertical slice without expanding into tracker adapters,
-templates, or Candidate comparison lanes by default.
+Merge the exact WI-0039 Candidate, then run one bounded real self-iteration from local intake
+through Bundle review. Use that operator-path evidence to distinguish usability defects from the
+next product boundary before drafting another Proposal.
 
 ## Maintenance Contract
 

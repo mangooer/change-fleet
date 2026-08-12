@@ -15,8 +15,9 @@ reviewable `CandidateBundle` representing one exact cross-repository outcome.
 ## Current Status
 
 This repository contains the spec-first project Harness and the private implementation through
-landed WI-0021, including optional exact-Bundle quality review. The package is not released and
-exposes no stable public CLI or HTTP contract.
+landed WI-0038, including persistent task workspaces, autonomous supervision, optional exact-Bundle
+quality review, and GitHub delivery. The package is not released and exposes no stable public CLI
+or HTTP contract.
 
 The first accepted vertical slice, tracked by
 [`WI-0001`](docs/work-items/WI-0001-local-two-repository-vertical-slice.md), is:
@@ -208,12 +209,20 @@ node ./bin/changefleet.js changeset show <change_set_id> --config changefleet.js
 node ./bin/changefleet.js serve --config changefleet.json [--port 4311]
 ```
 
+`changefleet serve` opens a loopback-only local console. It can create a ChangeSet under an existing
+configured Project, select one or more registered Repositories, conduct bounded planning turns,
+approve the exact current Plan-bearing message, review the Bundle, and operate explicit GitHub
+delivery. It does not edit Projects, Repositories, AgentProfiles, Harness, policies, credentials, or
+delivery bindings. Creation and initial planning are separate idempotent actions, so a failed
+Planner attempt leaves the exact created task visible and retryable.
+
 `changeset plan` may include a bounded `message` string to continue the planning conversation. Its
-result is an Agent message with optional `plan_content`, not a Plan revision. `changeset plan
+result is an Agent message with optional `plan_content`, not a Plan revision. A new Planner attempt
+receives the current human message and only the immediately preceding assistant planning message;
+the browser reconstructs a separately bounded recent view from linked evidence. `changeset plan
 confirm` accepts `idempotency_key`, `change_set_id`, `message_id`, `content_digest`, and `actor`;
-only that exact approval creates the first or next confirmed Plan revision. The local console reads
-the same linked message artifact and delegates its approval button to the same application
-operation.
+only that exact approval creates the first or next confirmed Plan revision. The local console uses
+the same shared operations and configured Agent Runtime as the CLI lifecycle path.
 
 A confirmed Plan records `manual` or `autonomous_until_review` supervision plus bounded execution,
 verification, Feedback, and elapsed-time limits. In autonomous mode, exact forced actions run

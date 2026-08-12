@@ -3,7 +3,7 @@ import { invariant } from "./errors.js";
 
 // Runtime 只接收当前操作所需投影；完整历史留在控制存储中按引用读取。
 export const CONTROL_CONTRACT_VERSION = 6;
-export const CONTEXT_PROJECTION_VERSION = 13;
+export const CONTEXT_PROJECTION_VERSION = 14;
 const RUNTIME_EXCLUDED_DECISION_TYPES = new Set([
   "bundle_review",
   "changeset_closure",
@@ -98,7 +98,7 @@ export function createContextProjection({
       .slice(-16)
       .map((decision) => structuredClone(decision)),
     feedback: projectFeedback(feedback),
-    // 只投影本轮输入和当前可批准消息；更早对话只能通过 Run 引用按需审计。
+    // 只投影本轮输入和紧邻的上一条 Agent 回复；更早对话只能通过 Run 引用按需审计。
     planning_conversation: projectPlanningConversation(planningConversation),
     // Verification 只接收当前精确主体和有界证据摘要，不继承执行对话、成本或历史审计。
     verification:
@@ -119,16 +119,16 @@ function projectPlanningConversation(conversation) {
   if (!conversation) return null;
   return {
     user_message: conversation.user_message ?? null,
-    current_approvable_message:
-      conversation.current_approvable_message === null
+    previous_assistant_message:
+      conversation.previous_assistant_message === null
         ? null
         : {
-            message_id: conversation.current_approvable_message.message_id,
+            message_id: conversation.previous_assistant_message.message_id,
             content_digest:
-              conversation.current_approvable_message.content_digest,
-            text: conversation.current_approvable_message.text,
+              conversation.previous_assistant_message.content_digest,
+            text: conversation.previous_assistant_message.text,
             plan_content:
-              conversation.current_approvable_message.plan_content,
+              conversation.previous_assistant_message.plan_content,
           },
   };
 }

@@ -973,17 +973,32 @@ GitHub App, webhook, daemon polling, deployment, remote workers, UI, and App Ser
 this stage. Real GitHub validation requires separately confirmed repository, branch namespace, PR,
 and cleanup authority.
 
-## 17. First Local Review And Delivery Console Stage
+## 17. First Local Task Console Stage
 
 The accepted next operator surface is a foreground, single-user, loopback-only local console over
 explicit shared application and query operations. It is a presentation adapter, not an Agent
 frontend, daemon, remote API, generic operation bus, or new authority store.
 
-The first console shows a bounded recent-ChangeSet list, one exact current ChangeSet, Bundle,
-available validation and audit summaries, and exact GitHub delivery state. It may accept or reject
-the current exact Bundle, publish an accepted Bundle, and explicitly refresh delivery. It does not
-configure Projects, Repositories, Harness, selection, planning, execution, GitHub binding, merge,
-deployment, or recovery.
+The console shows a bounded recent-ChangeSet list, one exact current ChangeSet and its bounded
+planning conversation, Bundle, available validation and audit summaries, and exact GitHub delivery
+state. It may create a ChangeSet under one existing Project, select one or more of that Project's
+registered Repositories, conduct planning turns, approve the exact current Plan-bearing message,
+accept or reject the current exact Bundle, publish an accepted Bundle, and explicitly refresh
+delivery. It does not configure Projects, Repositories, AgentProfiles, Harness, policies,
+credentials, GitHub bindings, merge, deployment, or recovery.
+
+One bounded intake-options query exposes only stable ids, human descriptions, safe defaults, and
+compact effective policy summaries required by the form. It excludes repository paths, credentials,
+raw catalog objects, provider settings, and unrestricted control capabilities. ChangeSet creation
+and initial planning remain separate idempotent application operations. If the Planner attempt
+fails after creation, the exact created ChangeSet remains visible and retryable; the console does
+not manufacture another task or roll back established Git authority.
+
+The human-facing conversation is reconstructed from linked planning evidence under explicit turn,
+message, and total-byte limits. A new Planner Run receives the current operator message and only
+the immediately preceding assistant planning message, including a question that contains no Plan.
+Older conversation, full transcripts, Runs, logs, provider payloads, and artifact bodies remain
+outside ordinary Runtime context. Only the current exact Plan-bearing message is approvable.
 
 One bounded `changeset.list` read model uses stable cursor ordering and returns only current summary
 fields. It never exposes arbitrary filesystem enumeration, full transcripts, logs, diffs, raw
@@ -996,10 +1011,11 @@ accept a control-root path, operation name, executable, or internal capability f
 and page reload do not invoke Agents, refresh GitHub, repair state, or advance lifecycle.
 
 The first implementation uses Node.js 24 ESM, centralized `node:http`, and repository-owned HTML,
-CSS, and browser modules without a production web or frontend framework. It enforces strict Host
-and same-origin requests, no CORS, an in-memory browser-session/CSRF nonce, bounded JSON mutation
-bodies, security headers, safe errors, and graceful shutdown. Remote or multi-user access requires
-a later authority model.
+CSS, and browser modules without a production web or frontend framework. The server composes the
+same configured production Agent Runtime used by lifecycle operations; the browser cannot select a
+raw Runtime or AgentProfile. It enforces strict Host and same-origin requests, no CORS, an in-memory
+browser-session/CSRF nonce, bounded JSON mutation bodies, security headers, safe errors, and
+graceful shutdown. Remote or multi-user access requires a later authority model.
 
 An exact pinned Playwright development dependency and explicitly installed Chromium validate
 affected UI and HTTP boundaries. Browser infrastructure is selected when those files or security

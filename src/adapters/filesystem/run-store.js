@@ -1,6 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
+import { createReadStream } from "node:fs";
 import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { createInterface } from "node:readline";
 
 import { canonicalStringify } from "../../domain/canonical-json.js";
 import { invariant } from "../../domain/errors.js";
@@ -49,6 +51,42 @@ export class RunStore {
 
   async read(runId) {
     return readJsonFile(this.runPath(runId));
+  }
+
+  async readEvents(runId, { type = null, limit = 64 } = {}) {
+    // UI 查询只流式筛选所需事件；不会一次性加载完整事件日志，也不会借此暴露原始 Run。
+    invariant(
+      type === null || (typeof type === "string" && type.length > 0),
+      "INVALID_RUN_EVENT_QUERY",
+      "Run event type filter is invalid",
+    );
+    invariant(
+      Number.isSafeInteger(limit) && limit >= 1 && limit <= 256,
+      "INVALID_RUN_EVENT_QUERY",
+      "Run event query limit is invalid",
+    );
+    const events = [];
+    const input = createReadStream(
+      path.join(this.runDirectory(runId), "events.jsonl"),
+      { encoding: "utf8" },
+    );
+    const lines = createInterface({
+      input,
+      crlfDelay: Infinity,
+    });
+    try {
+      for await (const line of lines) {
+        if (line.length === 0) continue;
+        const event = JSON.parse(line);
+        if (type !== null && event.type !== type) continue;
+        events.push(event);
+        if (events.length >= limit) break;
+      }
+    } finally {
+      lines.close();
+      input.destroy();
+    }
+    return events;
   }
 
   async update(runId, mutator) {
