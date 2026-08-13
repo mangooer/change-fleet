@@ -95,6 +95,7 @@ describe("changeset view service", () => {
         readCatalog: async () => ({ projects: {} }),
       },
       runStore: {
+        read: async () => null,
         readJsonArtifact: async ({ index }) => ({
           message_id: `message-${index}`,
           text: "界".repeat(10_000),
@@ -135,6 +136,7 @@ describe("changeset view service", () => {
         readCatalog: async () => ({ projects: {} }),
       },
       runStore: {
+        read: async () => null,
         readJsonArtifact: async () => ({}),
         readEvents: async (runId, query) =>
           runId === "execution-1" && query?.type === "runtime.outcome"
@@ -211,6 +213,11 @@ describe("changeset view service", () => {
         readCatalog: async () => ({ projects: {} }),
       },
       runStore: {
+        read: async () => ({
+          run_id: "run-live",
+          created_at: "2026-08-12T00:00:03.000Z",
+          completed_at: null,
+        }),
         readJsonArtifact: async () => ({}),
         readEvents: async () => [
           {
@@ -229,6 +236,23 @@ describe("changeset view service", () => {
 
     assert.equal(live.run.started_at, "2026-08-12T00:00:03.000Z");
     assert.equal(live.run.last_activity_at, "2026-08-12T00:00:08.000Z");
+  });
+
+  test("requires runStore.read when constructing the live projection service", () => {
+    assert.throws(() => {
+      new ChangeSetViewService({
+        controlStore: {
+          readChangeSet: async () => ({}),
+          readCatalog: async () => ({ projects: {} }),
+        },
+        runStore: {
+          readJsonArtifact: async () => ({}),
+          readEvents: async () => [],
+        },
+        auditQueryService: { getChangeSetAudit: async () => ({}) },
+        agentProfile: TEST_AGENT_PROFILE,
+      });
+    }, (error) => error?.code === "INVALID_OPERATOR_APPLICATION");
   });
 });
 

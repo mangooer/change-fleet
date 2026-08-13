@@ -34,10 +34,11 @@ export class ChangeSetViewService {
     );
     invariant(
       runStore &&
+        typeof runStore.read === "function" &&
         typeof runStore.readJsonArtifact === "function" &&
         typeof runStore.readEvents === "function",
       "INVALID_OPERATOR_APPLICATION",
-      "ChangeSet view service requires linked Run artifact reads",
+      "ChangeSet view service requires linked Run reads",
     );
     invariant(
       auditQueryService &&
@@ -268,9 +269,7 @@ export class ChangeSetViewService {
             tail: true,
           });
     const run =
-      reference !== null && typeof this.runStore.read === "function"
-        ? await this.runStore.read(reference.run_id)
-        : null;
+      reference === null ? null : await this.runStore.read(reference.run_id);
     return projectLiveTask(state, reference, run, events, taskControl);
   }
 
