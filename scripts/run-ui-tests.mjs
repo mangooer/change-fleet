@@ -82,6 +82,7 @@ try {
     .getByRole("button", { name: "重试规划", exact: true })
     .click();
   await page.waitForSelector("text=The deterministic fixture produced an approvable plan.");
+  await assertRunningTimeRefresh(page);
   await page.waitForSelector("text=待审查", { timeout: 90_000 });
   if (await page.getByRole("button", { name: "确认计划并自动运行" }).count()) {
     throw new Error("Ordinary task flow still exposed a manual Plan confirmation action.");
@@ -243,6 +244,7 @@ async function createFixture(root) {
   }
   const runtime = new ScriptedRuntime({
     plan: createTwoRepositoryPlan(await writeCombinedCheckScript(root, 2)),
+    executionDelayMs: 7_000,
     planningFailures: [
       null,
       {
@@ -403,6 +405,28 @@ async function createRepository(parent, name) {
   await git(repositoryPath, ["add", "-A"]);
   await git(repositoryPath, ["commit", "-m", "baseline"]);
   return { path: repositoryPath };
+}
+
+async function assertRunningTimeRefresh(page) {
+  const elapsed = page.locator('[data-testid="run-elapsed"]').first();
+  const lastActivity = page.locator('[data-testid="run-last-activity"]').first();
+  await elapsed.waitFor({ timeout: 15_000 });
+  await lastActivity.waitFor({ timeout: 15_000 });
+  const initialElapsed = await elapsed.innerText();
+  const initialLastActivity = await lastActivity.innerText();
+  await page.waitForTimeout(3_100);
+  const nextElapsed = await elapsed.innerText();
+  const nextLastActivity = await lastActivity.innerText();
+  if (initialElapsed === nextElapsed) {
+    throw new Error(
+      `Run elapsed time did not advance without new SSE activity: ${initialElapsed} -> ${nextElapsed}.`,
+    );
+  }
+  if (initialLastActivity === nextLastActivity) {
+    throw new Error(
+      `Last-activity time did not advance without new SSE activity: ${initialLastActivity} -> ${nextLastActivity}.`,
+    );
+  }
 }
 
 async function writeCombinedCheckScript(parent, candidateCount) {

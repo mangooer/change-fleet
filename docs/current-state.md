@@ -1,6 +1,6 @@
 # Current State
 
-Updated: 2026-08-12
+Updated: 2026-08-13
 
 This project's current implementation projection, active gaps, and next task. `SPEC.md` owns the
 accepted contract; decisions own rationale; WorkItems and Git own execution evidence.
@@ -41,6 +41,11 @@ accepted contract; decisions own rationale; WorkItems and Git own execution evid
   Bundle-review feedback now continues within the existing repair budget, live connection health
   is distinct from Agent activity, and the read-only audit view exposes a chronological task
   ledger without entering Runtime context.
+- Completed
+  [WI-0043](work-items/WI-0043-live-run-time-anchors-and-browser-refresh.md) on the same branch
+  tightens the live read-model dependency on exact Run reads, keeps elapsed/last-activity timing
+  visible during quiet SSE windows through browser-local ticking, and records the follow-up in the
+  same Candidate as its focused regression coverage.
 
 ## Current Implementation Focus
 
@@ -57,6 +62,8 @@ accepted contract; decisions own rationale; WorkItems and Git own execution evid
 - The task page prioritizes current progress and safe live activity over the immutable Plan
   reference. Stable Agent summaries enter the ordinary conversation, while per-Run and project
   check results, timing, Runtime identity, and token observations remain audit-only.
+- Running-task projections now expose Run start and recent-activity anchors for browser-local
+  relative-time refresh without writing new business state or Agent context.
 - Default views expose only six operator states with deterministic reasons; exact lifecycle, Run,
   Candidate, Bundle, delivery, and audit facts remain separate authority.
 - Authority chronology stays in the [Decision Index](decisions/README.md) and
@@ -88,9 +95,9 @@ accepted contract; decisions own rationale; WorkItems and Git own execution evid
 
 ## Next Recommended Task
 
-Commit WI-0042 as the next exact baseline, then run one tighter-budget real self-iteration that
-intentionally exercises a clear Verification repair. Preserve the failed WI-0041 ChangeSet as
-audit evidence instead of manually advancing it.
+Commit WI-0043 as the next exact baseline, then run one tighter-budget real self-iteration that
+intentionally exercises a clear Verification repair while observing the updated live timing panel.
+Preserve the failed WI-0041 ChangeSet as audit evidence instead of manually advancing it.
 
 ## Maintenance Contract
 
