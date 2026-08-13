@@ -3338,6 +3338,9 @@ export class ChangeFleetService {
         eventPayload: outcome,
         runOutcome: {
           type: outcome.type,
+          // 只保留 Agent 已显式提交的有界结果摘要，供普通时间线和审计展示；命令输出、
+          // diff 与完整 transcript 仍留在链接证据中，也不会进入后续 Runtime 上下文。
+          summary: boundedRunSummary(outcome.summary),
           // 只保留有界路径声明用于和最终 Git 主体做确定性比对，不保存 Agent 推理。
           reported_changed_paths: [...outcome.changed_paths].sort(),
           revision_feedback_assessments: structuredClone(
@@ -3625,6 +3628,13 @@ function taskMessageFeedback(changeSetId, messageId, text) {
       },
     ],
   };
+}
+
+function boundedRunSummary(value) {
+  const normalized = String(value ?? "").trim();
+  return normalized.length <= 2_000
+    ? normalized
+    : `${normalized.slice(0, 1_999)}…`;
 }
 
 function readOnlySupervisorProfile(agentProfile) {

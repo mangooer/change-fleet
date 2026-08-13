@@ -5,6 +5,7 @@ import { DEFAULT_TASK_AUTHORIZATION } from "../adapters/filesystem/task-control-
 import { invariant } from "../domain/errors.js";
 import { createDeliveryProjection } from "../domain/github-delivery.js";
 import { diagnosticMessage } from "../domain/diagnostics.js";
+import { deriveSupervisionProgress } from "../domain/supervision.js";
 
 const TRANSIENT_DELIVERY_ERRORS = new Set([
   "GIT_REMOTE_READ_FAILED",
@@ -15,7 +16,12 @@ const MAX_DELIVERY_ATTEMPTS = 3;
 
 // 该控制器只选择 Core 已提供的确定性操作，不解释代码、不扩权，也不替 Agent 决定如何实现。
 export class AutonomousTaskController {
-  constructor({ service, taskControlStore, idFactory = randomUUID }) {
+  constructor({
+    service,
+    taskControlStore,
+    idFactory = randomUUID,
+    clock = () => new Date(),
+  }) {
     invariant(service && typeof service === "object", "INVALID_TASK_CONTROLLER", "Task controller requires the lifecycle service");
     invariant(
       taskControlStore && typeof taskControlStore.enqueue === "function",
@@ -25,6 +31,7 @@ export class AutonomousTaskController {
     this.service = service;
     this.taskControlStore = taskControlStore;
     this.idFactory = idFactory;
+    this.clock = clock;
     this.running = new Map();
     this.deliveryTimers = new Map();
     this.deliveryMonitors = new Set();
@@ -282,10 +289,14 @@ export class AutonomousTaskController {
         if (result.status === "plan_ready") {
           return this.confirmAndAdvance(changeSetId, command, result.message);
         }
-        return result;
+        return this.continueNestedControllerResult(changeSetId, command, result);
       }
       case "resume":
-        return this.service.runTaskController(command.payload);
+        return this.advanceAuthorizedRepairs(
+          changeSetId,
+          command,
+          await this.service.runTaskController(command.payload),
+        );
       case "publish":
         return this.deliveryOperation(
           changeSetId,
@@ -338,19 +349,104 @@ export class AutonomousTaskController {
       kind: "plan_activated",
       text: "计划已按任务授权自动确定，开始执行。",
     });
-    const controller = await this.service.runTaskController({
+    const controller = await this.advanceAuthorizedRepairs(
+      changeSetId,
+      command,
+      await this.service.runTaskController({
       idempotency_key: `run-${command.command_id}`,
       change_set_id: changeSetId,
       actor: "task-controller",
-    });
-    await this.taskControlStore.appendTimelineEvent(changeSetId, {
-      command_id: command.command_id,
-      role: "system",
-      stage: "review",
-      kind: "stage_completed",
-      text: "自动执行已推进到当前稳定检查点。",
-    });
+      }),
+    );
+    if (!["feedback_required", "human_input_required"].includes(controller?.status)) {
+      await this.taskControlStore.appendTimelineEvent(changeSetId, {
+        command_id: command.command_id,
+        role: "system",
+        stage: "review",
+        kind: "stage_completed",
+        text: controllerCheckpointMessage(controller),
+      });
+    }
     return { confirmation, controller };
+  }
+
+  async continueNestedControllerResult(changeSetId, command, result) {
+    if (!result?.controller) return result;
+    return {
+      ...result,
+      controller: await this.advanceAuthorizedRepairs(
+        changeSetId,
+        command,
+        result.controller,
+      ),
+    };
+  }
+
+  async advanceAuthorizedRepairs(changeSetId, command, initialResult) {
+    let result = initialResult;
+    const handledFeedbackIds = new Set();
+    // Core 已经把明确的 Verification/Review finding 变成精确 Feedback；控制器只判断现有
+    // 修正授权是否仍有容量，不解释 finding，也不扩大 Plan、仓库或权限。
+    while (result?.status === "feedback_required") {
+      const state = await this.service.readChangeSet(changeSetId);
+      const feedback = selectAutomaticRepairFeedback(state, result);
+      if (feedback === null) return result;
+      // 同一条精确反馈只能触发一次自动返工；重复返回说明执行链路没有取得进展，必须交给人类判断。
+      if (handledFeedbackIds.has(feedback.feedback_id)) {
+        await this.taskControlStore.setHold(changeSetId, {
+          reason: "automatic_repair_stalled",
+          actor: "task-controller",
+        });
+        await this.taskControlStore.appendTimelineEvent(changeSetId, {
+          command_id: command.command_id,
+          role: "system",
+          stage: "verification",
+          kind: "human_request",
+          text: "同一条审查反馈在自动返工后仍未解决，需要你补充信息或调整方向。",
+        });
+        return {
+          ...result,
+          status: "human_input_required",
+          reason: "automatic_repair_stalled",
+        };
+      }
+      const budget = repairBudgetForFeedback(state, feedback, this.clock());
+      if (budget === null || budget.effective_exhausted) {
+        await this.taskControlStore.setHold(changeSetId, {
+          reason: "repair_budget_exhausted",
+          actor: "task-controller",
+        });
+        await this.taskControlStore.appendTimelineEvent(changeSetId, {
+          command_id: command.command_id,
+          role: "system",
+          stage: "verification",
+          kind: "human_request",
+          text: "自动修正预算已用尽，需要你决定是否扩大预算、调整计划或结束任务。",
+        });
+        return {
+          ...result,
+          status: "human_input_required",
+          reason: "repair_budget_exhausted",
+        };
+      }
+      await this.taskControlStore.appendTimelineEvent(changeSetId, {
+        command_id: command.command_id,
+        role: "system",
+        stage: feedback.source === "verification" ? "verification" : "review",
+        kind: "automatic_repair",
+        text: "审查 Agent 发现了可直接修正的问题，正在同一计划和既有预算内自动返工。",
+      });
+      handledFeedbackIds.add(feedback.feedback_id);
+      result = await this.service.runTaskController({
+        idempotency_key: stableId("automatic-repair", {
+          change_set_id: changeSetId,
+          feedback_id: feedback.feedback_id,
+        }),
+        change_set_id: changeSetId,
+        actor: "task-controller",
+      });
+    }
+    return result;
   }
 
   async appendAgentResult(changeSetId, command, result) {
@@ -479,4 +575,35 @@ function stageForCommand(kind) {
   if (kind === "publish" || kind === "refresh_delivery") return "delivery";
   if (kind === "cancel") return "task";
   return "task";
+}
+
+function controllerCheckpointMessage(result) {
+  if (result?.phase === "review") {
+    return "执行与验证已完成，候选结果正在等待审查。";
+  }
+  if (result?.phase === "terminal") {
+    return "任务自动流程已结束，结果与成本留痕可在审计中查看。";
+  }
+  return "当前授权范围内的自动流程已完成。";
+}
+
+function selectAutomaticRepairFeedback(state, result) {
+  const feedbackId = result.feedback_id ?? state.current_feedback_id ?? null;
+  const feedback = (state.feedback_records ?? []).find(
+    (candidate) => candidate.feedback_id === feedbackId,
+  );
+  if (!feedback) return null;
+  if (feedback.source === "verification") return feedback;
+  return feedback.target?.bundle_review_assessment_id ? feedback : null;
+}
+
+function repairBudgetForFeedback(state, feedback, now) {
+  const progress = deriveSupervisionProgress(state, {
+    now: now.toISOString(),
+  });
+  return (
+    progress.work_units.find(
+      (candidate) => candidate.work_unit_id === feedback.target?.work_unit_id,
+    )?.feedback ?? null
+  );
 }

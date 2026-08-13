@@ -18,6 +18,7 @@ const GET_ROUTES = Object.freeze([
   /^\/$/u,
   /^\/app\.css$/u,
   /^\/app\.js$/u,
+  /^\/live-connection\.js$/u,
   /^\/api\/local\/v0\/intake\/options$/u,
   /^\/api\/local\/v0\/changesets$/u,
   /^\/api\/local\/v0\/changesets\/[A-Za-z0-9._-]+$/u,
@@ -111,6 +112,12 @@ export async function startLocalConsoleServer({
       }
       if (request.method === "GET" && requestUrl.pathname === "/app.js") {
         const asset = await readConsoleAsset("app.js");
+        invariant(asset !== null, "CHANGE_SET_NOT_FOUND", "Console script is missing");
+        sendText(response, 200, asset, "text/javascript; charset=utf-8");
+        return;
+      }
+      if (request.method === "GET" && requestUrl.pathname === "/live-connection.js") {
+        const asset = await readConsoleAsset("live-connection.js");
         invariant(asset !== null, "CHANGE_SET_NOT_FOUND", "Console script is missing");
         sendText(response, 200, asset, "text/javascript; charset=utf-8");
         return;

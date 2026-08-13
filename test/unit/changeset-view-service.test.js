@@ -127,6 +127,66 @@ describe("changeset view service", () => {
       true,
     );
   });
+
+  test("keeps task messages and appends bounded execution summaries", async () => {
+    const viewService = new ChangeSetViewService({
+      controlStore: {
+        readChangeSet: async () => ({}),
+        readCatalog: async () => ({ projects: {} }),
+      },
+      runStore: {
+        readJsonArtifact: async () => ({}),
+        readEvents: async (runId, query) =>
+          runId === "execution-1" && query?.type === "runtime.outcome"
+            ? [
+                {
+                  at: "2026-08-12T00:00:02.000Z",
+                  payload: { summary: "Updated the connection recovery state." },
+                },
+              ]
+            : [],
+      },
+      auditQueryService: { getChangeSetAudit: async () => ({}) },
+      agentProfile: TEST_AGENT_PROFILE,
+    });
+    const conversation = await viewService.readTaskConversation(
+      {
+        feedback_records: [],
+        run_references: [
+          {
+            run_id: "execution-1",
+            operation: "execution",
+            status: "completed",
+          },
+        ],
+      },
+      { turns: [] },
+      {
+        timeline: [
+          {
+            event_id: "event-1",
+            role: "human",
+            stage: "task",
+            kind: "message",
+            text: "Please fix reconnect behavior.",
+            created_at: "2026-08-12T00:00:01.000Z",
+          },
+        ],
+      },
+    );
+
+    assert.deepEqual(
+      conversation.messages.map((message) => [message.role, message.kind]),
+      [
+        ["human", "message"],
+        ["agent", "run_summary"],
+      ],
+    );
+    assert.equal(
+      conversation.messages[1].text,
+      "Updated the connection recovery state.",
+    );
+  });
 });
 
 async function createFixture(testContext) {

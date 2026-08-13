@@ -166,50 +166,46 @@ export class ChangeSetViewService {
   }
 
   async readTaskConversation(state, planningConversation, taskControl) {
-    if ((taskControl?.timeline.length ?? 0) > 0) {
-      return {
-        messages: taskControl.timeline.map((event) => ({
+    const hasTaskTimeline = (taskControl?.timeline.length ?? 0) > 0;
+    const messages = hasTaskTimeline
+      ? taskControl.timeline.map((event) => ({
           message_id: event.event_id,
           role: event.role,
           stage: event.stage,
           kind: event.kind,
           text: event.text,
           created_at: event.created_at,
-        })),
-        shown_messages: taskControl.timeline.length,
-        total_messages: taskControl.timeline.length,
-        truncated: false,
-      };
-    }
-    const messages = planningConversation.turns.flatMap((turn) => [
-      ...(turn.user_message === null
-        ? []
-        : [
-            {
-              message_id: `input:${turn.run_id}`,
-              role: "human",
-              stage: "planning",
-              text: turn.user_message.text,
-              created_at: turn.user_message.created_at,
-            },
-          ]),
-      {
-        message_id: turn.assistant_message.message_id,
-        role: "agent",
-        stage: "planning",
-        text: turn.assistant_message.text,
-        created_at: turn.assistant_message.created_at,
-      },
-    ]);
-    messages.push(
-      ...(state.feedback_records ?? []).slice(-12).map((feedback) => ({
+        }))
+      : planningConversation.turns.flatMap((turn) => [
+          ...(turn.user_message === null
+            ? []
+            : [
+                {
+                  message_id: `input:${turn.run_id}`,
+                  role: "human",
+                  stage: "planning",
+                  text: turn.user_message.text,
+                  created_at: turn.user_message.created_at,
+                },
+              ]),
+          {
+            message_id: turn.assistant_message.message_id,
+            role: "agent",
+            stage: "planning",
+            text: turn.assistant_message.text,
+            created_at: turn.assistant_message.created_at,
+          },
+        ]);
+    for (const feedback of (state.feedback_records ?? []).slice(-12)) {
+      appendConversationMessage(messages, {
         message_id: feedback.feedback_id,
         role: feedback.source === "human" ? "human" : "agent",
         stage: feedback.target?.phase ?? feedback.source,
+        kind: "feedback",
         text: feedback.content.summary,
         created_at: feedback.created_at,
-      })),
-    );
+      });
+    }
     const outcomeMessages = await Promise.all(
       (state.run_references ?? [])
         .filter((reference) => reference.operation !== "planning")
@@ -238,7 +234,9 @@ export class ChangeSetViewService {
               };
         }),
     );
-    messages.push(...outcomeMessages.filter(Boolean));
+    for (const message of outcomeMessages.filter(Boolean)) {
+      appendConversationMessage(messages, { ...message, kind: "run_summary" });
+    }
     messages.sort(
       (left, right) =>
         String(left.created_at).localeCompare(String(right.created_at)) ||
@@ -330,6 +328,9 @@ function projectLiveTask(state, reference, events, taskControl) {
   const todoEvent = [...visible]
     .reverse()
     .find((event) => event.payload?.item_type === "todo_list");
+  const controllerCommand = [...(taskControl?.commands ?? [])]
+    .reverse()
+    .find((command) => ["accepted", "running"].includes(command.status));
   return {
     change_set_id: state.change_set_id,
     phase: state.phase,
@@ -349,6 +350,16 @@ function projectLiveTask(state, reference, events, taskControl) {
             status: reference.status,
             attempt: reference.attempt ?? null,
           },
+    controller:
+      controllerCommand === undefined
+        ? null
+        : {
+            command_id: controllerCommand.command_id,
+            kind: controllerCommand.kind,
+            status: controllerCommand.status,
+            accepted_at: controllerCommand.accepted_at,
+            started_at: controllerCommand.started_at ?? null,
+          },
     progress: {
       items: structuredClone(todoEvent?.payload?.items ?? []),
     },
@@ -362,6 +373,21 @@ function projectLiveTask(state, reference, events, taskControl) {
       change_count: event.payload?.change_count ?? null,
     })),
   };
+}
+
+function appendConversationMessage(messages, candidate) {
+  // 同一条人类反馈可能同时存在于展示时间线和精确 Feedback 记录；普通对话只显示一次，
+  // 但审计仍保留两个不同来源的完整身份。
+  if (
+    candidate.kind === "feedback" &&
+    messages.some(
+      (message) =>
+        message.role === candidate.role && message.text === candidate.text,
+    )
+  ) {
+    return;
+  }
+  messages.push(candidate);
 }
 
 function projectAgentProfile(profile) {
@@ -871,6 +897,7 @@ function projectAuditView(audit) {
       human_review: audit.payload.human_review,
       diagnostics: audit.payload.diagnostics,
       runs: audit.payload.runs,
+      workflow: audit.payload.workflow,
     },
   };
 }

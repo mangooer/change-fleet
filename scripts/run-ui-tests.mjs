@@ -33,6 +33,7 @@ try {
   browser = await playwright.chromium.launch();
   const page = await browser.newPage();
   page.on("dialog", (dialog) => dialog.accept());
+  const reconnectScenario = await prepareLiveReconnect(page, fixture);
   const refreshAttempts = [];
   const taskMessages = [];
   page.on("request", (request) => {
@@ -51,6 +52,7 @@ try {
     // 页面持有一个 SSE 长连接，因此不能以 networkidle 作为就绪条件。
     waitUntil: "domcontentloaded",
   });
+  await reconnectScenario.verify();
   await page.getByRole("button", { name: "新建" }).click();
   await page
     .getByLabel("你希望 Agent 完成什么？")
@@ -84,6 +86,34 @@ try {
   if (await page.getByRole("button", { name: "确认计划并自动运行" }).count()) {
     throw new Error("Ordinary task flow still exposed a manual Plan confirmation action.");
   }
+  // 当前进度必须是主视图，语义 Plan 只作为不随执行状态伪造变化的参考。
+  await page.waitForSelector(".progress-surface");
+  if ((await page.locator(".plan-reference").count()) !== 1) {
+    throw new Error("The immutable Plan reference was not retained as a secondary panel.");
+  }
+  await page.waitForFunction(
+    () =>
+      document.querySelector(".conversation")?.textContent?.includes("implemented api") &&
+      document.querySelector(".conversation")?.textContent?.includes("implemented web"),
+    undefined,
+    { timeout: 30_000 },
+  );
+  await page.waitForSelector(".review-surface", { timeout: 90_000 });
+  await page.locator("#open-audit").click();
+  await page.waitForSelector(".audit-step");
+  const auditText = await page.locator("#audit-content").innerText();
+  for (const expected of [
+    "任务链路",
+    "implemented api",
+    "项目检查",
+    "无 Agent Token",
+    "Token 未观测",
+  ]) {
+    if (!auditText.includes(expected)) {
+      throw new Error(`Audit workflow ledger did not display ${expected}.`);
+    }
+  }
+  await page.locator("#close-audit").click();
   if (taskMessages.length !== 1) {
     throw new Error("Planning recovery was not routed through the single task conversation.");
   }
@@ -316,6 +346,7 @@ async function createFixture(root) {
     repositories,
     github,
     service,
+    queryService,
     async startServer() {
       const localServer = await startLocalConsoleServer({
         queryService,
@@ -328,6 +359,36 @@ async function createFixture(root) {
           await localServer.close();
         },
       };
+    },
+  };
+}
+
+async function prepareLiveReconnect(page, fixture) {
+  let requestCount = 0;
+  let allowReconnect;
+  const reconnectBarrier = new Promise((resolve) => {
+    allowReconnect = resolve;
+  });
+  await page.route("**/api/local/v0/changesets/*/events", async (route) => {
+    requestCount += 1;
+    if (requestCount === 1) {
+      const projection = await fixture.queryService.readLiveTaskView("change");
+      await route.fulfill({
+        status: 200,
+        headers: { "content-type": "text/event-stream; charset=utf-8" },
+        body: `event: task\ndata: ${JSON.stringify(projection)}\n\n`,
+      });
+      return;
+    }
+    if (requestCount === 2) await reconnectBarrier;
+    await route.continue();
+  });
+  return {
+    async verify() {
+      await page.waitForSelector("text=正在自动重连", { timeout: 15_000 });
+      allowReconnect();
+      await page.waitForSelector("text=实时连接正常", { timeout: 15_000 });
+      await page.unroute("**/api/local/v0/changesets/*/events");
     },
   };
 }

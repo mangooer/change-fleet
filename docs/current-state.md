@@ -35,6 +35,12 @@ accepted contract; decisions own rationale; WorkItems and Git own execution evid
   policy-activated Plans, one asynchronous task conversation, six operator states, and recoverable
   Delivery. Its deterministic full check passes; paid Provider and real GitHub use remain a later
   bounded gate.
+- Completed
+  [WI-0042](work-items/WI-0042-autonomous-correction-and-observable-run-ledger.md) on the same
+  branch closes the first bounded real WI-0041 self-iteration findings: exact Verification and
+  Bundle-review feedback now continues within the existing repair budget, live connection health
+  is distinct from Agent activity, and the read-only audit view exposes a chronological task
+  ledger without entering Runtime context.
 
 ## Current Implementation Focus
 
@@ -46,7 +52,11 @@ accepted contract; decisions own rationale; WorkItems and Git own execution evid
 - Verification and review bind exact Candidates, selected checks, and separate Runtime usage.
 - The branch-local operator route durably accepts commands, automatically binds ready Plans, stops
   for human input, uses one safe conversation over separate internal Runs, and advances through
-  review and authorized Delivery without routine operation clicks.
+  review and authorized Delivery without routine operation clicks. Clear review findings return to
+  execution automatically until their existing budget is exhausted.
+- The task page prioritizes current progress and safe live activity over the immutable Plan
+  reference. Stable Agent summaries enter the ordinary conversation, while per-Run and project
+  check results, timing, Runtime identity, and token observations remain audit-only.
 - Default views expose only six operator states with deterministic reasons; exact lifecycle, Run,
   Candidate, Bundle, delivery, and audit facts remain separate authority.
 - Authority chronology stays in the [Decision Index](decisions/README.md) and
@@ -78,9 +88,9 @@ accepted contract; decisions own rationale; WorkItems and Git own execution evid
 
 ## Next Recommended Task
 
-Use one bounded real self-iteration from the exact WI-0041 baseline to evaluate autonomous
-conversation quality, operator-state transitions, Delivery recovery, and Provider cost. Keep that
-external gate separate from the deterministic implementation result.
+Commit WI-0042 as the next exact baseline, then run one tighter-budget real self-iteration that
+intentionally exercises a clear Verification repair. Preserve the failed WI-0041 ChangeSet as
+audit evidence instead of manually advancing it.
 
 ## Maintenance Contract
 

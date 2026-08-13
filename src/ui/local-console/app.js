@@ -1,3 +1,16 @@
+import {
+  LIVE_CONNECTION_STATUS,
+  beginLiveConnectionAttempt,
+  createLiveConnectionState,
+  markLiveConnectionInterrupted,
+  markLiveConnectionOpened,
+  markLiveProjectionReceived,
+  markLiveRecoveryRefreshFailed,
+  markLiveReconnectWaiting,
+  markLiveRecoveryComplete,
+  reconnectDelayMs,
+} from "./live-connection.js";
+
 const bootstrap = readBootstrap();
 
 // 页面只维护面向操作者的任务投影；精确身份、幂等和状态裁决仍由服务端负责。
@@ -13,8 +26,10 @@ const state = {
   error: null,
   createProjectId: null,
   streamController: null,
+  recoveryRefreshTimer: null,
   quietRefreshing: false,
   pendingMessages: [],
+  connection: createLiveConnectionState(bootstrap.selected_change_set_id ?? null),
 };
 
 const elements = {
@@ -82,7 +97,9 @@ async function loadExact(changeSetId) {
   state.exact = exact;
   state.audit = audit;
   state.live = null;
+  state.connection = createLiveConnectionState(changeSetId);
   clearFinishedAttempts();
+  render();
   startLiveStream(changeSetId);
 }
 
@@ -113,11 +130,13 @@ function renderStatus() {
     return;
   }
   const liveRun = state.live?.run?.status === "running";
+  const agent = liveRun
+    ? `${stageLabel(state.live.run.operation)}正在运行`
+    : "当前无运行中 Agent";
+  const connection = liveConnectionSummary(state.connection).label;
   elements.status.textContent = state.pendingAction
-    ? `正在${state.pendingAction}…`
-    : liveRun
-      ? `${stageLabel(state.live.run.operation)}正在运行`
-      : "本机控制台 · 精确工作区 · 人工合并";
+    ? `正在${state.pendingAction}...`
+    : `${agent} · ${connection}`;
   elements.status.className = "status";
 }
 
@@ -221,13 +240,14 @@ function renderDetail() {
       </article>
 
       <aside class="task-rail">
-        <article class="surface plan-surface">
-          <div class="section-title">
-            <div><p class="eyebrow">Plan</p><h3>${currentPlan ? escapeHtml(currentPlan.summary) : "等待计划"}</h3></div>
-            ${exact.current_revisions.plan_revision ? `<span class="pill">r${escapeHtml(exact.current_revisions.plan_revision)}</span>` : ""}
+        ${renderProgressPanel(exact)}
+        <details class="surface plan-surface plan-reference" ${exact.phase === "planning" ? "open" : ""}>
+          <summary>计划参考${exact.current_revisions.plan_revision ? ` · r${escapeHtml(exact.current_revisions.plan_revision)}` : ""}</summary>
+          <div class="plan-reference-body">
+            <h3>${currentPlan ? escapeHtml(currentPlan.summary) : "等待计划"}</h3>
+            ${renderPlan(currentPlan, exact)}
           </div>
-          ${renderPlan(currentPlan, exact)}
-        </article>
+        </details>
         ${renderGatePanel(exact.gates)}
         ${renderBundlePanel(exact, bundle, quality, canAccept)}
         ${renderDeliveryPanel(exact, bundle)}
@@ -256,15 +276,42 @@ function renderTaskControl(exact) {
 
 function renderLivePanel() {
   const live = state.live;
+  const connection = liveConnectionSummary(state.connection);
+  const agent = liveAgentSummary(live);
   if (!live?.run || live.run.status !== "running") {
-    return '<div class="live-idle"><span class="status-dot"></span>当前没有运行中的 Agent</div>';
+    return `
+      <div class="live-summary-grid">
+        <article class="live-summary-card">
+          <p class="eyebrow">Agent</p>
+          <div class="live-summary-head"><span class="status-dot ${agent.kind}"></span><strong>${escapeHtml(agent.label)}</strong></div>
+          <p class="muted">${escapeHtml(agent.detail)}</p>
+        </article>
+        <article class="live-summary-card">
+          <p class="eyebrow">Connection</p>
+          <div class="live-summary-head"><span class="status-dot ${connection.kind}"></span><strong>${escapeHtml(connection.label)}</strong></div>
+          <p class="muted">${escapeHtml(connection.detail)}</p>
+        </article>
+      </div>`;
   }
   const items = live.progress?.items ?? [];
   const latest = live.recent_activity?.at(-1);
+  const recentActivity = (live.recent_activity ?? []).slice(-5).reverse();
   return `
+    <div class="live-summary-grid">
+      <article class="live-summary-card">
+        <p class="eyebrow">Agent</p>
+        <div class="live-summary-head"><span class="live-pulse"></span><strong>${escapeHtml(agent.label)}</strong></div>
+        <p class="muted">${escapeHtml(agent.detail)}</p>
+      </article>
+      <article class="live-summary-card">
+        <p class="eyebrow">Connection</p>
+        <div class="live-summary-head"><span class="status-dot ${connection.kind}"></span><strong>${escapeHtml(connection.label)}</strong></div>
+        <p class="muted">${escapeHtml(connection.detail)}</p>
+      </article>
+    </div>
     <div class="row">
-      <div><span class="live-pulse"></span><strong>${escapeHtml(stageLabel(live.run.operation))}运行中</strong> · 第 ${escapeHtml(live.run.attempt ?? 1)} 次尝试</div>
-      <span class="muted">${escapeHtml(activityLabel(latest))}</span>
+      <div><strong>${escapeHtml(activityLabel(latest))}</strong></div>
+      <span class="muted">${escapeHtml(formatConnectionTimestamp(state.connection.last_connected_at))}</span>
     </div>
     ${
       items.length === 0
@@ -275,7 +322,42 @@ function renderLivePanel() {
                 `<li class="${item.completed ? "done" : ""}"><span>${item.completed ? "✓" : "·"}</span>${escapeHtml(item.text)}</li>`,
             )
             .join("")}</ol>`
+    }
+    ${
+      recentActivity.length === 0
+        ? ""
+        : `<ol class="live-activity-list">${recentActivity
+            .map(
+              (event) =>
+                `<li><span>${escapeHtml(formatRelativeTime(event.at))}</span><strong>${escapeHtml(activityLabel(event))}</strong></li>`,
+            )
+            .join("")}</ol>`
     }`;
+}
+
+function renderProgressPanel(exact) {
+  const live = state.live;
+  const agent = liveAgentSummary(live);
+  const items = live?.progress?.items ?? [];
+  return `
+    <article class="surface progress-surface">
+      <div class="section-title">
+        <div><p class="eyebrow">Current progress</p><h3>${escapeHtml(agent.label)}</h3></div>
+        <span class="pill">${escapeHtml(stageLabel(live?.run?.operation ?? exact.phase))}</span>
+      </div>
+      <p>${escapeHtml(agent.detail)}</p>
+      <p class="muted">${escapeHtml(operatorReasonLabel(exact.operator_reason))}</p>
+      ${
+        items.length === 0
+          ? '<div class="empty compact-empty">Agent 更新 todo 后会在这里显示当前进度。</div>'
+          : `<ol class="live-todos">${items
+              .map(
+                (item) =>
+                  `<li class="${item.completed ? "done" : ""}"><span>${item.completed ? "✓" : "·"}</span>${escapeHtml(item.text)}</li>`,
+              )
+              .join("")}</ol>`
+      }
+    </article>`;
 }
 
 function renderConversation(conversation, pendingMessages = []) {
@@ -317,12 +399,11 @@ function renderPlan(plan, exact) {
         : ""
     }`;
   }
-  const completed = ["review", "terminal"].includes(exact.phase);
   return `
     <ol class="plan-steps">${plan.steps
       .map(
         (step, index) =>
-          `<li class="${completed ? "done" : ""}"><span>${completed ? "✓" : index + 1}</span><p>${escapeHtml(step)}</p></li>`,
+          `<li><span>${index + 1}</span><p>${escapeHtml(step)}</p></li>`,
       )
       .join("")}</ol>
     ${
@@ -739,8 +820,10 @@ async function openAuditDialog() {
     <div class="metric-grid">${Object.entries(compactMetrics(audit))
       .map(([key, value]) => `<div><span>${escapeHtml(metricLabel(key))}</span><strong>${escapeHtml(formatNumber(value))}</strong></div>`)
       .join("")}</div>
-    <details open><summary>运行明细</summary><pre>${escapeHtml(JSON.stringify(audit.payload.runs, null, 2))}</pre></details>
-    <details><summary>验证与结果</summary><pre>${escapeHtml(JSON.stringify({ validation: audit.payload.validation, outcomes: audit.payload.outcomes, bundle_reviews: audit.payload.bundle_reviews }, null, 2))}</pre></details>
+    <section class="audit-ledger"><div class="section-title"><div><p class="eyebrow">Workflow ledger</p><h3>任务链路</h3></div></div>${renderAuditLedger(audit.payload.workflow?.rows ?? [])}</section>
+    <details><summary>确定性验证证据</summary>${renderValidationLedger(audit.payload.validation?.rows ?? [])}</details>
+    <details><summary>精确运行数据</summary><pre>${escapeHtml(JSON.stringify(audit.payload.runs, null, 2))}</pre></details>
+    <details><summary>验证与结果原始投影</summary><pre>${escapeHtml(JSON.stringify({ validation: audit.payload.validation, outcomes: audit.payload.outcomes, bundle_reviews: audit.payload.bundle_reviews }, null, 2))}</pre></details>
     <details><summary>精确审计身份</summary><pre>${escapeHtml(JSON.stringify({ source_identity: audit.source_identity, payload_digest: audit.payload_digest, generated_at: audit.generated_at }, null, 2))}</pre></details>`;
   document.querySelector("#close-audit")?.addEventListener("click", () =>
     elements.auditDialog.close(),
@@ -748,63 +831,130 @@ async function openAuditDialog() {
   elements.auditDialog.showModal();
 }
 
+function renderAuditLedger(rows) {
+  if (rows.length === 0) return '<div class="empty">还没有任务链路记录。</div>';
+  return rows
+    .map((row) => {
+      const usage = row.usage;
+      const result = row.result ?? {};
+      const input = row.input ?? {};
+      const isValidation = row.entry_kind === "validation";
+      const successful = ["completed", "passed"].includes(row.status);
+      return `
+        <article class="audit-step">
+          <div class="section-title">
+            <div><p class="eyebrow">#${escapeHtml(row.sequence)} · ${escapeHtml(isValidation ? validationModeLabel(row.trigger) : runTriggerLabel(row.trigger))}</p><h3>${escapeHtml(isValidation ? "确定性验证" : stageAgentLabel(row.operation))}</h3></div>
+            <span class="pill ${successful ? "complete" : "warn"}">${escapeHtml(runStatusLabel(row.status))}</span>
+          </div>
+          <div class="audit-step-meta">
+            <span>${escapeHtml(isValidation ? "项目检查" : [row.runtime?.runtime, row.runtime?.model].filter(Boolean).join(" · "))}</span>
+            <span>${escapeHtml(agentTokenLabel(usage, isValidation))}</span>
+            <span>${formatDuration(row.timing?.provider_duration_ms ?? row.timing?.run_elapsed_ms ?? 0)}</span>
+          </div>
+          ${input.objective ? `<p><strong>目标：</strong>${escapeHtml(input.objective)}</p>` : ""}
+          ${input.feedback ? `<p><strong>反馈输入：</strong>${escapeHtml(input.feedback)}</p>` : ""}
+          ${result.summary ? `<p><strong>结果：</strong>${escapeHtml(result.summary)}</p>` : `<p><strong>结果：</strong>${escapeHtml(result.outcome_type ?? row.status)}</p>`}
+          ${renderAuditStringList("修改文件", result.changed_paths)}
+          ${renderAuditStringList("发现问题", result.findings)}
+          ${row.plan ? `<details><summary>本次生成的计划</summary><p>${escapeHtml(row.plan.summary ?? "")}</p>${renderAuditStringList("步骤", row.plan.steps)}${renderAuditStringList("验证", row.plan.validation)}</details>` : ""}
+          ${row.validation?.length ? `<details><summary>本次验证记录</summary>${renderValidationLedger(row.validation)}</details>` : ""}
+        </article>`;
+    })
+    .join("");
+}
+
+function renderValidationLedger(rows) {
+  if (rows.length === 0) return '<div class="empty compact-empty">没有受控验证记录。</div>';
+  return `<ol class="validation-ledger">${rows
+    .map(
+      (row) =>
+        `<li><strong>${escapeHtml(row.kind ?? "validation")}</strong><span>${escapeHtml(row.status ?? "unknown")} · ${formatDuration(row.duration_ms ?? 0)}</span>${row.mode ? `<small>${escapeHtml(row.mode)}</small>` : ""}</li>`,
+    )
+    .join("")}</ol>`;
+}
+
+function renderAuditStringList(label, values = []) {
+  if (!Array.isArray(values) || values.length === 0) return "";
+  return `<div class="audit-list"><strong>${escapeHtml(label)}：</strong><ul>${values
+    .map((value) => `<li>${escapeHtml(value)}</li>`)
+    .join("")}</ul></div>`;
+}
+
 function startLiveStream(changeSetId) {
   state.streamController?.abort();
+  clearRecoveryRefreshTimer();
   const controller = new AbortController();
   state.streamController = controller;
+  state.connection = createLiveConnectionState(changeSetId);
+  renderStatus();
+  renderLivePanelIfPresent();
   void consumeLiveStream(changeSetId, controller);
 }
 
 async function consumeLiveStream(changeSetId, controller) {
   while (!controller.signal.aborted && state.selectedChangeSetId === changeSetId) {
     try {
+      state.connection = beginLiveConnectionAttempt(state.connection);
+      renderStatus();
+      renderLivePanelIfPresent();
       const response = await fetch(
         `/api/local/v0/changesets/${encodeURIComponent(changeSetId)}/events`,
         { headers: sessionHeaders(), signal: controller.signal },
       );
       if (!response.ok || !response.body) throw new Error("实时事件连接失败。");
+      state.connection = markLiveConnectionOpened(state.connection);
+      renderStatus();
+      renderLivePanelIfPresent();
+      if (state.connection.recovery_pending) {
+        queueRecoveryRefresh({ immediate: true });
+      }
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
       while (!controller.signal.aborted) {
         const { value, done } = await reader.read();
-        if (done) break;
+        if (done) throw new Error("实时连接已断开。");
         buffer += decoder.decode(value, { stream: true }).replaceAll("\r", "");
         let boundary = buffer.indexOf("\n\n");
         while (boundary !== -1) {
           const block = buffer.slice(0, boundary);
           buffer = buffer.slice(boundary + 2);
-          const data = block
-            .split("\n")
-            .filter((line) => line.startsWith("data: "))
-            .map((line) => line.slice(6))
-            .join("\n");
-          if (data) receiveLiveProjection(JSON.parse(data));
+          const event = parseSseBlock(block);
+          if (event.type === "error") {
+            throw new Error(event.data?.code ?? "LIVE_TASK_READ_FAILED");
+          }
+          if (event.type === "task" && event.data) receiveLiveProjection(event.data);
           boundary = buffer.indexOf("\n\n");
         }
       }
     } catch (error) {
       if (controller.signal.aborted) return;
-      state.error = error;
+      state.connection = markLiveConnectionInterrupted(state.connection, error);
       renderStatus();
+      renderLivePanelIfPresent();
     }
-    await delay(1_200, controller.signal);
+    if (controller.signal.aborted) return;
+    const delayMs = reconnectDelayMs(state.connection);
+    state.connection = markLiveReconnectWaiting(state.connection);
+    renderStatus();
+    renderLivePanelIfPresent();
+    await delay(delayMs, controller.signal);
   }
 }
 
 function receiveLiveProjection(projection) {
   if (projection.change_set_id !== state.selectedChangeSetId) return;
+  state.connection = markLiveProjectionReceived(state.connection);
   state.live = projection;
-  const panel = document.querySelector("#live-panel");
-  if (panel) panel.innerHTML = renderLivePanel();
+  renderLivePanelIfPresent();
   renderStatus();
   if (state.exact && projection.state_updated_at !== state.exact.updated_at) {
-    void refreshExactQuietly();
+    void refreshExactQuietly({ reason: "stream_update" });
   }
 }
 
-async function refreshExactQuietly() {
-  if (state.quietRefreshing || !state.selectedChangeSetId) return;
+async function refreshExactQuietly({ reason } = {}) {
+  if (state.quietRefreshing || !state.selectedChangeSetId) return false;
   state.quietRefreshing = true;
   const changeSetId = state.selectedChangeSetId;
   try {
@@ -816,13 +966,162 @@ async function refreshExactQuietly() {
     state.exact = exact;
     state.list = list;
     clearFinishedAttempts();
+    if (reason === "reconnected" && state.connection.recovery_pending) {
+      clearRecoveryRefreshTimer();
+      state.connection = markLiveRecoveryComplete(state.connection);
+    }
     render();
+    return true;
   } catch (error) {
-    state.error = error;
-    renderStatus();
+    if (reason === "reconnected" && state.connection.recovery_pending) {
+      const nextAttempt = state.connection.recovery_refresh_attempts + 1;
+      const delayMs = reconnectDelayMs({ reconnect_attempts: nextAttempt });
+      const nextAttemptAt = new Date(Date.now() + delayMs).toISOString();
+      state.connection = markLiveRecoveryRefreshFailed(
+        state.connection,
+        error,
+        nextAttemptAt,
+      );
+      renderStatus();
+      renderLivePanelIfPresent();
+      queueRecoveryRefresh({ delayMs });
+    } else if (reason !== "reconnected") {
+      state.error = error;
+      renderStatus();
+    }
+    return false;
   } finally {
     state.quietRefreshing = false;
   }
+}
+
+function queueRecoveryRefresh({ immediate = false, delayMs = 0 } = {}) {
+  if (!state.connection.recovery_pending || !state.selectedChangeSetId) return;
+  clearRecoveryRefreshTimer();
+  if (immediate) {
+    void runQueuedRecoveryRefresh();
+    return;
+  }
+  state.recoveryRefreshTimer = globalThis.setTimeout(() => {
+    state.recoveryRefreshTimer = null;
+    if (!state.connection.recovery_pending) return;
+    void runQueuedRecoveryRefresh();
+  }, delayMs);
+}
+
+function clearRecoveryRefreshTimer() {
+  if (state.recoveryRefreshTimer === null) return;
+  globalThis.clearTimeout(state.recoveryRefreshTimer);
+  state.recoveryRefreshTimer = null;
+}
+
+async function runQueuedRecoveryRefresh() {
+  const synchronized = await refreshExactQuietly({ reason: "reconnected" });
+  if (
+    !synchronized &&
+    state.connection.recovery_pending &&
+    state.recoveryRefreshTimer === null
+  ) {
+    queueRecoveryRefresh({ delayMs: 250 });
+  }
+}
+
+function renderLivePanelIfPresent() {
+  const panel = document.querySelector("#live-panel");
+  if (panel) panel.innerHTML = renderLivePanel();
+}
+
+function parseSseBlock(block) {
+  const lines = block.split("\n");
+  const type =
+    lines.find((line) => line.startsWith("event: "))?.slice(7) ?? "message";
+  const data = lines
+    .filter((line) => line.startsWith("data: "))
+    .map((line) => line.slice(6))
+    .join("\n");
+  return {
+    type,
+    data: data.length === 0 ? null : JSON.parse(data),
+  };
+}
+
+function liveAgentSummary(live) {
+  if (!live?.run || live.run.status !== "running") {
+    if (live?.controller && ["accepted", "running"].includes(live.controller.status)) {
+      return {
+        kind: "running",
+        label: "正在衔接下一步",
+        detail: "当前 Agent 已结束，ChangeFleet 正在准备下一个已授权的执行、验证或审查动作。",
+      };
+    }
+    return {
+      kind: "",
+      label: "当前无运行中 Agent",
+      detail: "页面在线并不代表 Agent 必须持续运行；空闲状态不等于连接故障。",
+    };
+  }
+  return {
+    kind: "running",
+    label: `${stageLabel(live.run.operation)}运行中`,
+    detail: `第 ${live.run.attempt ?? 1} 次尝试 · ${activityLabel(live.recent_activity?.at(-1))}`,
+  };
+}
+
+function liveConnectionSummary(connection) {
+  switch (connection.status) {
+    case LIVE_CONNECTION_STATUS.CONNECTED:
+      return {
+        kind: "complete",
+        label: "实时连接正常",
+        detail:
+          connection.last_recovered_at === null
+            ? "正在持续接收当前任务的安全实时投影。"
+            : `已恢复并重新同步 · ${formatConnectionTimestamp(connection.last_recovered_at)}`,
+      };
+    case LIVE_CONNECTION_STATUS.INTERRUPTED:
+      return {
+        kind: "danger",
+        label: "实时连接中断",
+        detail: "流已断开，正在准备重新建立订阅。",
+      };
+    case LIVE_CONNECTION_STATUS.RECONNECTING:
+      return {
+        kind: "warn",
+        label: "正在自动重连",
+        detail: `第 ${Math.max(connection.reconnect_attempts, 1)} 次连接尝试。`,
+      };
+    case LIVE_CONNECTION_STATUS.RESYNCING:
+      if (connection.next_recovery_attempt_at !== null) {
+        return {
+          kind: "warn",
+          label: "恢复后同步中",
+          detail: `首次同步失败，将自动重试 · ${formatConnectionTimestamp(connection.next_recovery_attempt_at)}`,
+        };
+      }
+      return {
+        kind: "warn",
+        label: "恢复后同步中",
+        detail: "连接已恢复，正在静默刷新任务详情与运行面板。",
+      };
+    case LIVE_CONNECTION_STATUS.RECONNECT_FAILED:
+      return {
+        kind: "danger",
+        label: "重连多次失败",
+        detail: "页面会继续自动重试；Agent 空闲与连接故障已分开显示。",
+      };
+    case LIVE_CONNECTION_STATUS.INITIAL_CONNECTING:
+    default:
+      return {
+        kind: "warn",
+        label: "正在建立实时连接",
+        detail: "首次进入任务详情时，页面会先建立当前任务的实时订阅。",
+      };
+  }
+}
+
+function formatConnectionTimestamp(value) {
+  if (typeof value !== "string") return "等待首个实时事件";
+  return `最近联机 ${formatRelativeTime(value)}`;
 }
 
 function compactMetrics(audit) {
@@ -862,6 +1161,62 @@ function stageLabel(value) {
 
 function stageAgentLabel(value) {
   return `${stageLabel(value)} Agent`;
+}
+
+function operatorReasonLabel(value) {
+  return (
+    {
+      planning: "正在形成语义计划。",
+      execution: "正在执行或准备执行当前计划。",
+      verification: "正在验证当前候选结果。",
+      candidate_bundle_ready: "候选结果已经形成，等待审查。",
+      review_ready: "候选结果已经形成，等待审查。",
+      pull_request_open: "Pull Request 已发布，正在等待人工合入。",
+      planner_question: "Planner 需要补充信息后才能继续。",
+      repair_budget_exhausted: "自动修正预算已用尽，需要人工决定。",
+    }[value] ?? `当前原因：${String(value ?? "processing")}`
+  );
+}
+
+function runTriggerLabel(value) {
+  return (
+    {
+      initial: "首次运行",
+      feedback: "反馈修正",
+      retry: "失败重试",
+      recovery: "恢复运行",
+    }[value] ?? String(value ?? "运行")
+  );
+}
+
+function runStatusLabel(value) {
+  return (
+    {
+      completed: "已完成",
+      passed: "通过",
+      running: "运行中",
+      failed: "失败",
+      interrupted: "已中断",
+      cancelled: "已取消",
+    }[value] ?? String(value ?? "未知")
+  );
+}
+
+function validationModeLabel(value) {
+  return (
+    {
+      structural_preflight: "结构预检",
+      project_command: "项目命令",
+    }[value] ?? String(value ?? "项目检查")
+  );
+}
+
+function agentTokenLabel(usage, isValidation) {
+  if (isValidation) return "无 Agent Token";
+  if (usage?.total_tokens === null || usage?.total_tokens === undefined) {
+    return "Token 未观测";
+  }
+  return `${formatNumber(usage.total_tokens)} tokens`;
 }
 
 function activityLabel(event) {

@@ -5,6 +5,7 @@ const ASSETS = Object.freeze(
   new Map([
     ["app.css", "app.css"],
     ["app.js", "app.js"],
+    ["live-connection.js", "live-connection.js"],
   ]),
 );
 
