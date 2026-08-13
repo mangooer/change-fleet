@@ -39,6 +39,7 @@ export class ScriptedRuntime {
     reviewOutcomes = null,
     feedbackExecutionOutcome = null,
     feedbackFileContent = null,
+    executionDelayMs = 0,
   }) {
     this.plan = plan;
     this.planningOutcomes = planningOutcomes;
@@ -57,6 +58,7 @@ export class ScriptedRuntime {
     this.reviewOutcomes = reviewOutcomes;
     this.feedbackExecutionOutcome = feedbackExecutionOutcome;
     this.feedbackFileContent = feedbackFileContent;
+    this.executionDelayMs = executionDelayMs;
     this.verificationInvocationCount = 0;
     this.planningInvocationCount = 0;
     this.supervisionInvocationCount = 0;
@@ -199,6 +201,12 @@ export class ScriptedRuntime {
     const repositoryId =
       invocation.context_projection.work_unit.repository_id;
     if (
+      invocation.operation === "execution" &&
+      this.executionDelayMs > 0
+    ) {
+      await wait(this.executionDelayMs);
+    }
+    if (
       repositoryId === this.interruptRepository &&
       this.interrupted === false
     ) {
@@ -319,6 +327,10 @@ function testProviderEvidence() {
     usage_observations: [],
     raw_artifact_references: [],
   };
+}
+
+function wait(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
 export function createTwoRepositoryPlan(combinedCheckScript) {

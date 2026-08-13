@@ -267,7 +267,11 @@ export class ChangeSetViewService {
             limit: 128,
             tail: true,
           });
-    return projectLiveTask(state, reference, events, taskControl);
+    const run =
+      reference !== null && typeof this.runStore.read === "function"
+        ? await this.runStore.read(reference.run_id)
+        : null;
+    return projectLiveTask(state, reference, run, events, taskControl);
   }
 
   async readTaskControl(changeSetId) {
@@ -306,7 +310,7 @@ export class ChangeSetViewService {
   }
 }
 
-function projectLiveTask(state, reference, events, taskControl) {
+function projectLiveTask(state, reference, run, events, taskControl) {
   const delivery = createDeliveryProjection(state);
   const operator = deriveOperatorProjection(state, delivery, taskControl);
   const updatedAt = latestTimestamp(state.updated_at, taskControl?.updated_at);
@@ -328,6 +332,13 @@ function projectLiveTask(state, reference, events, taskControl) {
   const todoEvent = [...visible]
     .reverse()
     .find((event) => event.payload?.item_type === "todo_list");
+  const lastActivityAt = latestTimestamp(
+    visible.at(-1)?.at,
+    run?.completed_at,
+    run?.created_at,
+    reference?.completed_at,
+    reference?.created_at,
+  );
   const controllerCommand = [...(taskControl?.commands ?? [])]
     .reverse()
     .find((command) => ["accepted", "running"].includes(command.status));
@@ -349,6 +360,8 @@ function projectLiveTask(state, reference, events, taskControl) {
             operation: reference.operation,
             status: reference.status,
             attempt: reference.attempt ?? null,
+            started_at: run?.created_at ?? reference.created_at ?? null,
+            last_activity_at: lastActivityAt ?? null,
           },
     controller:
       controllerCommand === undefined

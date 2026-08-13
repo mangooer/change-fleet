@@ -26,6 +26,7 @@ const state = {
   error: null,
   createProjectId: null,
   streamController: null,
+  relativeTimeTicker: null,
   recoveryRefreshTimer: null,
   quietRefreshing: false,
   pendingMessages: [],
@@ -90,6 +91,7 @@ async function loadMore() {
 async function loadExact(changeSetId) {
   state.selectedChangeSetId = changeSetId;
   updateLocation(changeSetId);
+  stopRelativeTimeTicker();
   const [exact, audit] = await Promise.all([
     apiGet(`/api/local/v0/changesets/${encodeURIComponent(changeSetId)}`),
     apiGet(`/api/local/v0/changesets/${encodeURIComponent(changeSetId)}/audit`),
@@ -121,6 +123,7 @@ function render() {
   renderStatus();
   renderList();
   renderDetail();
+  syncRelativeTimeTicker();
 }
 
 function renderStatus() {
@@ -296,6 +299,7 @@ function renderLivePanel() {
   const items = live.progress?.items ?? [];
   const latest = live.recent_activity?.at(-1);
   const recentActivity = (live.recent_activity ?? []).slice(-5).reverse();
+  const runtimeFacts = liveRunFacts(live);
   return `
     <div class="live-summary-grid">
       <article class="live-summary-card">
@@ -313,6 +317,7 @@ function renderLivePanel() {
       <div><strong>${escapeHtml(activityLabel(latest))}</strong></div>
       <span class="muted">${escapeHtml(formatConnectionTimestamp(state.connection.last_connected_at))}</span>
     </div>
+    ${renderLiveRunFacts(runtimeFacts)}
     ${
       items.length === 0
         ? ""
@@ -339,14 +344,16 @@ function renderProgressPanel(exact) {
   const live = state.live;
   const agent = liveAgentSummary(live);
   const items = live?.progress?.items ?? [];
+  const runtimeFacts = liveRunFacts(live);
   return `
-    <article class="surface progress-surface">
+    <article id="current-progress-panel" class="surface progress-surface">
       <div class="section-title">
         <div><p class="eyebrow">Current progress</p><h3>${escapeHtml(agent.label)}</h3></div>
         <span class="pill">${escapeHtml(stageLabel(live?.run?.operation ?? exact.phase))}</span>
       </div>
       <p>${escapeHtml(agent.detail)}</p>
       <p class="muted">${escapeHtml(operatorReasonLabel(exact.operator_reason))}</p>
+      ${renderLiveRunFacts(runtimeFacts)}
       ${
         items.length === 0
           ? '<div class="empty compact-empty">Agent 更新 todo 后会在这里显示当前进度。</div>'
@@ -946,6 +953,7 @@ function receiveLiveProjection(projection) {
   if (projection.change_set_id !== state.selectedChangeSetId) return;
   state.connection = markLiveProjectionReceived(state.connection);
   state.live = projection;
+  syncRelativeTimeTicker();
   renderLivePanelIfPresent();
   renderStatus();
   if (state.exact && projection.state_updated_at !== state.exact.updated_at) {
@@ -1029,6 +1037,35 @@ async function runQueuedRecoveryRefresh() {
 function renderLivePanelIfPresent() {
   const panel = document.querySelector("#live-panel");
   if (panel) panel.innerHTML = renderLivePanel();
+  renderProgressPanelIfPresent();
+}
+
+function renderProgressPanelIfPresent() {
+  if (!state.exact) return;
+  const panel = document.querySelector("#current-progress-panel");
+  if (panel) panel.outerHTML = renderProgressPanel(state.exact);
+}
+
+function syncRelativeTimeTicker() {
+  const run = state.live?.run;
+  if (run?.status === "running") {
+    if (state.relativeTimeTicker !== null) return;
+    state.relativeTimeTicker = globalThis.setInterval(() => {
+      if (state.live?.run?.status !== "running") {
+        stopRelativeTimeTicker();
+        return;
+      }
+      renderLivePanelIfPresent();
+    }, 1_000);
+    return;
+  }
+  stopRelativeTimeTicker();
+}
+
+function stopRelativeTimeTicker() {
+  if (state.relativeTimeTicker === null) return;
+  globalThis.clearInterval(state.relativeTimeTicker);
+  state.relativeTimeTicker = null;
 }
 
 function parseSseBlock(block) {
@@ -1065,6 +1102,32 @@ function liveAgentSummary(live) {
     label: `${stageLabel(live.run.operation)}运行中`,
     detail: `第 ${live.run.attempt ?? 1} 次尝试 · ${activityLabel(live.recent_activity?.at(-1))}`,
   };
+}
+
+function liveRunFacts(live) {
+  if (live?.run?.status !== "running") return [];
+  return [
+    {
+      label: "本次 Run 已持续",
+      value: formatElapsedSince(live.run.started_at),
+      testId: "run-elapsed",
+    },
+    {
+      label: "最后活动距今",
+      value: formatPreciseRelativeTime(live.run.last_activity_at),
+      testId: "run-last-activity",
+    },
+  ];
+}
+
+function renderLiveRunFacts(facts) {
+  if (facts.length === 0) return "";
+  return `<dl class="live-facts">${facts
+    .map(
+      (fact) =>
+        `<div><dt>${escapeHtml(fact.label)}</dt><dd data-testid="${escapeAttribute(fact.testId)}">${escapeHtml(fact.value)}</dd></div>`,
+    )
+    .join("")}</dl>`;
 }
 
 function liveConnectionSummary(connection) {
@@ -1244,6 +1307,22 @@ function formatRelativeTime(value) {
   if (seconds < 3_600) return `${Math.floor(seconds / 60)} 分钟前`;
   if (seconds < 86_400) return `${Math.floor(seconds / 3_600)} 小时前`;
   return `${Math.floor(seconds / 86_400)} 天前`;
+}
+
+function formatPreciseRelativeTime(value) {
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) return "暂无活动";
+  const seconds = Math.max(0, Math.floor((Date.now() - timestamp) / 1_000));
+  if (seconds < 60) return `${seconds} 秒前`;
+  if (seconds < 3_600) return `${Math.floor(seconds / 60)} 分钟前`;
+  if (seconds < 86_400) return `${Math.floor(seconds / 3_600)} 小时前`;
+  return `${Math.floor(seconds / 86_400)} 天前`;
+}
+
+function formatElapsedSince(value) {
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) return "未知";
+  return formatDuration(Math.max(0, Date.now() - timestamp));
 }
 
 function formatNumber(value) {
