@@ -25,11 +25,11 @@ describe("Plan-confirmed autonomous supervision", () => {
     const result = await confirmAutonomousPlan(fixture.service, fixture.changeSetId);
 
     assert.equal(
-      result.supervision.status,
+      result.controller.status,
       "review_ready",
-      JSON.stringify(result.supervision),
+      JSON.stringify(result.controller),
     );
-    assert.equal(result.supervision.stop_reason, "bundle_review_ready");
+    assert.equal(result.controller.stop_reason, "bundle_review_ready");
     assert.equal(fixture.runtime.supervisionInvocationCount, 0);
     const state = await fixture.service.readChangeSet(fixture.changeSetId);
     assert.equal(state.phase, "review");
@@ -194,8 +194,8 @@ describe("Plan-confirmed autonomous supervision", () => {
       fixture.changeSetId,
     );
 
-    assert.equal(result.supervision.status, "review_ready");
-    assert.equal(result.supervision.stop_reason, "bundle_review_recommended");
+    assert.equal(result.controller.status, "review_ready");
+    assert.equal(result.controller.stop_reason, "bundle_review_recommended");
     assert.equal(fixture.runtime.reviewInvocationCount, 1);
     assert.equal(fixture.runtime.supervisionInvocationCount, 0);
     const invocation = fixture.runtime.invocations.find(
@@ -262,7 +262,7 @@ describe("Plan-confirmed autonomous supervision", () => {
       fixture.changeSetId,
     );
 
-    assert.equal(result.supervision.status, "review_ready");
+    assert.equal(result.controller.status, "review_ready");
     const state = await fixture.service.readChangeSet(fixture.changeSetId);
     const reviewReference = state.run_references.find(
       (reference) => reference.operation === "review",
@@ -299,9 +299,9 @@ describe("Plan-confirmed autonomous supervision", () => {
       fixture.changeSetId,
     );
 
-    assert.equal(result.supervision.status, "stopped");
+    assert.equal(result.controller.status, "stopped");
     assert.equal(
-      result.supervision.stop_reason,
+      result.controller.stop_reason,
       "action_failed:WORKSPACE_CHECKOUT_FAILED",
     );
     const state = await fixture.service.readChangeSet(fixture.changeSetId);
@@ -311,7 +311,7 @@ describe("Plan-confirmed autonomous supervision", () => {
     );
   });
 
-  test("runs a Plan-required Bundle review from the manual execution command", async (t) => {
+  test("runs a Plan-required Bundle review through the unified task controller", async (t) => {
     const fixture = await createAutonomousFixture(
       t,
       "changefleet-manual-bundle-review-pass-",
@@ -320,10 +320,14 @@ describe("Plan-confirmed autonomous supervision", () => {
         bundleReviewMode: "independent",
       },
     );
-    await confirmAutonomousPlan(fixture.service, fixture.changeSetId);
+    await confirmAutonomousPlan(
+      fixture.service,
+      fixture.changeSetId,
+      false,
+    );
 
-    const result = await fixture.service.executeChangeSet({
-      idempotency_key: "execute-manual-review",
+    const result = await fixture.service.runTaskController({
+      idempotency_key: "controller-manual-review",
       change_set_id: fixture.changeSetId,
     });
 
@@ -375,7 +379,7 @@ describe("Plan-confirmed autonomous supervision", () => {
       fixture.changeSetId,
     );
 
-    assert.equal(result.supervision.status, "review_ready");
+    assert.equal(result.controller.status, "review_ready");
     const state = await fixture.service.readChangeSet(fixture.changeSetId);
     assert.equal(state.bundles.length, 2);
     assert.deepEqual(
@@ -429,7 +433,7 @@ describe("Plan-confirmed autonomous supervision", () => {
       fixture.changeSetId,
     );
 
-    assert.equal(result.supervision.status, "human_input_required");
+    assert.equal(result.controller.status, "human_input_required");
     const state = await fixture.service.readChangeSet(fixture.changeSetId);
     const gate = state.gates.find((candidate) => candidate.status === "open");
     assert.equal(gate.kind, "bundle_review_decision");
@@ -516,7 +520,7 @@ describe("Plan-confirmed autonomous supervision", () => {
       fixture.changeSetId,
     );
 
-    assert.equal(result.supervision.status, "human_input_required");
+    assert.equal(result.controller.status, "human_input_required");
     const state = await fixture.service.readChangeSet(fixture.changeSetId);
     assert.deepEqual(
       state.run_references
@@ -555,7 +559,7 @@ describe("Plan-confirmed autonomous supervision", () => {
       fixture.changeSetId,
     );
 
-    assert.equal(result.supervision.status, "human_input_required");
+    assert.equal(result.controller.status, "human_input_required");
     const state = await fixture.service.readChangeSet(fixture.changeSetId);
     assert.equal(state.bundle_review_assessments.length, 0);
     assert.equal(
@@ -580,10 +584,10 @@ describe("Plan-confirmed autonomous supervision", () => {
     const failedState = await fixture.service.readChangeSet(fixture.changeSetId);
 
     assert.equal(
-      result.supervision.status,
+      result.controller.status,
       "review_ready",
       JSON.stringify({
-        supervision: result.supervision,
+        supervision: result.controller,
         feedback: failedState.feedback_records,
         work_units: failedState.work_units,
         blockers: failedState.blockers,
@@ -664,7 +668,7 @@ describe("Plan-confirmed autonomous supervision", () => {
       fixture.changeSetId,
     );
 
-    assert.equal(result.supervision.status, "review_ready");
+    assert.equal(result.controller.status, "review_ready");
     const state = await fixture.service.readChangeSet(fixture.changeSetId);
     assert.deepEqual(
       state.run_references.map((reference) => reference.operation),
@@ -775,7 +779,7 @@ describe("Plan-confirmed autonomous supervision", () => {
       "two-repository-change",
     );
 
-    assert.equal(result.supervision.status, "review_ready");
+    assert.equal(result.controller.status, "review_ready");
     const executionOrder = runtime.invocations
       .filter((invocation) => invocation.operation === "execution")
       .map(
@@ -807,7 +811,7 @@ describe("Plan-confirmed autonomous supervision", () => {
       fixture.changeSetId,
     );
 
-    assert.equal(stopped.supervision.status, "stopped");
+    assert.equal(stopped.controller.status, "stopped");
     let state = await fixture.service.readChangeSet(fixture.changeSetId);
     const gate = state.gates.find((candidate) => candidate.status === "open");
     assert.equal(gate.kind, "supervision_decision");
@@ -976,8 +980,8 @@ describe("Plan-confirmed autonomous supervision", () => {
     });
 
     const result = await confirmation;
-    assert.equal(result.supervision.status, "stopped");
-    assert.equal(result.supervision.stop_reason, "operator_interrupted");
+    assert.equal(result.controller.status, "stopped");
+    assert.equal(result.controller.stop_reason, "operator_interrupted");
     assert.equal(fixture.runtime.supervisionInvocationCount, 0);
     const stopped = await fixture.service.readChangeSet(fixture.changeSetId);
     assert.equal(
@@ -1187,7 +1191,11 @@ async function createAutonomousFixture(
   };
 }
 
-async function confirmAutonomousPlan(service, changeSetId) {
+async function confirmAutonomousPlan(
+  service,
+  changeSetId,
+  runAfterConfirmation = true,
+) {
   const planned = await service.planChangeSet({
     idempotency_key: "plan",
     change_set_id: changeSetId,
@@ -1197,6 +1205,7 @@ async function confirmAutonomousPlan(service, changeSetId) {
     change_set_id: changeSetId,
     message_id: planned.message.message_id,
     content_digest: planned.message.content_digest,
+    run_after_confirmation: runAfterConfirmation,
   });
 }
 

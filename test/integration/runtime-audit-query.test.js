@@ -101,6 +101,28 @@ describe("read-only Runtime audit queries", () => {
     assert.deepEqual(changeAudit.payload.outcomes.validation, { passed: 2 });
     assert.equal(changeAudit.payload.validation.referenced_count, 2);
     assert.equal(
+      changeAudit.payload.workflow.referenced_count,
+      changeAudit.payload.runs.referenced_count +
+        changeAudit.payload.validation.referenced_count,
+    );
+    const planningStep = changeAudit.payload.workflow.rows.find(
+      (row) => row.operation === "planning",
+    );
+    const executionStep = changeAudit.payload.workflow.rows.find(
+      (row) => row.operation === "execution",
+    );
+    const validationSteps = changeAudit.payload.workflow.rows.filter(
+      (row) => row.entry_kind === "validation",
+    );
+    assert.deepEqual(planningStep.plan.steps, [
+      "Update the API implementation for the requested behavior.",
+    ]);
+    assert.equal(planningStep.usage.total_tokens, 120);
+    assert.equal(executionStep.result.summary, "implemented api");
+    assert.equal(validationSteps.length, 2);
+    assert.equal(validationSteps.every((row) => row.usage === null), true);
+    assert.equal(validationSteps.every((row) => row.status === "passed"), true);
+    assert.equal(
       changeAudit.payload.validation.rows.every(
         (row) =>
           row.validation_mode === "structural_preflight" &&
@@ -254,6 +276,25 @@ describe("read-only Runtime audit queries", () => {
           row.identity.trigger === "feedback",
       ).length,
       1,
+    );
+    const feedbackStep = audit.payload.workflow.rows.find(
+      (row) =>
+        row.operation === "execution" && row.trigger === "feedback",
+    );
+    assert.equal(typeof feedbackStep.input.feedback, "string");
+    assert.equal(
+      feedbackStep.result.summary,
+      "Applied the exact audited feedback.",
+    );
+    assert.equal(feedbackStep.usage.total_tokens > 0, true);
+    assert.equal(
+      audit.payload.workflow.rows.some(
+        (row) =>
+          row.operation === "verification" &&
+          row.result.outcome_type === "changes_required" &&
+          row.result.findings.length > 0,
+      ),
+      true,
     );
     const feedbackInvocation = fixture.runtime.invocations.find(
       (invocation) =>

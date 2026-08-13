@@ -267,12 +267,12 @@ export function deriveSupervisionActionSet(changeSet, { now }) {
       envelope("stop", {}, { reason: "bundle_review_ready" }),
     ]);
   }
-  if (["delivery", "terminal"].includes(changeSet.phase)) {
+  if (changeSet.phase === "terminal") {
     return actionSet(snapshotId, progress, [
       envelope("stop", {}, { reason: "change_set_not_working" }),
     ]);
   }
-  if (changeSet.phase !== "working") {
+  if (changeSet.phase !== "running") {
     return actionSet(snapshotId, progress, [
       envelope("stop", {}, { reason: "plan_or_authority_changed" }),
     ]);

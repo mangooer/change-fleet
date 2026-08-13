@@ -2,9 +2,8 @@ import { invariant } from "./errors.js";
 
 export const CHANGE_SET_PHASES = Object.freeze([
   "planning",
-  "working",
+  "running",
   "review",
-  "delivery",
   "terminal",
 ]);
 
@@ -65,10 +64,9 @@ const RUN_OPERATION_SET = new Set(AGENT_RUN_OPERATIONS);
 const RUN_STATUS_SET = new Set(AGENT_RUN_STATUSES);
 const RUN_TRIGGER_SET = new Set(RUN_TRIGGERS);
 const CHANGE_SET_TRANSITIONS = Object.freeze({
-  planning: new Set(["planning", "working", "terminal"]),
-  working: new Set(["planning", "working", "review", "terminal"]),
-  review: new Set(["working", "review", "delivery", "terminal"]),
-  delivery: new Set(["delivery", "terminal"]),
+  planning: new Set(["planning", "running", "terminal"]),
+  running: new Set(["planning", "running", "review", "terminal"]),
+  review: new Set(["running", "review", "terminal"]),
   terminal: new Set(["terminal"]),
 });
 const WORK_UNIT_TRANSITIONS = Object.freeze({
@@ -148,11 +146,11 @@ export function setChangeSetPhase(changeSet, phase, terminalOutcome = null) {
   invariant(
     phase !== "terminal" ||
       terminalOutcome === "abandoned" ||
-      previousPhase === "delivery" ||
+      previousPhase === "review" ||
       (previousPhase === "terminal" &&
         changeSet.terminal_outcome === terminalOutcome),
     "INVALID_CHANGE_SET_TRANSITION",
-    "Only delivery completion may produce terminal done",
+    "Only an accepted review with completed delivery may produce terminal done",
   );
   changeSet.phase = phase;
   changeSet.terminal_outcome = terminalOutcome;

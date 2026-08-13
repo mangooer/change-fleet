@@ -15,7 +15,13 @@ const MAX_PLANNING_CONVERSATION_BYTES = 48 * 1024;
 
 // 该读模型只为本地 review/delivery console 提供有界投影；它不暴露 transcript、diff、日志或原始证据正文。
 export class ChangeSetViewService {
-  constructor({ controlStore, runStore, auditQueryService, agentProfile }) {
+  constructor({
+    controlStore,
+    runStore,
+    auditQueryService,
+    agentProfile,
+    taskControlStore = null,
+  }) {
     invariant(
       controlStore && typeof controlStore.readChangeSet === "function",
       "INVALID_OPERATOR_APPLICATION",
@@ -28,10 +34,11 @@ export class ChangeSetViewService {
     );
     invariant(
       runStore &&
+        typeof runStore.read === "function" &&
         typeof runStore.readJsonArtifact === "function" &&
         typeof runStore.readEvents === "function",
       "INVALID_OPERATOR_APPLICATION",
-      "ChangeSet view service requires linked Run artifact reads",
+      "ChangeSet view service requires linked Run reads",
     );
     invariant(
       auditQueryService &&
@@ -43,6 +50,7 @@ export class ChangeSetViewService {
     this.runStore = runStore;
     this.auditQueryService = auditQueryService;
     this.agentProfile = normalizeAgentProfile(agentProfile);
+    this.taskControlStore = taskControlStore;
   }
 
   async readIntakeOptions() {
@@ -65,7 +73,11 @@ export class ChangeSetViewService {
         ? 0
         : states.findIndex((state) => compareCursor(state, cursor) < 0);
     const page = states.slice(startIndex === -1 ? states.length : startIndex);
-    const items = page.slice(0, limit).map(projectListEntry);
+    const items = await Promise.all(
+      page.slice(0, limit).map(async (state) =>
+        projectListEntry(state, await this.readTaskControl(state.change_set_id)),
+      ),
+    );
     return {
       limit,
       items,
@@ -75,9 +87,10 @@ export class ChangeSetViewService {
 
   async readChangeSetView(changeSetId) {
     normalizeId("change_set_id", changeSetId);
-    const [state, catalog] = await Promise.all([
+    const [state, catalog, taskControl] = await Promise.all([
       this.controlStore.readChangeSet(changeSetId),
       this.controlStore.readCatalog(),
+      this.readTaskControl(changeSetId),
     ]);
     const messageReference = state.planning_message_references.find(
       (reference) =>
@@ -89,11 +102,18 @@ export class ChangeSetViewService {
         : null,
       this.readPlanningConversation(state),
     ]);
+    const conversation = await this.readTaskConversation(
+      state,
+      planningConversation,
+      taskControl,
+    );
     return projectExactChangeSet(
       state,
       catalog.projects?.[state.project_id] ?? null,
       planningMessage,
       planningConversation,
+      conversation,
+      taskControl,
     );
   }
 
@@ -146,6 +166,118 @@ export class ChangeSetViewService {
     return projectAuditView(audit);
   }
 
+  async readTaskConversation(state, planningConversation, taskControl) {
+    const hasTaskTimeline = (taskControl?.timeline.length ?? 0) > 0;
+    const messages = hasTaskTimeline
+      ? taskControl.timeline.map((event) => ({
+          message_id: event.event_id,
+          role: event.role,
+          stage: event.stage,
+          kind: event.kind,
+          text: event.text,
+          created_at: event.created_at,
+        }))
+      : planningConversation.turns.flatMap((turn) => [
+          ...(turn.user_message === null
+            ? []
+            : [
+                {
+                  message_id: `input:${turn.run_id}`,
+                  role: "human",
+                  stage: "planning",
+                  text: turn.user_message.text,
+                  created_at: turn.user_message.created_at,
+                },
+              ]),
+          {
+            message_id: turn.assistant_message.message_id,
+            role: "agent",
+            stage: "planning",
+            text: turn.assistant_message.text,
+            created_at: turn.assistant_message.created_at,
+          },
+        ]);
+    for (const feedback of (state.feedback_records ?? []).slice(-12)) {
+      appendConversationMessage(messages, {
+        message_id: feedback.feedback_id,
+        role: feedback.source === "human" ? "human" : "agent",
+        stage: feedback.target?.phase ?? feedback.source,
+        kind: "feedback",
+        text: feedback.content.summary,
+        created_at: feedback.created_at,
+      });
+    }
+    const outcomeMessages = await Promise.all(
+      (state.run_references ?? [])
+        .filter((reference) => reference.operation !== "planning")
+        .slice(-12)
+        .map(async (reference) => {
+          const events = await this.runStore.readEvents(reference.run_id, {
+            type: "runtime.outcome",
+            limit: 1,
+          });
+          const event = events[0];
+          const summary = event?.payload?.summary;
+          const text =
+            typeof summary === "string"
+              ? summary
+              : typeof summary?.preview === "string"
+                ? summary.preview
+                : null;
+          return text === null
+            ? null
+            : {
+                message_id: `outcome:${reference.run_id}`,
+                role: "agent",
+                stage: reference.operation,
+                text: boundedPlanningText(text).text,
+                created_at: event.at,
+              };
+        }),
+    );
+    for (const message of outcomeMessages.filter(Boolean)) {
+      appendConversationMessage(messages, { ...message, kind: "run_summary" });
+    }
+    messages.sort(
+      (left, right) =>
+        String(left.created_at).localeCompare(String(right.created_at)) ||
+        left.message_id.localeCompare(right.message_id),
+    );
+    return {
+      messages: messages.slice(-24),
+      shown_messages: Math.min(messages.length, 24),
+      total_messages: messages.length,
+      truncated: messages.length > 24,
+    };
+  }
+
+  async readLiveTaskView(changeSetId) {
+    normalizeId("change_set_id", changeSetId);
+    const [state, taskControl] = await Promise.all([
+      this.controlStore.readChangeSet(changeSetId),
+      this.readTaskControl(changeSetId),
+    ]);
+    const reference =
+      state.run_references.find((candidate) => candidate.status === "running") ??
+      state.run_references.at(-1) ??
+      null;
+    const events =
+      reference === null
+        ? []
+        : await this.runStore.readEvents(reference.run_id, {
+            limit: 128,
+            tail: true,
+          });
+    const run =
+      reference === null ? null : await this.runStore.read(reference.run_id);
+    return projectLiveTask(state, reference, run, events, taskControl);
+  }
+
+  async readTaskControl(changeSetId) {
+    if (!this.taskControlStore) return null;
+    return this.taskControlStore.readTask(changeSetId, { allowMissing: true });
+  }
+
   async readAllChangeSets() {
     let entries;
     try {
@@ -175,6 +307,99 @@ export class ChangeSetViewService {
     );
     return reads.filter(Boolean);
   }
+}
+
+function projectLiveTask(state, reference, run, events, taskControl) {
+  const delivery = createDeliveryProjection(state);
+  const operator = deriveOperatorProjection(state, delivery, taskControl);
+  const updatedAt = latestTimestamp(state.updated_at, taskControl?.updated_at);
+  const visible = events.filter((event) =>
+    [
+      "provider.item.started",
+      "provider.item.updated",
+      "provider.item.completed",
+      "provider.turn.started",
+      "provider.turn.completed",
+      "provider.turn.failed",
+      "provider.stream.failed",
+      "runtime.outcome",
+      "run.failed",
+      "run.interrupted",
+      "run.cancelled",
+    ].includes(event.type),
+  );
+  const todoEvent = [...visible]
+    .reverse()
+    .find((event) => event.payload?.item_type === "todo_list");
+  const lastActivityAt = latestTimestamp(
+    visible.at(-1)?.at,
+    run?.completed_at,
+    run?.created_at,
+    reference?.completed_at,
+    reference?.created_at,
+  );
+  const controllerCommand = [...(taskControl?.commands ?? [])]
+    .reverse()
+    .find((command) => ["accepted", "running"].includes(command.status));
+  return {
+    change_set_id: state.change_set_id,
+    phase: state.phase,
+    operator_status: operator.status,
+    operator_reason: operator.reason,
+    activity: derivePresentationActivity(state),
+    state_updated_at: updatedAt,
+    cursor: `${updatedAt}:${
+      visible.at(-1)?.event_id ?? reference?.run_id ?? "idle"
+    }`,
+    run:
+      reference === null
+        ? null
+        : {
+            run_id: reference.run_id,
+            operation: reference.operation,
+            status: reference.status,
+            attempt: reference.attempt ?? null,
+            started_at: run?.created_at ?? reference.created_at ?? null,
+            last_activity_at: lastActivityAt ?? null,
+          },
+    controller:
+      controllerCommand === undefined
+        ? null
+        : {
+            command_id: controllerCommand.command_id,
+            kind: controllerCommand.kind,
+            status: controllerCommand.status,
+            accepted_at: controllerCommand.accepted_at,
+            started_at: controllerCommand.started_at ?? null,
+          },
+    progress: {
+      items: structuredClone(todoEvent?.payload?.items ?? []),
+    },
+    recent_activity: visible.slice(-12).map((event) => ({
+      event_id: event.event_id,
+      type: event.type,
+      at: event.at,
+      item_type: event.payload?.item_type ?? null,
+      item_status: event.payload?.item_status ?? null,
+      exit_code: event.payload?.exit_code ?? null,
+      change_count: event.payload?.change_count ?? null,
+    })),
+  };
+}
+
+function appendConversationMessage(messages, candidate) {
+  // 同一条人类反馈可能同时存在于展示时间线和精确 Feedback 记录；普通对话只显示一次，
+  // 但审计仍保留两个不同来源的完整身份。
+  if (
+    candidate.kind === "feedback" &&
+    messages.some(
+      (message) =>
+        message.role === candidate.role && message.text === candidate.text,
+    )
+  ) {
+    return;
+  }
+  messages.push(candidate);
 }
 
 function projectAgentProfile(profile) {
@@ -246,6 +471,7 @@ function projectPlanningTurn({
     assistant_message: {
       message_id: assistant.message_id,
       ...boundedPlanningText(assistant.text),
+      intent_draft: structuredClone(assistant.intent_draft),
       has_plan: reference.has_plan,
       is_approvable: reference.message_id === approvableMessageId,
       created_at: assistant.created_at,
@@ -284,17 +510,20 @@ function boundedPlanningText(value, alreadyTruncated = false) {
   return { text: projected, truncated: true };
 }
 
-function projectListEntry(state) {
+function projectListEntry(state, taskControl) {
   const delivery = createDeliveryProjection(state);
+  const operator = deriveOperatorProjection(state, delivery, taskControl);
   return {
     change_set_id: state.change_set_id,
     project_id: state.project_id,
     phase: state.phase,
+    operator_status: operator.status,
+    operator_reason: operator.reason,
     activity:
-      state.phase === "delivery" || state.phase === "terminal"
+      state.phase === "review" || state.phase === "terminal"
         ? delivery.activity
         : derivePresentationActivity(state),
-    updated_at: state.updated_at,
+    updated_at: latestTimestamp(state.updated_at, taskControl?.updated_at),
     current_intent: currentIntentSummary(state),
     current_revisions: currentRevisionSummary(state),
     blockers: summarizeBlockers(state.blockers ?? []),
@@ -317,8 +546,11 @@ function projectExactChangeSet(
   project,
   planningMessage,
   planningConversation,
+  conversation,
+  taskControl,
 ) {
   const delivery = createDeliveryProjection(state);
+  const operator = deriveOperatorProjection(state, delivery, taskControl);
   const currentSelection =
     state.repository_selection_revisions.find(
       (revision) =>
@@ -341,11 +573,13 @@ function projectExactChangeSet(
     change_set_id: state.change_set_id,
     project_id: state.project_id,
     phase: state.phase,
+    operator_status: operator.status,
+    operator_reason: operator.reason,
     activity:
-      state.phase === "delivery" || state.phase === "terminal"
+      state.phase === "review" || state.phase === "terminal"
         ? delivery.activity
         : derivePresentationActivity(state),
-    updated_at: state.updated_at,
+    updated_at: latestTimestamp(state.updated_at, taskControl?.updated_at),
     current_intent: currentIntentSummary(state),
     current_revisions: currentRevisionSummary(state),
     blockers: summarizeBlockers(state.blockers ?? []),
@@ -362,12 +596,16 @@ function projectExactChangeSet(
             message_id: planningMessage.message_id,
             content_digest: planningMessage.content_digest,
             text: planningMessage.text,
+            intent_draft: structuredClone(planningMessage.intent_draft),
             plan: projectPlanContent(planningMessage.plan_content),
             workspace_control: projectWorkspaceControl(
               planningMessage.workspace_control_summary,
             ),
           },
     planning_conversation: planningConversation,
+    conversation,
+    task_control: projectTaskControl(taskControl),
+    task_workspace: projectTaskWorkspace(state.task_workspace),
     plan:
       currentPlan === null
         ? null
@@ -486,6 +724,12 @@ function projectTaskWorkspace(workspace) {
   return {
     task_workspace_id: workspace.task_workspace_id,
     resources_released_at: workspace.resources_released_at,
+    agent_profile: projectAgentProfile(workspace.agent_profile),
+    verification_expectation: structuredClone(
+      workspace.verification_expectation,
+    ),
+    supervision: structuredClone(workspace.supervision),
+    bundle_review: structuredClone(workspace.bundle_review),
     repositories: workspace.repositories.map((repository) => ({
       repository_id: repository.repository_id,
       base_sha: repository.base_sha,
@@ -494,6 +738,132 @@ function projectTaskWorkspace(workspace) {
       repository_workspace_id: repository.workspace.workspace_id,
     })),
   };
+}
+
+function deriveOperatorProjection(state, delivery, taskControl) {
+  if (state.phase === "terminal") {
+    return state.terminal_outcome === "done"
+      ? { status: "complete", reason: "delivery_merged" }
+      : { status: "cancelled", reason: terminalCancellationReason(state) };
+  }
+
+  const openGate = (state.gates ?? []).find((gate) => gate.status === "open");
+  if (openGate) {
+    return { status: "needs_feedback", reason: `gate:${openGate.kind}` };
+  }
+  const blocker = (state.blockers ?? []).find(
+    (candidate) => candidate.resolved_at === undefined,
+  );
+  if (blocker) {
+    return {
+      status: "needs_feedback",
+      reason: `blocker:${blocker.code ?? blocker.kind ?? "unresolved"}`,
+    };
+  }
+
+  const commands = taskControl?.commands ?? [];
+  if (taskControl?.hold) {
+    return {
+      status: "needs_feedback",
+      reason: `hold:${taskControl.hold.reason}`,
+    };
+  }
+  const activeCommand = commands.find((command) =>
+    ["accepted", "running"].includes(command.status),
+  );
+  if (activeCommand) {
+    return { status: "running", reason: `command:${activeCommand.kind}` };
+  }
+  const lastCommand = commands.at(-1) ?? null;
+  if (lastCommand?.status === "failed") {
+    return {
+      status: "needs_feedback",
+      reason: commandFailureReason(lastCommand.error?.code),
+    };
+  }
+
+  if (state.phase === "planning") {
+    if (state.current_approvable_plan_message_id !== null) {
+      return taskControl?.authorization?.plan_activation === "automatic"
+        ? { status: "running", reason: "plan_activation_pending" }
+        : { status: "needs_feedback", reason: "plan_confirmation_required" };
+    }
+    const latestPlanningMessage = state.planning_message_references.at(-1);
+    return latestPlanningMessage && latestPlanningMessage.has_plan === false
+      ? { status: "needs_feedback", reason: "planner_input_required" }
+      : { status: "running", reason: "planning" };
+  }
+
+  if (state.phase === "running") {
+    const hold = state.supervision_control?.hold;
+    return hold
+      ? { status: "needs_feedback", reason: `hold:${hold.reason ?? "operator"}` }
+      : { status: "running", reason: "execution" };
+  }
+
+  if (delivery.activity === "running") {
+    return { status: "waiting_for_merge", reason: "pull_request_open" };
+  }
+  if (delivery.activity === "blocked") {
+    return { status: "needs_feedback", reason: "delivery_blocked" };
+  }
+  const bundle = state.bundles.at(-1);
+  const accepted = (state.decisions ?? []).some(
+    (decision) =>
+      decision.type === "bundle_review" &&
+      decision.bundle_revision === bundle?.revision &&
+      decision.bundle_hash === bundle?.bundle_hash &&
+      decision.decision === "accept",
+  );
+  return accepted
+    ? { status: "needs_feedback", reason: "delivery_publish_required" }
+    : { status: "needs_review", reason: "candidate_bundle_ready" };
+}
+
+function projectTaskControl(taskControl) {
+  if (!taskControl) return null;
+  const currentCommand =
+    taskControl.commands.find((command) =>
+      ["accepted", "running"].includes(command.status),
+    ) ?? taskControl.commands.at(-1) ?? null;
+  return {
+    authorization: structuredClone(taskControl.authorization),
+    hold: structuredClone(taskControl.hold ?? null),
+    current_command:
+      currentCommand === null
+        ? null
+        : {
+            command_id: currentCommand.command_id,
+            kind: currentCommand.kind,
+            status: currentCommand.status,
+            attempt: currentCommand.attempt,
+            accepted_at: currentCommand.accepted_at,
+            started_at: currentCommand.started_at ?? null,
+            error: structuredClone(currentCommand.error ?? null),
+          },
+  };
+}
+
+function commandFailureReason(code) {
+  if (code === "GITHUB_DELIVERY_BINDING_REQUIRED") {
+    return "delivery_binding_required";
+  }
+  if (code === "DELIVERY_TARGET_NOT_FOUND") return "delivery_target_not_found";
+  if (code === "GIT_REMOTE_READ_FAILED") return "delivery_remote_unavailable";
+  return `command_failed:${code ?? "unknown"}`;
+}
+
+function terminalCancellationReason(state) {
+  const decision = (state.decisions ?? []).at(-1);
+  return decision?.type === "bundle_review" && decision.decision === "reject"
+    ? "candidate_rejected"
+    : "operator_cancelled";
+}
+
+function latestTimestamp(...values) {
+  return values
+    .filter((value) => typeof value === "string")
+    .sort((left, right) => right.localeCompare(left))[0];
 }
 
 function projectRepository(selection, project) {
@@ -539,6 +909,7 @@ function projectAuditView(audit) {
       human_review: audit.payload.human_review,
       diagnostics: audit.payload.diagnostics,
       runs: audit.payload.runs,
+      workflow: audit.payload.workflow,
     },
   };
 }

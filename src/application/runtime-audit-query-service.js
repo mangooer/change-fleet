@@ -118,6 +118,7 @@ export class RuntimeAuditQueryService {
           .slice(start, start + pageSize)
           .map((loaded) => runDetailRow(loaded.payload)),
       },
+      workflow: createWorkflowLedger(state, loadedRuns, validation.payload),
       validation: validation.payload,
       bundles: summarizeBundles(state),
       bundle_reviews: summarizeBundleReviews(state, loadedRuns),
@@ -303,6 +304,7 @@ function createRunPayload(run, evidence, usage) {
       operation: run.operation,
       trigger: run.trigger,
       attempt: run.attempt,
+      feedback_source_id: run.feedback_source_id ?? null,
     },
     status: run.status,
     terminal:
@@ -689,6 +691,7 @@ function runDetailRow(payload) {
     status: payload.status,
     change_set_reference: payload.change_set_reference,
     terminal: payload.terminal,
+    outcome: structuredClone(payload.outcome ?? null),
     timing: payload.timing,
     canonical_usage: payload.usage.canonical,
     agent_profile: payload.agent_profile,
@@ -696,6 +699,181 @@ function runDetailRow(payload) {
     repository_harness_selection: payload.repository_harness_selection,
     diagnostics: payload.usage.diagnostics,
   };
+}
+
+function createWorkflowLedger(state, loadedRuns, validation) {
+  const runRows = loadedRuns.map((loaded) => {
+    const payload = loaded.payload;
+    const identity = payload.identity;
+    const plan = (state.plans ?? []).find(
+      (candidate) => candidate.planning_run_id === identity.run_id,
+    );
+    const feedback = (state.feedback_records ?? []).find(
+      (candidate) =>
+        candidate.feedback_id === identity.feedback_source_id,
+    );
+    const verificationReview = (state.verification_reviews ?? []).find(
+      (candidate) => candidate.run_id === identity.run_id,
+    );
+    const bundleReview = (state.bundle_review_assessments ?? []).find(
+      (candidate) => candidate.run_id === identity.run_id,
+    );
+    return {
+      entry_id: `run:${identity.run_id}`,
+      entry_kind: "agent_run",
+      occurred_at: payload.timing?.created_at ?? null,
+      run_id: identity.run_id,
+      operation: identity.operation,
+      trigger: identity.trigger,
+      attempt: identity.attempt,
+      work_unit_id: identity.work_unit_id,
+      status: payload.status,
+      terminal: structuredClone(payload.terminal),
+      input: {
+        objective:
+          identity.operation === "planning"
+            ? boundedAuditText(
+                state.intents?.find(
+                  (candidate) =>
+                    candidate.revision ===
+                    (plan?.intent_revision ?? state.current_intent_revision),
+                )?.objective,
+              )
+            : null,
+        feedback:
+          feedback === undefined
+            ? null
+            : boundedAuditText(feedback.content?.summary),
+      },
+      result: {
+        summary: boundedAuditText(
+          payload.outcome?.summary ??
+            plan?.semantic_plan?.summary ??
+            bundleReview?.summary ??
+            null,
+        ),
+        outcome_type:
+          payload.outcome?.verdict ??
+          payload.outcome?.disposition ??
+          payload.outcome?.type ??
+          payload.terminal?.outcome_type ??
+          null,
+        changed_paths: boundedStringRows(
+          payload.outcome?.actual_changed_paths ??
+            payload.outcome?.reported_changed_paths ??
+            [],
+        ),
+        findings: boundedStringRows(
+          (verificationReview?.findings ?? bundleReview?.findings ?? []).map(
+            (finding) =>
+              finding.message ?? finding.summary ?? finding.text ?? finding.code,
+          ),
+        ),
+      },
+      plan:
+        plan === undefined
+          ? null
+          : {
+              revision: plan.revision,
+              summary: boundedAuditText(plan.semantic_plan?.summary),
+              steps: boundedStringRows(plan.semantic_plan?.steps ?? []),
+              validation: boundedStringRows(
+                plan.semantic_plan?.validation ?? [],
+              ),
+            },
+      validation: [],
+      timing: structuredClone(payload.timing),
+      usage: structuredClone(payload.usage.canonical),
+      runtime: {
+        profile_id: payload.agent_profile.profile_id,
+        revision: payload.agent_profile.revision,
+        runtime: payload.agent_profile.runtime,
+        model: payload.agent_profile.model,
+        reasoning: payload.agent_profile.reasoning,
+      },
+    };
+  });
+  // 项目检查不是 Agent Run，但它是任务质量链路中的真实一步；单独投影可避免把检查成本
+  // 错算成 Agent token，也让“执行后究竟验证了什么”无需展开原始证据即可审计。
+  const validationRows = (validation.rows ?? []).map((candidate) => {
+    const attemptId = candidate.attempt?.validation_attempt_id ?? null;
+    const workUnit = (state.work_units ?? []).find((unit) =>
+      (unit.validation_attempt_ids ?? []).includes(attemptId),
+    );
+    const startedAt = candidate.attempt?.started_at ?? candidate.created_at ?? null;
+    const completedAt = candidate.attempt?.completed_at ?? null;
+    return {
+      entry_id: `validation:${attemptId ?? candidate.evidence_id}`,
+      entry_kind: "validation",
+      occurred_at: startedAt ?? completedAt,
+      run_id: null,
+      operation: "validation",
+      trigger: candidate.validation_mode,
+      attempt: candidate.attempt?.attempt ?? null,
+      work_unit_id: workUnit?.work_unit_id ?? null,
+      status: candidate.status,
+      terminal: null,
+      input: { objective: null, feedback: null },
+      result: {
+        summary: boundedAuditText(candidate.check_selection_rationale),
+        outcome_type: candidate.status,
+        changed_paths: [],
+        findings:
+          candidate.status === "failed" && candidate.attempt?.error_code
+            ? [candidate.attempt.error_code]
+            : [],
+      },
+      plan: null,
+      validation: [
+        {
+          validation_attempt_id: attemptId,
+          kind: candidate.kind,
+          mode: candidate.validation_mode,
+          status: candidate.status,
+          duration_ms: candidate.duration_ms,
+          check_selection_rationale: candidate.check_selection_rationale,
+        },
+      ],
+      timing: {
+        created_at: startedAt,
+        completed_at: completedAt,
+        run_elapsed_ms: candidate.duration_ms,
+        provider_duration_ms: null,
+      },
+      usage: null,
+      runtime: null,
+    };
+  });
+  const rows = [...runRows, ...validationRows]
+    .sort(
+      (left, right) =>
+        String(left.occurred_at ?? "").localeCompare(
+          String(right.occurred_at ?? ""),
+        ) || left.entry_id.localeCompare(right.entry_id),
+    )
+    .map((row, index) => ({ ...row, sequence: index + 1 }));
+  return {
+    referenced_count: rows.length,
+    shown_count: Math.min(rows.length, MAX_BOUNDED_ROWS),
+    omitted_count: Math.max(0, rows.length - MAX_BOUNDED_ROWS),
+    rows: rows.slice(0, MAX_BOUNDED_ROWS),
+  };
+}
+
+function boundedAuditText(value) {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim();
+  return normalized.length <= 2_000
+    ? normalized
+    : `${normalized.slice(0, 1_999)}…`;
+}
+
+function boundedStringRows(values) {
+  if (!Array.isArray(values)) return [];
+  return values
+    .filter((value) => typeof value === "string")
+    .slice(0, 20)
+    .map((value) => boundedAuditText(value));
 }
 
 function collectValidationReferences(state) {
@@ -796,6 +974,7 @@ function validationRow(record, attempt = null) {
       : "project_command",
     check_selection_rationale:
       record.payload?.check_selection_rationale ?? null,
+    created_at: record.created_at ?? null,
     status,
     duration_ms:
       Number.isSafeInteger(attempt?.duration_ms) && attempt.duration_ms >= 0

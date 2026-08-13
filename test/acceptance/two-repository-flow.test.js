@@ -387,7 +387,7 @@ describe("local two-repository vertical slice", () => {
 
     const reopened = await ChangeFleetService.open(options);
     const restored = await reopened.readChangeSet("checkout-change");
-    assert.equal(restored.phase, "delivery");
+    assert.equal(restored.phase, "review");
     assert.equal(restored.decisions.at(-1).bundle_hash, execution.bundle_hash);
     assert.equal(
       await git(api.path, [
@@ -462,7 +462,7 @@ describe("local two-repository vertical slice", () => {
     await entered.promise;
     try {
       const state = await service.readChangeSet("mixed-phases");
-      assert.equal(state.phase, "working");
+      assert.equal(state.phase, "running");
       assert.equal(
         state.work_units.find((unit) => unit.repository_id === "api").phase,
         "verification",

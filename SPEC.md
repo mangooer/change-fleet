@@ -231,7 +231,7 @@ when available. Repository defaults are navigation defaults, not ChangeSet base 
 
 ### ChangeIntent
 
-`ChangeIntent` is the confirmed task-scoped statement of:
+`ChangeIntent` is the task-scoped statement of:
 
 - objective and desired behavior;
 - business or user rationale when relevant;
@@ -241,8 +241,10 @@ when available. Repository defaults are navigation defaults, not ChangeSet base 
 - open questions;
 - source and confirmation evidence.
 
-A conversation transcript is not the ChangeIntent. Discussion may produce an editable intent, but
-only explicit confirmation makes it executable.
+A conversation transcript is not the ChangeIntent. Intake creates a bounded draft so planning can
+start without pretending that a terse request is already executable. Every Planner response
+returns the complete current draft. Exact approval of a Plan-bearing message atomically confirms
+that draft and its semantic Plan; no separate intent-confirmation step exists.
 
 Repository Harness is long-lived project knowledge. ChangeIntent is task-specific. Task discussion
 must not be appended to repository Harness unless the accepted change establishes a durable project
@@ -299,7 +301,8 @@ remain explicit.
 
 ### ChangeSet
 
-A ChangeSet is the aggregate root for one confirmed intent. It owns:
+A ChangeSet is the aggregate root for one business change, from its raw request and draft Intent
+through the confirmed Intent and resulting delivery. It owns:
 
 - ChangeIntent revisions;
 - RepositorySelectionRevisions;
@@ -322,12 +325,12 @@ A ChangeSet is the aggregate root for one confirmed intent. It owns:
 Its persisted business phase is limited to:
 
 ```text
-planning | working | review | delivery | terminal
+planning | running | review | terminal
 ```
 
-`terminal` additionally records the exact `done | abandoned` outcome. Running, waiting, failure,
-and interruption are not ChangeSet phases; they are derived from Runs, Gates, Blockers, and exact
-artifacts.
+`terminal` additionally records the exact `done | abandoned` outcome. Waiting, input requests,
+pause, retry, failure, delivery progress, and interruption are not ChangeSet phases; they are
+derived from Runs, Gates, Blockers, delivery records, and exact artifacts.
 
 Replanning continues the same ChangeSet. A new ChangeSet is created only for a distinct business
 intent, not merely because an earlier plan was wrong.
@@ -545,14 +548,14 @@ They use one pipeline:
 
 ```text
 raw request or discussion draft
-  -> normalized ChangeIntent
+  -> bounded Intent draft
   -> confirmed Repository selection and exact branch freeze
   -> persistent TaskWorkspace and linked RepositoryWorkspaces
   -> authorized repository discovery
   -> planning conversation
-  -> exact plan-message approval and ChangePlan
-  -> risk and scope decision
-  -> execution
+  -> exact Intent-and-Plan message approval
+  -> deterministic Task Controller
+  -> execution, verification, configured review, or a genuine human boundary
 ```
 
 The difference is input completeness, not lifecycle authority.
@@ -575,10 +578,11 @@ when it includes:
 An Agent's confidence score may inform a decision but is not the only gate. Deterministic risk
 triggers and standing human policy own authorization.
 
-A Project may default supervision to manual or autonomous; the bound workspace-control summary
-records the effective mode and limits. `autonomous_until_review` is authority to continue ordinary work only
-under the same exact Plan and selections; it never authorizes scope expansion, Bundle acceptance,
-external publication, merge, deployment, or an irreversible action.
+A Project may configure internal supervision policy; the bound workspace-control summary records
+its effective authority and limits. The ordinary operator route does not ask a user to choose
+manual execution versus supervision. One Task Controller advances the configured route and never
+authorizes scope expansion, Bundle acceptance, external publication, merge, deployment, or an
+irreversible action.
 
 ## 8. Execution And Replanning
 
@@ -614,13 +618,14 @@ operation-specific waiting and failure states.
 The persistent lifecycle is deliberately small:
 
 ```text
-ChangeSet: planning -> working -> review -> delivery -> terminal(done)
+ChangeSet: planning -> running -> review -> terminal(done)
 WorkUnit:  execution -> verification -> complete
 Run:       queued -> running -> completed | failed | interrupted | cancelled
 ```
 
 Review feedback may return a WorkUnit to execution. A typed Plan invalidation may return the
-ChangeSet to planning. Human abandonment creates `terminal(abandoned)`. All other activity is
+ChangeSet to planning. Accepted delivery remains attached to `review` until an external merge can
+produce `terminal(done)`. Human abandonment creates `terminal(abandoned)`. All other activity is
 derived rather than persisted as a compound state.
 
 ## 9. Parallel Work And Branches
@@ -950,55 +955,76 @@ lifecycle are outside this stage.
 
 ## 16. First GitHub Delivery Stage
 
-After exact Bundle acceptance, a separate explicit operator request creates or resumes one stable
-delivery request per Candidate. The first local implementation uses ordinary Git to publish the
+After exact Bundle acceptance, policy may authorize the local Task Controller to create or resume
+one stable delivery request per Candidate. Diagnostic CLI callers may still request publication
+explicitly. The first local implementation uses ordinary Git to publish the
 exact Candidate SHA to a deterministic `changefleet/...` branch and authenticated `gh` commands to
 create and read the PR. It verifies the remote target before publication, never force-pushes, and
 recovers an existing exact branch or PR after restart instead of blindly duplicating external
 writes.
 
-The ChangeSet remains in `delivery` until exact observations permit `terminal(done)`. Per-Repository states
-distinguish pending, publishing, open, merged, closed-unmerged, integration-stale,
-Candidate-diverged, and failed outcomes. Destination locks protect target-sensitive critical
-sections but are not held throughout human review. Another merge may move the target and stale
-integration evidence without rewriting historical Candidate identity.
+The ChangeSet remains in `review` while delivery is pending or active. Exact observations may move
+it directly to `terminal(done)`. Per-Repository delivery records distinguish pending, publishing,
+open, merged, closed-unmerged, integration-stale, Candidate-diverged, and failed outcomes.
+Destination locks protect target-sensitive critical sections but are not held throughout human
+review. Another merge may move the target and stale integration evidence without rewriting
+historical Candidate identity.
 
-The experimental CLI exposes GitHub binding, publish, read, and explicit refresh only through
-shared typed application operations. Delivery observations and raw provider detail stay outside
-default Runtime context. A later UI must call the same semantics through a separately accepted
-transport rather than execute the CLI parser.
+The experimental CLI and local UI expose GitHub binding, publish, read, and refresh only
+through shared typed application operations. Delivery observations and raw provider detail stay
+outside default Runtime context. HTTP adapters call the same semantics rather than execute the CLI
+parser.
 
 ChangeFleet does not merge the PR. GitLab, automatic merge, merge queues, source-branch cleanup,
-GitHub App, webhook, daemon polling, deployment, remote workers, UI, and App Server remain outside
+GitHub App, webhook, hosted polling, deployment, remote workers, and App Server remain outside
 this stage. Real GitHub validation requires separately confirmed repository, branch namespace, PR,
 and cleanup authority.
 
-## 17. First Local Task Console Stage
+## 17. Local Task Console
 
 The accepted next operator surface is a foreground, single-user, loopback-only local console over
-explicit shared application and query operations. It is a presentation adapter, not an Agent
-frontend, daemon, remote API, generic operation bus, or new authority store.
+explicit shared application and query operations. It is a presentation adapter plus a local
+restart-aware task worker, not an Agent frontend, remote API, generic operation bus, or second
+domain authority graph.
 
-The console shows a bounded recent-ChangeSet list, one exact current ChangeSet and its bounded
-planning conversation, Bundle, available validation and audit summaries, and exact GitHub delivery
-state. It may create a ChangeSet under one existing Project, select one or more of that Project's
-registered Repositories, conduct planning turns, approve the exact current Plan-bearing message,
-accept or reject the current exact Bundle, publish an accepted Bundle, and explicitly refresh
-delivery. It does not configure Projects, Repositories, AgentProfiles, Harness, policies,
-credentials, GitHub bindings, merge, deployment, or recovery.
+The console presents tasks rather than internal operations. Its ordinary view contains a grouped
+task inbox, one stage-aware conversation, semantic Plan progress, current bounded Runtime activity,
+effective Runtime identity, compact cost and retry metrics, necessary Gates, CandidateBundle
+review, and GitHub delivery. Exact ids, revisions, digests, Runs, evidence, and complete metrics are
+loaded only through an audit dialog or exact mutation subjects.
+
+Creating a task under an existing Project requires a human objective. Project Repositories are
+selected by default; optional advanced fields select per-Repository base and target refs. The same
+conversation routes planning clarification and current execution or review Feedback. A Planner
+returns `ready | needs_input`. `ready` permits the Core-owned task policy to bind the exact message,
+confirm Intent and Plan, and run the Task Controller without a routine click; `needs_input` stops
+at one human request. The user does not choose execute versus supervision. The console may confirm
+an already registered Repository's GitHub binding, but does not configure Projects, Repositories,
+AgentProfiles, Harness, policies, credentials, merge, deployment, or recovery.
 
 One bounded intake-options query exposes only stable ids, human descriptions, safe defaults, and
 compact effective policy summaries required by the form. It excludes repository paths, credentials,
 raw catalog objects, provider settings, and unrestricted control capabilities. ChangeSet creation
-and initial planning remain separate idempotent application operations. If the Planner attempt
-fails after creation, the exact created ChangeSet remains visible and retryable; the console does
+and initial planning remain separate idempotent kernel operations but one browser action. After
+workspace creation, Agent work runs from a durable accepted task command and ordinary mutation
+requests return HTTP 202. If the Planner attempt fails, the exact created ChangeSet remains visible and retryable; the console does
 not manufacture another task or roll back established Git authority.
 
-The human-facing conversation is reconstructed from linked planning evidence under explicit turn,
-message, and total-byte limits. A new Planner Run receives the current operator message and only
+The human-facing conversation is a bounded append-only safe timeline linked outside ChangeSet
+aggregate state. It contains human messages, Agent summaries, Plan activation, role handoffs, and
+safe status events, never raw reasoning, logs, commands, diffs, or evidence bodies. A new Planner
+Run receives the current Intent draft, current operator message, and only
 the immediately preceding assistant planning message, including a question that contains no Plan.
 Older conversation, full transcripts, Runs, logs, provider payloads, and artifact bodies remain
 outside ordinary Runtime context. Only the current exact Plan-bearing message is approvable.
+
+The ordinary inbox derives exactly `running | needs_feedback | needs_review | waiting_for_merge |
+complete | cancelled` plus a deterministic reason from exact kernel, delivery, task-command, and
+operator-hold facts. These are presentation states, not ChangeSet phases.
+
+One same-origin Server-Sent Events route projects only the current Run identity, sanitized activity,
+and bounded Agent todo-list progress. It does not expose reasoning, logs, command output, diffs, or
+audit payloads and does not become lifecycle authority.
 
 One bounded `changeset.list` read model uses stable cursor ordering and returns only current summary
 fields. It never exposes arbitrary filesystem enumeration, full transcripts, logs, diffs, raw
@@ -1008,7 +1034,9 @@ Agent Runtime context.
 The experimental `changefleet serve` command binds one configured control root to loopback in the
 foreground. Its explicit local HTTP route allowlist delegates to shared operations and cannot
 accept a control-root path, operation name, executable, or internal capability from a request. GET
-and page reload do not invoke Agents, refresh GitHub, repair state, or advance lifecycle.
+and page reload do not invoke Agents, refresh GitHub, repair state, or advance lifecycle. The
+foreground worker reconciles accepted commands on startup, serializes each ChangeSet with a lease,
+and performs bounded GitHub publication retry and merge observation.
 
 The first implementation uses Node.js 24 ESM, centralized `node:http`, and repository-owned HTML,
 CSS, and browser modules without a production web or frontend framework. The server composes the

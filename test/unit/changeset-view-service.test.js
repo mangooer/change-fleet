@@ -24,6 +24,11 @@ describe("changeset view service", () => {
     assert.equal(typeof first.next_cursor, "string");
     assert.equal(Object.hasOwn(first.items[0], "commands"), false);
     assert.equal(Object.hasOwn(first.items[0], "run_references"), false);
+    assert.equal(
+      ["needs_feedback", "needs_review"].includes(first.items[0].operator_status),
+      true,
+    );
+    assert.equal(typeof first.items[0].operator_reason, "string");
 
     const second = await viewService.listChangeSets({
       limit: 1,
@@ -40,6 +45,8 @@ describe("changeset view service", () => {
     assert.equal(exact.bundle.candidates.length, 1);
     assert.equal(exact.bundle.candidates[0].changed_paths.includes("feature.txt"), true);
     assert.equal(exact.repositories[0].delivery_binding.status, "missing");
+    assert.equal(exact.operator_status, "needs_review");
+    assert.equal(exact.operator_reason, "candidate_bundle_ready");
     assert.equal(Object.hasOwn(exact, "transcript"), false);
 
     const audit = await viewService.readAuditView("change-2");
@@ -88,6 +95,7 @@ describe("changeset view service", () => {
         readCatalog: async () => ({ projects: {} }),
       },
       runStore: {
+        read: async () => null,
         readJsonArtifact: async ({ index }) => ({
           message_id: `message-${index}`,
           text: "界".repeat(10_000),
@@ -119,6 +127,132 @@ describe("changeset view service", () => {
       projection.turns.at(-1).assistant_message.truncated,
       true,
     );
+  });
+
+  test("keeps task messages and appends bounded execution summaries", async () => {
+    const viewService = new ChangeSetViewService({
+      controlStore: {
+        readChangeSet: async () => ({}),
+        readCatalog: async () => ({ projects: {} }),
+      },
+      runStore: {
+        read: async () => null,
+        readJsonArtifact: async () => ({}),
+        readEvents: async (runId, query) =>
+          runId === "execution-1" && query?.type === "runtime.outcome"
+            ? [
+                {
+                  at: "2026-08-12T00:00:02.000Z",
+                  payload: { summary: "Updated the connection recovery state." },
+                },
+              ]
+            : [],
+      },
+      auditQueryService: { getChangeSetAudit: async () => ({}) },
+      agentProfile: TEST_AGENT_PROFILE,
+    });
+    const conversation = await viewService.readTaskConversation(
+      {
+        feedback_records: [],
+        run_references: [
+          {
+            run_id: "execution-1",
+            operation: "execution",
+            status: "completed",
+          },
+        ],
+      },
+      { turns: [] },
+      {
+        timeline: [
+          {
+            event_id: "event-1",
+            role: "human",
+            stage: "task",
+            kind: "message",
+            text: "Please fix reconnect behavior.",
+            created_at: "2026-08-12T00:00:01.000Z",
+          },
+        ],
+      },
+    );
+
+    assert.deepEqual(
+      conversation.messages.map((message) => [message.role, message.kind]),
+      [
+        ["human", "message"],
+        ["agent", "run_summary"],
+      ],
+    );
+    assert.equal(
+      conversation.messages[1].text,
+      "Updated the connection recovery state.",
+    );
+  });
+
+  test("projects run timing anchors from the read-only live view", async () => {
+    const viewService = new ChangeSetViewService({
+      controlStore: {
+        readChangeSet: async () => ({
+          change_set_id: "change-live",
+          phase: "running",
+          updated_at: "2026-08-12T00:00:09.000Z",
+          run_references: [
+            {
+              run_id: "run-live",
+              operation: "execution",
+              status: "running",
+              attempt: 2,
+              created_at: "2026-08-12T00:00:03.000Z",
+            },
+          ],
+          blockers: [],
+          gates: [],
+          supervision_control: {},
+        }),
+        readCatalog: async () => ({ projects: {} }),
+      },
+      runStore: {
+        read: async () => ({
+          run_id: "run-live",
+          created_at: "2026-08-12T00:00:03.000Z",
+          completed_at: null,
+        }),
+        readJsonArtifact: async () => ({}),
+        readEvents: async () => [
+          {
+            event_id: "event-1",
+            type: "provider.item.updated",
+            at: "2026-08-12T00:00:08.000Z",
+            payload: { item_type: "todo_list", items: [] },
+          },
+        ],
+      },
+      auditQueryService: { getChangeSetAudit: async () => ({}) },
+      agentProfile: TEST_AGENT_PROFILE,
+    });
+
+    const live = await viewService.readLiveTaskView("change-live");
+
+    assert.equal(live.run.started_at, "2026-08-12T00:00:03.000Z");
+    assert.equal(live.run.last_activity_at, "2026-08-12T00:00:08.000Z");
+  });
+
+  test("requires runStore.read when constructing the live projection service", () => {
+    assert.throws(() => {
+      new ChangeSetViewService({
+        controlStore: {
+          readChangeSet: async () => ({}),
+          readCatalog: async () => ({ projects: {} }),
+        },
+        runStore: {
+          readJsonArtifact: async () => ({}),
+          readEvents: async () => [],
+        },
+        auditQueryService: { getChangeSetAudit: async () => ({}) },
+        agentProfile: TEST_AGENT_PROFILE,
+      });
+    }, (error) => error?.code === "INVALID_OPERATOR_APPLICATION");
   });
 });
 

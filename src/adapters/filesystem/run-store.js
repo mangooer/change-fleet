@@ -53,7 +53,7 @@ export class RunStore {
     return readJsonFile(this.runPath(runId));
   }
 
-  async readEvents(runId, { type = null, limit = 64 } = {}) {
+  async readEvents(runId, { type = null, limit = 64, tail = false } = {}) {
     // UI 查询只流式筛选所需事件；不会一次性加载完整事件日志，也不会借此暴露原始 Run。
     invariant(
       type === null || (typeof type === "string" && type.length > 0),
@@ -64,6 +64,11 @@ export class RunStore {
       Number.isSafeInteger(limit) && limit >= 1 && limit <= 256,
       "INVALID_RUN_EVENT_QUERY",
       "Run event query limit is invalid",
+    );
+    invariant(
+      typeof tail === "boolean",
+      "INVALID_RUN_EVENT_QUERY",
+      "Run event tail selector is invalid",
     );
     const events = [];
     const input = createReadStream(
@@ -80,7 +85,8 @@ export class RunStore {
         const event = JSON.parse(line);
         if (type !== null && event.type !== type) continue;
         events.push(event);
-        if (events.length >= limit) break;
+        if (!tail && events.length >= limit) break;
+        if (tail && events.length > limit) events.shift();
       }
     } finally {
       lines.close();

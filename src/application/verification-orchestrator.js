@@ -713,7 +713,7 @@ export class VerificationOrchestrator {
         workUnitId,
         resolvedAt: this.now(),
       });
-      setChangeSetPhase(current, "working");
+      setChangeSetPhase(current, "running");
       current.updated_at = this.now();
     });
     return candidate;
@@ -919,7 +919,7 @@ export class VerificationOrchestrator {
             attempt,
           }),
         );
-        setChangeSetPhase(current, "working");
+        setChangeSetPhase(current, "running");
         current.updated_at = this.now();
       });
     } catch (error) {
@@ -1280,7 +1280,7 @@ export class VerificationOrchestrator {
         setWorkUnitPhase(unit, "execution");
         unit.pending_feedback_id = feedback.feedback_id;
         unit.last_error = null;
-        setChangeSetPhase(current, "working");
+        setChangeSetPhase(current, "running");
       } else if (review.verdict === "human_decision_required") {
         const gate = {
           gate_id: this.idFactory("gate"),

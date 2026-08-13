@@ -39,6 +39,7 @@ export class ScriptedRuntime {
     reviewOutcomes = null,
     feedbackExecutionOutcome = null,
     feedbackFileContent = null,
+    executionDelayMs = 0,
   }) {
     this.plan = plan;
     this.planningOutcomes = planningOutcomes;
@@ -57,6 +58,7 @@ export class ScriptedRuntime {
     this.reviewOutcomes = reviewOutcomes;
     this.feedbackExecutionOutcome = feedbackExecutionOutcome;
     this.feedbackFileContent = feedbackFileContent;
+    this.executionDelayMs = executionDelayMs;
     this.verificationInvocationCount = 0;
     this.planningInvocationCount = 0;
     this.supervisionInvocationCount = 0;
@@ -88,6 +90,21 @@ export class ScriptedRuntime {
         );
       }
       if (sequencedOutcome) {
+        if (
+          sequencedOutcome.type === "conversation_message" &&
+          sequencedOutcome.message &&
+          !sequencedOutcome.message.intent_draft
+        ) {
+          sequencedOutcome.message.intent_draft = currentIntentDraft(invocation);
+        }
+        if (
+          sequencedOutcome.type === "conversation_message" &&
+          sequencedOutcome.message &&
+          !sequencedOutcome.message.disposition
+        ) {
+          sequencedOutcome.message.disposition =
+            sequencedOutcome.message.plan === null ? "needs_input" : "ready";
+        }
         return {
           outcome: structuredClone(sequencedOutcome),
           provider_evidence: testProviderEvidence(),
@@ -107,7 +124,9 @@ export class ScriptedRuntime {
         outcome: {
           type: "conversation_message",
           message: {
+            disposition: "ready",
             text: "The deterministic fixture produced an approvable plan.",
+            intent_draft: currentIntentDraft(invocation),
             plan,
           },
           request: null,
@@ -182,6 +201,12 @@ export class ScriptedRuntime {
     const repositoryId =
       invocation.context_projection.work_unit.repository_id;
     if (
+      invocation.operation === "execution" &&
+      this.executionDelayMs > 0
+    ) {
+      await wait(this.executionDelayMs);
+    }
+    if (
       repositoryId === this.interruptRepository &&
       this.interrupted === false
     ) {
@@ -249,6 +274,21 @@ export class ScriptedRuntime {
   }
 }
 
+function currentIntentDraft(invocation) {
+  const projected =
+    invocation.context_projection.planning_conversation?.intent_draft ??
+    invocation.context_projection.confirmed_intent;
+  return {
+    objective: projected.objective,
+    rationale: projected.rationale ?? null,
+    constraints: [...(projected.constraints ?? [])],
+    non_goals: [...(projected.non_goals ?? [])],
+    acceptance_criteria: [...(projected.acceptance_criteria ?? [])],
+    resolved_decisions: [...(projected.resolved_decisions ?? [])],
+    open_questions: [...(projected.open_questions ?? [])],
+  };
+}
+
 async function writeFixtureFeature(invocation, content) {
   const workspace = invocation.workspace.workspace_path;
   const target = path.resolve(workspace, "feature.txt");
@@ -287,6 +327,10 @@ function testProviderEvidence() {
     usage_observations: [],
     raw_artifact_references: [],
   };
+}
+
+function wait(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
 export function createTwoRepositoryPlan(combinedCheckScript) {

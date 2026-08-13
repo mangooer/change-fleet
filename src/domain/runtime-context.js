@@ -129,7 +129,18 @@ function projectPlanningConversation(conversation) {
             text: conversation.previous_assistant_message.text,
             plan_content:
               conversation.previous_assistant_message.plan_content,
+            ...(conversation.previous_assistant_message.intent_draft ===
+            undefined
+              ? {}
+              : {
+                  intent_draft: structuredClone(
+                    conversation.previous_assistant_message.intent_draft,
+                  ),
+                }),
           },
+    ...(conversation.intent_draft === undefined
+      ? {}
+      : { intent_draft: structuredClone(conversation.intent_draft) }),
   };
 }
 

@@ -11,6 +11,7 @@ import {
   normalizeChangeSetCloseRequest,
   normalizeId,
   normalizeIntent,
+  normalizeIntentDraft,
   normalizePlanContent,
   normalizePlanningMessageText,
   normalizeRepositorySelectionRequest,
@@ -810,6 +811,100 @@ export class ChangeFleetService {
     );
   }
 
+  async sendTaskMessage({
+    idempotency_key,
+    change_set_id,
+    message,
+    actor = "human",
+  }) {
+    normalizeId("idempotency_key", idempotency_key);
+    normalizeId("change_set_id", change_set_id);
+    normalizeId("actor", actor);
+    const text = normalizePlanningMessageText(message, "task.message");
+    const state = await this.controlStore.readChangeSet(change_set_id);
+    assertChangeSetMutable(state);
+
+    // 同一个消息入口按当前稳定阶段路由；操作者不需要认识内部命令或 Run 身份。
+    if (state.phase === "planning") {
+      return this.planChangeSet({
+        idempotency_key,
+        change_set_id,
+        message: text,
+      });
+    }
+
+    if (state.phase === "review") {
+      const bundle = state.bundles.at(-1);
+      invariant(
+        bundle,
+        "TASK_MESSAGE_NOT_ROUTABLE",
+        "Review feedback requires one current CandidateBundle",
+      );
+      const decision = await this.recordBundleDecision({
+        idempotency_key,
+        change_set_id,
+        bundle_revision: bundle.revision,
+        bundle_hash: bundle.bundle_hash,
+        decision: "request_revision",
+        feedback: taskMessageFeedback(change_set_id, idempotency_key, text),
+        actor,
+      });
+      const controller = await this.runTaskController({
+        idempotency_key: stableId("task-controller", {
+          change_set_id,
+          message_id: idempotency_key,
+        }),
+        change_set_id,
+        actor: "task_controller",
+      });
+      return { ...decision, controller };
+    }
+
+    invariant(
+      state.phase === "running",
+      "TASK_MESSAGE_NOT_ROUTABLE",
+      `Task messages cannot mutate phase ${state.phase}`,
+    );
+    const activeRun = state.run_references.find(
+      (reference) => reference.status === "running",
+    );
+    const currentUnits = unitsForCurrentPlan(state).filter(
+      (unit) => unit.phase !== "complete",
+    );
+    const workUnit = activeRun?.work_unit_id
+      ? currentUnits.find(
+          (unit) => unit.work_unit_id === activeRun.work_unit_id,
+        )
+      : currentUnits.length === 1
+        ? currentUnits[0]
+        : null;
+    invariant(
+      workUnit,
+      "TASK_MESSAGE_NOT_ROUTABLE",
+      "Running feedback requires one unambiguous current WorkUnit",
+    );
+    const feedback = await this.submitFeedback({
+      idempotency_key,
+      change_set_id,
+      phase: state.phase,
+      work_unit_id: workUnit.work_unit_id,
+      run_id: activeRun?.run_id ?? null,
+      feedback: taskMessageFeedback(change_set_id, idempotency_key, text),
+      actor,
+    });
+    // 活跃 Run 完成检查点时会发现 pending Feedback，并在同一 Plan 下继续修正。
+    if (activeRun) return { ...feedback, status: "feedback_queued" };
+    const controller = await this.runTaskController({
+      idempotency_key: stableId("task-controller", {
+        change_set_id,
+        message_id: idempotency_key,
+      }),
+      change_set_id,
+      actor: "task_controller",
+    });
+    return { ...feedback, status: "feedback_applied", controller };
+  }
+
   async interruptRun({
     idempotency_key,
     change_set_id,
@@ -1588,6 +1683,12 @@ export class ChangeFleetService {
           previousMessageReference.artifact_reference,
         )
       : null;
+    const currentIntent = initialState.intents.find(
+      (intent) => intent.revision === initialState.current_intent_revision,
+    );
+    const currentIntentDraft = normalizeIntentDraft(
+      previousAssistantMessage?.intent_draft ?? intentDraftInput(currentIntent),
+    );
     const contextProjection = createContextProjection({
       operation: "planning",
       changeSet: initialState,
@@ -1609,6 +1710,7 @@ export class ChangeFleetService {
       })),
       planningConversation: {
         user_message: userMessage,
+        intent_draft: currentIntentDraft,
         previous_assistant_message: previousAssistantMessage,
       },
       feedback:
@@ -1757,24 +1859,47 @@ export class ChangeFleetService {
           outcome.message.text,
           "planning.outcome.message.text",
         );
+        const intentDraft = normalizeIntentDraft(
+          outcome.message.intent_draft,
+        );
+        const disposition = outcome.message.disposition;
+        invariant(
+          ["ready", "needs_input"].includes(disposition),
+          "INVALID_PLAN",
+          "Planning message disposition is invalid",
+        );
         const planContent =
           outcome.message.plan === null
             ? null
             : normalizePlanContent(outcome.message.plan, {
                 revisionFeedback: this.feedbackService.currentContent(initialState),
               });
+        invariant(
+          planContent === null || intentDraft.open_questions.length === 0,
+          "INVALID_PLAN",
+          "An approvable Plan cannot retain unresolved Intent questions",
+        );
+        invariant(
+          (disposition === "ready") === (planContent !== null),
+          "INVALID_PLAN",
+          "Planning message disposition does not match its Plan content",
+        );
         const workspaceControlSummary =
           createTaskWorkspaceControlSummary(initialState);
         const contentDigest = sha256({
+          disposition,
           text,
+          intent_draft: intentDraft,
           plan_content: planContent,
           workspace_control_digest: workspaceControlSummary.control_digest,
         });
         planningMessage = {
-          schema_version: 2,
+          schema_version: 4,
           message_id: this.idFactory("planning-message"),
           role: "assistant",
+          disposition,
           text,
+          intent_draft: intentDraft,
           plan_content: planContent,
           workspace_control_summary: workspaceControlSummary,
           workspace_control_digest: workspaceControlSummary.control_digest,
@@ -1904,7 +2029,7 @@ export class ChangeFleetService {
             run_id: runId,
             role: planningMessage.role,
             content_digest: planningMessage.content_digest,
-            has_plan: planningMessage.plan_content !== null,
+            has_plan: planningMessage.disposition === "ready",
             artifact_reference: structuredClone(planningMessageArtifact),
             created_at: planningMessage.created_at,
           };
@@ -1916,7 +2041,10 @@ export class ChangeFleetService {
           state.updated_at = this.now();
           return {
             change_set_id,
-            status: reference.has_plan ? "plan_ready" : "planning",
+            status:
+              planningMessage.disposition === "ready"
+                ? "plan_ready"
+                : "needs_input",
             message: structuredClone(planningMessage),
             artifact_reference: structuredClone(planningMessageArtifact),
           };
@@ -1932,6 +2060,7 @@ export class ChangeFleetService {
     message_id,
     content_digest,
     actor = "human",
+    run_after_confirmation = false,
   }) {
     normalizeId("idempotency_key", idempotency_key);
     normalizeId("change_set_id", change_set_id);
@@ -1941,7 +2070,18 @@ export class ChangeFleetService {
       "INVALID_PLAN_MESSAGE_DIGEST",
       "Plan confirmation requires one SHA-256 content digest",
     );
-    const input = { change_set_id, message_id, content_digest, actor };
+    invariant(
+      typeof run_after_confirmation === "boolean",
+      "INVALID_PLAN_CONFIRMATION",
+      "Plan confirmation run_after_confirmation must be boolean",
+    );
+    const input = {
+      change_set_id,
+      message_id,
+      content_digest,
+      actor,
+      run_after_confirmation,
+    };
     const initialState = await this.controlStore.readChangeSet(change_set_id);
     assertChangeSetMutable(initialState);
     const existing = existingCommand(
@@ -1951,8 +2091,9 @@ export class ChangeFleetService {
       input,
     );
     if (existing?.status === "completed") {
-      return this.maybeAutoStartAfterConfirmation(
+      return this.maybeRunAfterConfirmation(
         structuredClone(existing.result),
+        run_after_confirmation,
       );
     }
     const reference = initialState.planning_message_references.find(
@@ -1972,10 +2113,16 @@ export class ChangeFleetService {
       planningMessage.message_id === message_id &&
         planningMessage.content_digest === content_digest &&
         planningMessage.plan_content !== null &&
+        (planningMessage.disposition === undefined ||
+          planningMessage.disposition === "ready") &&
         planningMessage.workspace_control_digest ===
           createTaskWorkspaceControlSummary(initialState).control_digest &&
         sha256({
+          ...(planningMessage.schema_version >= 4
+            ? { disposition: planningMessage.disposition }
+            : {}),
           text: planningMessage.text,
+          intent_draft: planningMessage.intent_draft,
           plan_content: planningMessage.plan_content,
           workspace_control_digest:
             planningMessage.workspace_control_digest,
@@ -2024,6 +2171,29 @@ export class ChangeFleetService {
               (maximum, plan) => Math.max(maximum, plan.revision),
               0,
             ) + 1;
+          const confirmedIntentDraft = normalizeIntentDraft(
+            planningMessage.intent_draft,
+          );
+          const existingIntent = state.intents.find(
+            (intent) => intent.revision === state.current_intent_revision,
+          );
+          if (!intentDraftMatches(existingIntent, confirmedIntentDraft)) {
+            const intentRevision =
+              state.intents.reduce(
+                (maximum, intent) => Math.max(maximum, intent.revision),
+                0,
+              ) + 1;
+            state.intents.push(
+              normalizeIntent(
+                {
+                  ...confirmedIntentDraft,
+                  source: existingIntent?.source ?? "planning_conversation",
+                },
+                { revision: intentRevision, confirmedAt: this.now() },
+              ),
+            );
+            state.current_intent_revision = intentRevision;
+          }
           const priorPlan = currentPlan(state);
           if (priorPlan) priorPlan.status = "superseded";
           const compiledContent = compileConfirmedPlanContent({
@@ -2074,6 +2244,7 @@ export class ChangeFleetService {
             plan_revision: planRevision,
             source_message_id: message_id,
             source_content_digest: content_digest,
+            intent_revision: state.current_intent_revision,
             workspace_control_digest:
               workspaceControlSummary.control_digest,
             actor,
@@ -2088,7 +2259,7 @@ export class ChangeFleetService {
             last_stop_reason: null,
             updated_at: this.now(),
           };
-          setChangeSetPhase(state, "working");
+          setChangeSetPhase(state, "running");
           state.updated_at = this.now();
           return {
             change_set_id,
@@ -2105,20 +2276,90 @@ export class ChangeFleetService {
         },
       }),
     );
-    return this.maybeAutoStartAfterConfirmation(confirmation);
+    return this.maybeRunAfterConfirmation(
+      confirmation,
+      run_after_confirmation,
+    );
   }
 
-  async maybeAutoStartAfterConfirmation(confirmation) {
-    if (
-      confirmation.workspace_control_summary.supervision.mode !==
-      "autonomous_until_review"
-    ) {
+  // 普通产品入口在确认计划后交给同一个任务控制器推进，不再要求操作者选择执行或监督命令。
+  async maybeRunAfterConfirmation(confirmation, runAfterConfirmation) {
+    if (!runAfterConfirmation) {
       return confirmation;
     }
-    const supervision = await this.runAutonomousSupervision(
-      confirmation.change_set_id,
+    const controller = await this.runTaskController({
+      idempotency_key: stableId("task-controller", {
+        change_set_id: confirmation.change_set_id,
+        plan_revision: confirmation.plan_revision,
+      }),
+      change_set_id: confirmation.change_set_id,
+      actor: "task_controller",
+    });
+    return { ...confirmation, controller };
+  }
+
+  async runTaskController({
+    idempotency_key,
+    change_set_id,
+    actor = "human",
+  }) {
+    normalizeId("idempotency_key", idempotency_key);
+    normalizeId("change_set_id", change_set_id);
+    normalizeId("actor", actor);
+    const state = await this.controlStore.readChangeSet(change_set_id);
+    const plan = currentPlan(state);
+    invariant(
+      plan?.status === "confirmed",
+      "PLAN_NOT_CONFIRMED",
+      "Task Controller requires one current confirmed Plan",
     );
-    return { ...confirmation, supervision };
+    if (state.phase === "terminal") {
+      return {
+        change_set_id,
+        phase: state.phase,
+        status: "settled",
+      };
+    }
+    if (state.phase === "review") {
+      const bundle = state.bundles.at(-1) ?? null;
+      const assessment = (state.bundle_review_assessments ?? []).find(
+        (candidate) =>
+          candidate.assessment_id ===
+          state.current_bundle_review_assessment_id,
+      );
+      const hasHumanDecision = (state.decisions ?? []).some(
+        (decision) =>
+          decision.type === "bundle_review" &&
+          decision.bundle_revision === bundle?.revision &&
+          decision.bundle_hash === bundle?.bundle_hash,
+      );
+      const reviewNeedsController =
+        plan.bundle_review.mode === "independent" &&
+        bundle !== null &&
+        !bundleReviewAssessmentMatches(assessment, bundle, plan) &&
+        !hasHumanDecision &&
+        !(state.gates ?? []).some((gate) => gate.status === "open");
+      if (!reviewNeedsController) {
+        return {
+          change_set_id,
+          phase: state.phase,
+          status: "settled",
+        };
+      }
+    }
+    invariant(
+      ["running", "review"].includes(state.phase),
+      "INVALID_CHANGE_SET_STATE",
+      "Task Controller can only advance confirmed running or unfinished review work",
+    );
+    if (plan.supervision.mode === "autonomous_until_review") {
+      return this.startSupervision({
+        idempotency_key,
+        change_set_id,
+        actor,
+      });
+    }
+    return this.executeChangeSet({ idempotency_key, change_set_id });
   }
 
   async startSupervision(input) {
@@ -2236,7 +2477,7 @@ export class ChangeFleetService {
             };
           }
           invariant(
-            state.phase === "working",
+            state.phase === "running",
             "PLAN_CONFIRMATION_REQUIRED",
             `ChangeSet cannot execute from phase ${state.phase}`,
           );
@@ -2469,6 +2710,16 @@ export class ChangeFleetService {
             "STALE_BUNDLE_DECISION",
             "Human decision does not bind to the current exact Bundle",
           );
+          invariant(
+            !(state.decisions ?? []).some(
+              (item) =>
+                item.type === "bundle_review" &&
+                item.bundle_revision === bundle_revision &&
+                item.bundle_hash === bundle_hash,
+            ),
+            "STALE_BUNDLE_DECISION",
+            "The current exact Bundle already has a human decision",
+          );
           const plan = currentPlan(state);
           const assessment = (state.bundle_review_assessments ?? []).find(
             (item) =>
@@ -2523,11 +2774,11 @@ export class ChangeFleetService {
             }
             state.current_bundle_review_assessment_id = null;
             state.bundle_review_last_error = null;
-            setChangeSetPhase(state, "working");
+            setChangeSetPhase(state, "running");
           } else {
             setChangeSetPhase(
               state,
-              normalizedDecision === "accept" ? "delivery" : "terminal",
+              normalizedDecision === "accept" ? "review" : "terminal",
               normalizedDecision === "accept" ? null : "abandoned",
             );
           }
@@ -2694,7 +2945,7 @@ export class ChangeFleetService {
           decision_id: decision.decision_id,
         };
       }
-      setChangeSetPhase(current, "working");
+      setChangeSetPhase(current, "running");
       current.updated_at = this.now();
     });
   }
@@ -2921,7 +3172,7 @@ export class ChangeFleetService {
           resolvedAt: this.now(),
         });
       }
-      setChangeSetPhase(current, "working");
+      setChangeSetPhase(current, "running");
       current.updated_at = this.now();
     });
 
@@ -3087,6 +3338,9 @@ export class ChangeFleetService {
         eventPayload: outcome,
         runOutcome: {
           type: outcome.type,
+          // 只保留 Agent 已显式提交的有界结果摘要，供普通时间线和审计展示；命令输出、
+          // diff 与完整 transcript 仍留在链接证据中，也不会进入后续 Runtime 上下文。
+          summary: boundedRunSummary(outcome.summary),
           // 只保留有界路径声明用于和最终 Git 主体做确定性比对，不保存 Agent 推理。
           reported_changed_paths: [...outcome.changed_paths].sort(),
           revision_feedback_assessments: structuredClone(
@@ -3310,7 +3564,7 @@ export class ChangeFleetService {
           setWorkUnitPhase(unit, "verification");
         }
         unit.last_error = null;
-        setChangeSetPhase(current, "working");
+        setChangeSetPhase(current, "running");
         current.updated_at = this.now();
       });
       checkpointPersisted = true;
@@ -3342,6 +3596,45 @@ export class ChangeFleetService {
   now() {
     return this.clock().toISOString();
   }
+}
+
+function intentDraftMatches(intent, draft) {
+  if (!intent) return false;
+  return sha256(normalizeIntentDraft(intentDraftInput(intent))) === sha256(draft);
+}
+
+function intentDraftInput(intent) {
+  return {
+    objective: intent.objective,
+    rationale: intent.rationale,
+    constraints: intent.constraints,
+    non_goals: intent.non_goals,
+    acceptance_criteria: intent.acceptance_criteria,
+    resolved_decisions: intent.resolved_decisions,
+    open_questions: intent.open_questions,
+  };
+}
+
+function taskMessageFeedback(changeSetId, messageId, text) {
+  return {
+    summary: text,
+    findings: [
+      {
+        finding_id: stableId("task-message", {
+          change_set_id: changeSetId,
+          message_id: messageId,
+        }),
+        text,
+      },
+    ],
+  };
+}
+
+function boundedRunSummary(value) {
+  const normalized = String(value ?? "").trim();
+  return normalized.length <= 2_000
+    ? normalized
+    : `${normalized.slice(0, 1_999)}…`;
 }
 
 function readOnlySupervisorProfile(agentProfile) {

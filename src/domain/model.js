@@ -20,6 +20,7 @@ const FEEDBACK_TOTAL_BYTES = 16 * 1024;
 const FEEDBACK_ASSESSMENT_RATIONALE_BYTES = 1024;
 const FEEDBACK_ASSESSMENT_TOTAL_BYTES = 16 * 1024;
 const PLANNING_MESSAGE_BYTES = 16 * 1024;
+const INTENT_ITEM_LIMIT = 20;
 const FEEDBACK_ASSESSMENT_DISPOSITIONS = new Set([
   "adopt",
   "adapt",
@@ -93,28 +94,86 @@ export function assertChangeSetMutable(state) {
 }
 
 export function normalizeIntent(input, { revision, confirmedAt }) {
+  const { source, ...draftInput } = input ?? {};
+  const draft = normalizeIntentDraft(draftInput);
+  return {
+    revision,
+    ...draft,
+    source: normalizeOptionalString(source),
+    confirmed_at: confirmedAt,
+  };
+}
+
+export function normalizeIntentDraft(input) {
+  // Planner 每轮必须返回完整当前草案；严格字段集可防止控制配置混入语义 Intent。
   invariant(
     input && typeof input === "object",
     "INVALID_INTENT",
-    "ChangeIntent must be an object",
+    "ChangeIntent draft must be an object",
+  );
+  const allowedFields = new Set([
+    "acceptance_criteria",
+    "constraints",
+    "non_goals",
+    "objective",
+    "open_questions",
+    "rationale",
+    "resolved_decisions",
+  ]);
+  invariant(
+    Object.keys(input).every((field) => allowedFields.has(field)),
+    "INVALID_INTENT",
+    "ChangeIntent draft fields are invalid",
   );
   invariant(
     typeof input.objective === "string" && input.objective.trim().length > 0,
     "INVALID_INTENT",
-    "ChangeIntent objective is required",
+    "ChangeIntent draft objective is required",
   );
-  return {
-    revision,
-    objective: input.objective.trim(),
-    rationale: normalizeOptionalString(input.rationale),
-    constraints: normalizeStringArray(input.constraints),
-    non_goals: normalizeStringArray(input.non_goals),
-    acceptance_criteria: normalizeStringArray(input.acceptance_criteria),
-    resolved_decisions: normalizeStringArray(input.resolved_decisions),
-    open_questions: normalizeStringArray(input.open_questions),
-    source: normalizeOptionalString(input.source),
-    confirmed_at: confirmedAt,
+  const normalized = {
+    objective: boundedUtf8String(
+      "intent.objective",
+      input.objective,
+      4 * 1024,
+      "INVALID_INTENT",
+    ),
+    rationale:
+      input.rationale === null || input.rationale === undefined
+        ? null
+        : boundedUtf8String(
+            "intent.rationale",
+            input.rationale,
+            4 * 1024,
+            "INVALID_INTENT",
+          ),
+    constraints: normalizeIntentItems(
+      "intent.constraints",
+      input.constraints ?? [],
+    ),
+    non_goals: normalizeIntentItems(
+      "intent.non_goals",
+      input.non_goals ?? [],
+    ),
+    acceptance_criteria: normalizeIntentItems(
+      "intent.acceptance_criteria",
+      input.acceptance_criteria ?? [],
+    ),
+    resolved_decisions: normalizeIntentItems(
+      "intent.resolved_decisions",
+      input.resolved_decisions ?? [],
+    ),
+    open_questions: normalizeIntentItems(
+      "intent.open_questions",
+      input.open_questions ?? [],
+    ),
   };
+  invariant(
+    Buffer.byteLength(canonicalStringify(normalized), "utf8") <=
+      PLANNING_MESSAGE_BYTES,
+    "INVALID_INTENT",
+    `ChangeIntent draft exceeds ${PLANNING_MESSAGE_BYTES} bytes`,
+  );
+  return normalized;
 }
 
 export function normalizeRepositorySelectionRequest(
@@ -868,6 +927,22 @@ function normalizeSemanticPlanItems(label, value, { minimum = 0 } = {}) {
       item,
       2 * 1024,
       "INVALID_PLAN",
+    ),
+  );
+}
+
+function normalizeIntentItems(label, value) {
+  invariant(
+    Array.isArray(value) && value.length <= INTENT_ITEM_LIMIT,
+    "INVALID_INTENT",
+    `${label} must contain at most ${INTENT_ITEM_LIMIT} items`,
+  );
+  return value.map((item, index) =>
+    boundedUtf8String(
+      `${label}[${index}]`,
+      item,
+      2 * 1024,
+      "INVALID_INTENT",
     ),
   );
 }

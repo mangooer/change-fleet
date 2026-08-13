@@ -18,17 +18,23 @@ const GET_ROUTES = Object.freeze([
   /^\/$/u,
   /^\/app\.css$/u,
   /^\/app\.js$/u,
+  /^\/live-connection\.js$/u,
   /^\/api\/local\/v0\/intake\/options$/u,
   /^\/api\/local\/v0\/changesets$/u,
   /^\/api\/local\/v0\/changesets\/[A-Za-z0-9._-]+$/u,
+  /^\/api\/local\/v0\/changesets\/[A-Za-z0-9._-]+\/events$/u,
   /^\/api\/local\/v0\/changesets\/[A-Za-z0-9._-]+\/audit$/u,
   /^\/api\/local\/v0\/changesets\/[A-Za-z0-9._-]+\/delivery$/u,
   /^\/api\/local\/v0\/changesets\/[A-Za-z0-9._-]+\/supervision$/u,
 ]);
 const POST_ROUTES = Object.freeze([
   /^\/api\/local\/v0\/changesets$/u,
+  /^\/api\/local\/v0\/projects\/[A-Za-z0-9._-]+\/repositories\/[A-Za-z0-9._-]+\/github-delivery$/u,
+  /^\/api\/local\/v0\/changesets\/[A-Za-z0-9._-]+\/messages$/u,
   /^\/api\/local\/v0\/changesets\/[A-Za-z0-9._-]+\/planning-messages$/u,
   /^\/api\/local\/v0\/changesets\/[A-Za-z0-9._-]+\/plan-confirmation$/u,
+  /^\/api\/local\/v0\/changesets\/[A-Za-z0-9._-]+\/controller\/run$/u,
+  /^\/api\/local\/v0\/changesets\/[A-Za-z0-9._-]+\/cancel$/u,
   /^\/api\/local\/v0\/changesets\/[A-Za-z0-9._-]+\/bundle-decisions$/u,
   /^\/api\/local\/v0\/changesets\/[A-Za-z0-9._-]+\/feedback$/u,
   /^\/api\/local\/v0\/changesets\/[A-Za-z0-9._-]+\/execute$/u,
@@ -57,6 +63,7 @@ export async function startLocalConsoleServer({
       typeof queryService.readIntakeOptions === "function" &&
       typeof queryService.listChangeSets === "function" &&
       typeof queryService.readChangeSetView === "function" &&
+      typeof queryService.readLiveTaskView === "function" &&
       typeof queryService.readAuditView === "function",
     "INVALID_OPERATOR_APPLICATION",
     "The local console requires one bounded query service",
@@ -109,10 +116,17 @@ export async function startLocalConsoleServer({
         sendText(response, 200, asset, "text/javascript; charset=utf-8");
         return;
       }
+      if (request.method === "GET" && requestUrl.pathname === "/live-connection.js") {
+        const asset = await readConsoleAsset("live-connection.js");
+        invariant(asset !== null, "CHANGE_SET_NOT_FOUND", "Console script is missing");
+        sendText(response, 200, asset, "text/javascript; charset=utf-8");
+        return;
+      }
 
       validateSession(request, sessionNonce);
       if (request.method === "GET") {
         await handleGetApi({
+          request,
           response,
           url: requestUrl,
           queryService,
@@ -174,6 +188,7 @@ export async function startLocalConsoleServer({
 }
 
 async function handleGetApi({
+  request,
   response,
   url,
   queryService,
@@ -195,7 +210,7 @@ async function handleGetApi({
     return;
   }
   const match = url.pathname.match(
-    /^\/api\/local\/v0\/changesets\/(?<changeSetId>[A-Za-z0-9._-]+)(?:\/(?<tail>audit|delivery|supervision))?$/u,
+    /^\/api\/local\/v0\/changesets\/(?<changeSetId>[A-Za-z0-9._-]+)(?:\/(?<tail>audit|delivery|events|supervision))?$/u,
   );
   invariant(match?.groups, "CHANGE_SET_NOT_FOUND", "Route not found");
   const changeSetId = match.groups.changeSetId;
@@ -206,6 +221,10 @@ async function handleGetApi({
   }
   if (match.groups.tail === "audit") {
     sendJson(response, 200, await queryService.readAuditView(changeSetId));
+    return;
+  }
+  if (match.groups.tail === "events") {
+    await streamTaskEvents({ request, response, queryService, changeSetId });
     return;
   }
   if (match.groups.tail === "supervision") {
@@ -227,6 +246,54 @@ async function handleGetApi({
   );
 }
 
+async function streamTaskEvents({
+  request,
+  response,
+  queryService,
+  changeSetId,
+}) {
+  response.writeHead(200, {
+    "Content-Type": "text/event-stream; charset=utf-8",
+    "Cache-Control": "no-cache, no-transform",
+    Connection: "keep-alive",
+    "X-Accel-Buffering": "no",
+  });
+  response.flushHeaders?.();
+  await new Promise((resolve) => {
+    let lastCursor = null;
+    let reading = false;
+    let heartbeat = 0;
+    let timer = null;
+    const close = () => {
+      if (timer !== null) clearInterval(timer);
+      resolve();
+    };
+    request.once("close", close);
+    response.once("close", close);
+    const emit = async () => {
+      if (reading || response.destroyed) return;
+      reading = true;
+      try {
+        const projection = await queryService.readLiveTaskView(changeSetId);
+        heartbeat += 1;
+        if (projection.cursor !== lastCursor || heartbeat >= 20) {
+          response.write(`event: task\ndata: ${JSON.stringify(projection)}\n\n`);
+          lastCursor = projection.cursor;
+          heartbeat = 0;
+        }
+      } catch (error) {
+        response.write(
+          `event: error\ndata: ${JSON.stringify({ code: error?.code ?? "LIVE_TASK_READ_FAILED" })}\n\n`,
+        );
+      } finally {
+        reading = false;
+      }
+    };
+    timer = setInterval(() => void emit(), 750);
+    void emit();
+  });
+}
+
 async function handlePostApi({
   request,
   response,
@@ -235,13 +302,32 @@ async function handlePostApi({
 }) {
   if (url.pathname === "/api/local/v0/changesets") {
     const body = normalizeCreateChangeSetBody(await readJsonBody(request));
-    sendJson(
+    sendMutationResult(
       response,
-      200,
       await operatorApplication.execute("changeset.create", {
         ...body,
         actor: "human",
       }),
+    );
+    return;
+  }
+  const bindingMatch = url.pathname.match(
+    /^\/api\/local\/v0\/projects\/(?<projectId>[A-Za-z0-9._-]+)\/repositories\/(?<repositoryId>[A-Za-z0-9._-]+)\/github-delivery$/u,
+  );
+  if (bindingMatch?.groups) {
+    const body = normalizeGithubDeliveryBindingBody(await readJsonBody(request));
+    sendJson(
+      response,
+      200,
+      await operatorApplication.execute(
+        "project.repository_delivery.github.configure",
+        {
+          ...body,
+          project_id: bindingMatch.groups.projectId,
+          repository_id: bindingMatch.groups.repositoryId,
+          actor: "human",
+        },
+      ),
     );
     return;
   }
@@ -278,11 +364,22 @@ async function handlePostApi({
     return;
   }
   const match = url.pathname.match(
-    /^\/api\/local\/v0\/changesets\/(?<changeSetId>[A-Za-z0-9._-]+)\/(?<tail>planning-messages|plan-confirmation|bundle-decisions|feedback|execute|delivery\/publish|delivery\/refresh|supervision\/(?:start|pause|resume))$/u,
+    /^\/api\/local\/v0\/changesets\/(?<changeSetId>[A-Za-z0-9._-]+)\/(?<tail>messages|planning-messages|plan-confirmation|controller\/run|cancel|bundle-decisions|feedback|execute|delivery\/publish|delivery\/refresh|supervision\/(?:start|pause|resume))$/u,
   );
   invariant(match?.groups, "CHANGE_SET_NOT_FOUND", "Route not found");
   const changeSetId = match.groups.changeSetId;
   normalizeId("change_set_id", changeSetId);
+  if (match.groups.tail === "messages") {
+    const body = normalizeTaskMessageBody(await readJsonBody(request));
+    sendMutationResult(
+      response,
+      await operatorApplication.execute("changeset.message", {
+        ...body,
+        change_set_id: changeSetId,
+      }),
+    );
+    return;
+  }
   if (match.groups.tail === "planning-messages") {
     const body = normalizePlanningMessageBody(await readJsonBody(request));
     sendJson(
@@ -307,11 +404,32 @@ async function handlePostApi({
     );
     return;
   }
+  if (match.groups.tail === "controller/run") {
+    const body = normalizeControllerBody(await readJsonBody(request));
+    sendMutationResult(
+      response,
+      await operatorApplication.execute("changeset.controller.run", {
+        ...body,
+        change_set_id: changeSetId,
+      }),
+    );
+    return;
+  }
+  if (match.groups.tail === "cancel") {
+    const body = normalizeControllerBody(await readJsonBody(request));
+    sendMutationResult(
+      response,
+      await operatorApplication.execute("changeset.close", {
+        ...body,
+        change_set_id: changeSetId,
+      }),
+    );
+    return;
+  }
   if (match.groups.tail === "bundle-decisions") {
     const body = normalizeBundleDecisionBody(await readJsonBody(request));
-    sendJson(
+    sendMutationResult(
       response,
-      200,
       await operatorApplication.execute("changeset.bundle.decide", {
         ...body,
         change_set_id: changeSetId,
@@ -361,9 +479,8 @@ async function handlePostApi({
   }
   if (match.groups.tail === "delivery/publish") {
     const body = normalizePublishBody(await readJsonBody(request));
-    sendJson(
+    sendMutationResult(
       response,
-      200,
       await operatorApplication.execute("changeset.delivery.publish", {
         ...body,
         change_set_id: changeSetId,
@@ -372,14 +489,18 @@ async function handlePostApi({
     return;
   }
   const body = normalizeRefreshBody(await readJsonBody(request));
-  sendJson(
+  sendMutationResult(
     response,
-    200,
     await operatorApplication.execute("changeset.delivery.refresh", {
       ...body,
       change_set_id: changeSetId,
     }),
   );
+}
+
+function sendMutationResult(response, result) {
+  // 后台命令只返回“已接受”，不能把尚未发生的 Agent 结果伪装成同步成功。
+  sendJson(response, result?.accepted === true || result?.delivery_command ? 202 : 200, result);
 }
 
 function normalizeCreateChangeSetBody(body) {
@@ -448,6 +569,25 @@ function normalizeCreateChangeSetBody(body) {
   };
 }
 
+function normalizeGithubDeliveryBindingBody(body) {
+  requireExactFields(body, [
+    "idempotency_key",
+    "github_repository",
+    "push_remote",
+  ]);
+  return {
+    idempotency_key: requireNonEmptyString(
+      body.idempotency_key,
+      "idempotency_key",
+    ),
+    github_repository: requireNonEmptyString(
+      body.github_repository,
+      "github_repository",
+    ),
+    push_remote: requireNonEmptyString(body.push_remote, "push_remote"),
+  };
+}
+
 function normalizeConsoleIntent(intent) {
   requireExactFields(intent, [
     "objective",
@@ -503,17 +643,47 @@ function normalizePlanningMessageBody(body) {
   };
 }
 
+function normalizeTaskMessageBody(body) {
+  requireExactFields(body, ["idempotency_key", "message", "actor"]);
+  return {
+    idempotency_key: requireNonEmptyString(
+      body.idempotency_key,
+      "idempotency_key",
+    ),
+    message: requireNonEmptyString(body.message, "message"),
+    actor: requireNonEmptyString(body.actor, "actor"),
+  };
+}
+
 function normalizePlanConfirmationBody(body) {
   requireExactFields(body, [
     "idempotency_key",
     "message_id",
     "content_digest",
     "actor",
+    "run_after_confirmation",
   ]);
+  invariant(
+    typeof body.run_after_confirmation === "boolean",
+    "INVALID_OPERATOR_REQUEST",
+    "run_after_confirmation must be boolean",
+  );
   return {
     idempotency_key: requireNonEmptyString(body.idempotency_key, "idempotency_key"),
     message_id: requireNonEmptyString(body.message_id, "message_id"),
     content_digest: requireNonEmptyString(body.content_digest, "content_digest"),
+    actor: requireNonEmptyString(body.actor, "actor"),
+    run_after_confirmation: body.run_after_confirmation,
+  };
+}
+
+function normalizeControllerBody(body) {
+  requireExactFields(body, ["idempotency_key", "actor"]);
+  return {
+    idempotency_key: requireNonEmptyString(
+      body.idempotency_key,
+      "idempotency_key",
+    ),
     actor: requireNonEmptyString(body.actor, "actor"),
   };
 }

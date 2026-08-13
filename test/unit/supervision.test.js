@@ -374,7 +374,7 @@ function createState() {
   };
   return {
     change_set_id: "change-1",
-    phase: "working",
+    phase: "running",
     terminal_outcome: null,
     current_plan_revision: 1,
     current_repository_selection_revision: 1,

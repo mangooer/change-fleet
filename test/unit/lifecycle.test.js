@@ -13,9 +13,9 @@ import {
 describe("unified lifecycle transitions", () => {
   test("accepts only the coarse ChangeSet routes", () => {
     const changeSet = { phase: "planning", terminal_outcome: null };
-    setChangeSetPhase(changeSet, "working");
+    setChangeSetPhase(changeSet, "running");
     setChangeSetPhase(changeSet, "review");
-    setChangeSetPhase(changeSet, "working");
+    setChangeSetPhase(changeSet, "running");
     setChangeSetPhase(changeSet, "planning");
     assert.throws(() => setChangeSetPhase(changeSet, "delivery"), {
       code: "INVALID_CHANGE_SET_TRANSITION",
@@ -25,9 +25,9 @@ describe("unified lifecycle transitions", () => {
       code: "INVALID_CHANGE_SET_TRANSITION",
     });
 
-    const delivered = { phase: "delivery", terminal_outcome: null };
-    setChangeSetPhase(delivered, "terminal", "done");
-    assert.equal(delivered.terminal_outcome, "done");
+    const reviewed = { phase: "review", terminal_outcome: null };
+    setChangeSetPhase(reviewed, "terminal", "done");
+    assert.equal(reviewed.terminal_outcome, "done");
   });
 
   test("keeps WorkUnit phase independent from disposition and attempt outcomes", () => {
@@ -130,7 +130,7 @@ describe("unified lifecycle transitions", () => {
 
   test("derives activity from Runs, Gates, Blockers, and exact completion", () => {
     const changeSet = {
-      phase: "working",
+      phase: "running",
       run_references: [],
       gates: [],
       blockers: [],

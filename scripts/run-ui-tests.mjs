@@ -5,10 +5,12 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
 import { ChangeFleetService } from "../src/application/change-fleet-service.js";
+import { AutonomousTaskController } from "../src/application/autonomous-task-controller.js";
 import { ChangeSetViewService } from "../src/application/changeset-view-service.js";
 import { createOperatorApplication } from "../src/application/operator-application.js";
 import { RuntimeAuditQueryService } from "../src/application/runtime-audit-query-service.js";
 import { startLocalConsoleServer } from "../src/cli/local-console-server.js";
+import { TaskControlStore } from "../src/adapters/filesystem/task-control-store.js";
 import {
   FixtureBindingDeliveryGitAdapter,
   ScriptedGithubPullRequestAdapter,
@@ -31,8 +33,9 @@ try {
   browser = await playwright.chromium.launch();
   const page = await browser.newPage();
   page.on("dialog", (dialog) => dialog.accept());
+  const reconnectScenario = await prepareLiveReconnect(page, fixture);
   const refreshAttempts = [];
-  const planningAttempts = [];
+  const taskMessages = [];
   page.on("request", (request) => {
     if (
       request.method() === "POST" &&
@@ -41,28 +44,24 @@ try {
       const payload = request.postDataJSON();
       refreshAttempts.push(payload.idempotency_key);
     }
-    if (
-      request.method() === "POST" &&
-      request.url().endsWith("/planning-messages")
-    ) {
-      planningAttempts.push(request.postDataJSON().idempotency_key);
+    if (request.method() === "POST" && request.url().endsWith("/messages")) {
+      taskMessages.push(request.postDataJSON());
     }
   });
   await page.goto(`http://${server.host}:${server.port}/`, {
-    waitUntil: "networkidle",
+    // 页面持有一个 SSE 长连接，因此不能以 networkidle 作为就绪条件。
+    waitUntil: "domcontentloaded",
   });
-  await page.getByRole("button", { name: "New" }).click();
+  await reconnectScenario.verify();
+  await page.getByRole("button", { name: "新建" }).click();
   await page
-    .getByLabel("Objective")
+    .getByLabel("你希望 Agent 完成什么？")
     .fill("Create and plan one exact task from the browser");
   await page
-    .getByLabel("Acceptance criteria one per line")
-    .fill("Prepare both RepositoryWorkspaces");
-  await page
-    .getByRole("button", { name: "Create and Start Planning" })
+    .getByRole("button", { name: "创建并开始规划" })
     .click();
   await page
-    .getByRole("button", { name: "Start Planning", exact: true })
+    .getByRole("button", { name: "重试规划", exact: true })
     .waitFor();
   const createdChangeSetId = new URL(page.url()).searchParams.get(
     "change_set_id",
@@ -80,27 +79,52 @@ try {
     throw new Error("Failed initial planning did not preserve one retryable ChangeSet.");
   }
   await page
-    .getByRole("button", { name: "Start Planning", exact: true })
+    .getByRole("button", { name: "重试规划", exact: true })
     .click();
-  await page.waitForSelector("text=Exact approval subject");
   await page.waitForSelector("text=The deterministic fixture produced an approvable plan.");
-  if (
-    planningAttempts.length !== 2 ||
-    planningAttempts[0] !== planningAttempts[1]
-  ) {
-    throw new Error("Planning retry did not preserve the same attempt identity.");
+  await assertRunningTimeRefresh(page);
+  await page.waitForSelector("text=待审查", { timeout: 90_000 });
+  if (await page.getByRole("button", { name: "确认计划并自动运行" }).count()) {
+    throw new Error("Ordinary task flow still exposed a manual Plan confirmation action.");
   }
-  await page.reload({ waitUntil: "networkidle" });
-  await page.waitForSelector("text=1/1 turns");
-  await page.getByRole("button", { name: "Approve Exact Plan Message" }).click();
-  await page.waitForSelector("text=current plan");
+  // 当前进度必须是主视图，语义 Plan 只作为不随执行状态伪造变化的参考。
+  await page.waitForSelector(".progress-surface");
+  if ((await page.locator(".plan-reference").count()) !== 1) {
+    throw new Error("The immutable Plan reference was not retained as a secondary panel.");
+  }
+  await page.waitForFunction(
+    () =>
+      document.querySelector(".conversation")?.textContent?.includes("implemented api") &&
+      document.querySelector(".conversation")?.textContent?.includes("implemented web"),
+    undefined,
+    { timeout: 30_000 },
+  );
+  await page.waitForSelector(".review-surface", { timeout: 90_000 });
+  await page.locator("#open-audit").click();
+  await page.waitForSelector(".audit-step");
+  const auditText = await page.locator("#audit-content").innerText();
+  for (const expected of [
+    "任务链路",
+    "implemented api",
+    "项目检查",
+    "无 Agent Token",
+    "Token 未观测",
+  ]) {
+    if (!auditText.includes(expected)) {
+      throw new Error(`Audit workflow ledger did not display ${expected}.`);
+    }
+  }
+  await page.locator("#close-audit").click();
+  if (taskMessages.length !== 1) {
+    throw new Error("Planning recovery was not routed through the single task conversation.");
+  }
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.waitForSelector("text=待审查", { timeout: 90_000 });
   await page.locator('[data-change-set-id="change"]').click();
-  await page.waitForSelector("text=Bundle Subject");
-  await page.waitForSelector("text=Work Units");
+  await page.waitForSelector("text=候选变更");
   await page.waitForSelector("text=api");
   await page.waitForSelector("text=web");
-  await page.getByRole("button", { name: "Accept Bundle" }).click();
-  await page.getByRole("button", { name: "Publish Delivery" }).click();
+  await page.getByRole("button", { name: "接受候选" }).click();
   await page.waitForSelector('a[href^="https://github.com/fixture/api/pull/"]');
   await page.waitForSelector('a[href^="https://github.com/fixture/web/pull/"]');
 
@@ -125,10 +149,7 @@ try {
     ),
   });
 
-  await page.getByRole("button", { name: "Refresh Delivery" }).click();
-  await page.waitForSelector("text=Current state");
-  await page.waitForSelector("text=Per-repository requests 2");
-  await page.waitForSelector("text=Reusing refresh attempt");
+  await page.getByRole("button", { name: "刷新合并状态" }).click();
   await page.waitForSelector("text=merged");
   await page.waitForSelector("text=open");
 
@@ -153,12 +174,11 @@ try {
     ),
   });
 
-  await page.getByRole("button", { name: "Refresh Delivery" }).click();
-  await page.waitForSelector("text=Current state");
+  await page.getByRole("button", { name: "刷新合并状态" }).click();
   await page.waitForFunction(
     () =>
-      Array.from(document.querySelectorAll(".pill")).some(
-        (element) => element.textContent?.trim() === "terminal / complete",
+      Array.from(document.querySelectorAll(".changeset-card p")).some(
+        (element) => element.textContent?.trim() === "已完成",
       ),
     // Playwright 的第二个参数是传给页面函数的值，超时选项必须放在第三个参数。
     undefined,
@@ -202,7 +222,13 @@ try {
 } finally {
   if (browser) await browser.close().catch(() => {});
   if (server) await server.close().catch(() => {});
-  await rm(root, { recursive: true, force: true });
+  // Windows 可能在浏览器或 Git 刚关闭句柄时短暂返回 EBUSY；只对测试临时根做有界重试。
+  await rm(root, {
+    recursive: true,
+    force: true,
+    maxRetries: 5,
+    retryDelay: 200,
+  });
 }
 
 async function createFixture(root) {
@@ -218,6 +244,7 @@ async function createFixture(root) {
   }
   const runtime = new ScriptedRuntime({
     plan: createTwoRepositoryPlan(await writeCombinedCheckScript(root, 2)),
+    executionDelayMs: 7_000,
     planningFailures: [
       null,
       {
@@ -283,6 +310,13 @@ async function createFixture(root) {
     idempotency_key: "execute",
     change_set_id: "change",
   });
+  const taskControlStore = new TaskControlStore(path.join(root, "control"));
+  await taskControlStore.initialize();
+  const taskController = new AutonomousTaskController({
+    service,
+    taskControlStore,
+  });
+  await taskController.start();
   const queryService = new ChangeSetViewService({
     controlStore: service.controlStore,
     runStore: service.runStore,
@@ -292,16 +326,71 @@ async function createFixture(root) {
       evidenceStore: service.evidenceStore,
     }),
     agentProfile: TEST_AGENT_PROFILE,
+    taskControlStore,
+  });
+  const operatorApplication = createOperatorApplication(service, {
+    operationHandlers: {
+      "changeset.create": (request) => taskController.createChangeSet(request),
+      "changeset.message": (request) => taskController.sendTaskMessage(request),
+      "changeset.run.interrupt": (request) => taskController.interruptRun(request),
+      "changeset.controller.run": (request) =>
+        taskController.runTaskController(request),
+      "changeset.close": (request) => taskController.cancelChangeSet(request),
+      "changeset.bundle.decide": (request) =>
+        taskController.recordBundleDecision(request),
+      "changeset.delivery.publish": (request) =>
+        taskController.publishDelivery(request),
+      "changeset.delivery.refresh": (request) =>
+        taskController.refreshDelivery(request),
+    },
   });
   return {
     repositories,
     github,
     service,
-    startServer() {
-      return startLocalConsoleServer({
+    queryService,
+    async startServer() {
+      const localServer = await startLocalConsoleServer({
         queryService,
-        operatorApplication: createOperatorApplication(service),
+        operatorApplication,
       });
+      return {
+        ...localServer,
+        async close() {
+          await taskController.stop();
+          await localServer.close();
+        },
+      };
+    },
+  };
+}
+
+async function prepareLiveReconnect(page, fixture) {
+  let requestCount = 0;
+  let allowReconnect;
+  const reconnectBarrier = new Promise((resolve) => {
+    allowReconnect = resolve;
+  });
+  await page.route("**/api/local/v0/changesets/*/events", async (route) => {
+    requestCount += 1;
+    if (requestCount === 1) {
+      const projection = await fixture.queryService.readLiveTaskView("change");
+      await route.fulfill({
+        status: 200,
+        headers: { "content-type": "text/event-stream; charset=utf-8" },
+        body: `event: task\ndata: ${JSON.stringify(projection)}\n\n`,
+      });
+      return;
+    }
+    if (requestCount === 2) await reconnectBarrier;
+    await route.continue();
+  });
+  return {
+    async verify() {
+      await page.waitForSelector("text=正在自动重连", { timeout: 15_000 });
+      allowReconnect();
+      await page.waitForSelector("text=实时连接正常", { timeout: 15_000 });
+      await page.unroute("**/api/local/v0/changesets/*/events");
     },
   };
 }
@@ -316,6 +405,28 @@ async function createRepository(parent, name) {
   await git(repositoryPath, ["add", "-A"]);
   await git(repositoryPath, ["commit", "-m", "baseline"]);
   return { path: repositoryPath };
+}
+
+async function assertRunningTimeRefresh(page) {
+  const elapsed = page.locator('[data-testid="run-elapsed"]').first();
+  const lastActivity = page.locator('[data-testid="run-last-activity"]').first();
+  await elapsed.waitFor({ timeout: 15_000 });
+  await lastActivity.waitFor({ timeout: 15_000 });
+  const initialElapsed = await elapsed.innerText();
+  const initialLastActivity = await lastActivity.innerText();
+  await page.waitForTimeout(3_100);
+  const nextElapsed = await elapsed.innerText();
+  const nextLastActivity = await lastActivity.innerText();
+  if (initialElapsed === nextElapsed) {
+    throw new Error(
+      `Run elapsed time did not advance without new SSE activity: ${initialElapsed} -> ${nextElapsed}.`,
+    );
+  }
+  if (initialLastActivity === nextLastActivity) {
+    throw new Error(
+      `Last-activity time did not advance without new SSE activity: ${initialLastActivity} -> ${nextLastActivity}.`,
+    );
+  }
 }
 
 async function writeCombinedCheckScript(parent, candidateCount) {

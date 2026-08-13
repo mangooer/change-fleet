@@ -34,7 +34,7 @@ describe("stage-neutral feedback and interruption", () => {
     const submitted = await service.submitFeedback({
       idempotency_key: "feedback-active",
       change_set_id: "change",
-      phase: "working",
+      phase: "running",
       work_unit_id: "api-unit",
       run_id: activeRun.run_id,
       feedback: {
@@ -97,7 +97,7 @@ describe("stage-neutral feedback and interruption", () => {
     assert.deepEqual(await service.interruptRun(request), interrupted);
 
     const stopped = await service.readChangeSet("change");
-    assert.equal(stopped.phase, "working");
+    assert.equal(stopped.phase, "running");
     assert.equal(stopped.work_units[0].phase, "execution");
     assert.equal(stopped.work_units[0].run_references[0].status, "interrupted");
     assert.equal(
@@ -144,7 +144,7 @@ describe("stage-neutral feedback and interruption", () => {
     const submitted = await service.submitFeedback({
       idempotency_key: "feedback-verification-active",
       change_set_id: "change",
-      phase: "working",
+      phase: "running",
       work_unit_id: "api-unit",
       run_id: activeRun.run_id,
       feedback: {

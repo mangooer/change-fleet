@@ -1,88 +1,73 @@
 # Current State
 
-Updated: 2026-08-12
+Updated: 2026-08-13
 
-This project's accepted direction, implementation, active gaps, and the next task. `SPEC.md` owns
-the contract; Decisions own rationale; WorkItems and Git own implementation evidence.
+This project's current implementation projection, active gaps, and next task. `SPEC.md` owns the
+accepted contract; decisions own rationale; WorkItems and Git own execution evidence.
 
 ## Current Baseline
 
-- Completed WI-0022 through [WI-0036](work-items/WI-0036-candidate-bound-feedback-repair.md) leave no
-  compatibility path: verification and feedback bind exact Candidates, clean retry survives restart,
-  and Core does not parse target-project Harness formats.
-- Completed [WI-0037](work-items/WI-0037-persistent-task-workspaces-and-semantic-plans.md) implements
-  accepted Proposal 0028 and Decision 0030 as one atomic workspace and Planner-contract
-  replacement.
-- Completed [WI-0038](work-items/WI-0038-active-supervision-time-and-effective-feedback-budget.md)
+- Completed WI-0022 through [WI-0036](work-items/WI-0036-candidate-bound-feedback-repair.md) leave
+  no compatibility path: verification and feedback bind exact Candidates, clean retry survives
+  restart, and Core does not parse target-project Harness formats.
+- Completed [WI-0037](work-items/WI-0037-persistent-task-workspaces-and-semantic-plans.md)
+  implements accepted Proposal 0028 and Decision 0030 as one persistent task workspace plus
+  semantic Plan contract replacement.
+- Completed
+  [WI-0038](work-items/WI-0038-active-supervision-time-and-effective-feedback-budget.md)
   corrects autonomous elapsed-time accounting and exposes effective Feedback capacity under the
   total execution-Run ceiling.
-- Structural preflight is mandatory. Project semantic commands are optional Plan selections;
+- Structural preflight is mandatory. Project semantic commands remain optional Plan selections, and
   commandless validation records real attempts without fake command metadata.
 - Agent Runtimes own semantic work. ChangeFleet owns cross-repository authorization, revisions,
-  scheduling, exact Git and Bundle subjects, evidence, recovery, and human gates.
+  exact Git and Bundle subjects, evidence, recovery, and human gates.
 
 ## Branch-Local Work
 
-- Accepted [0029](proposals/0029-local-changeset-intake-and-conversational-planning.md) is recorded
-  by Decision 0031. Confirmed
-  [WI-0039](work-items/WI-0039-local-changeset-intake-and-conversational-planning.md) is accepted and
-  complete branch-locally. It adds safe existing-Project intake, bounded planning conversation,
-  partial-failure retry, and the adjacent Planner reply projection without changing lifecycle
-  authority.
+- Completed [WI-0040](work-items/WI-0040-unified-task-control-local-vertical-slice.md) implements
+  accepted Proposal 0030 and Decision 0032 on `codex/wi-0040-unified-task-control`; it replaces the
+  operation-oriented local route with one task-first controller flow. Its first bounded real local
+  self-iteration and Harness calibration have landed on that branch.
+- Accepted [0031](proposals/0031-autonomous-task-conversation-and-operator-inbox.md) is recorded by
+  Decision 0033. Completed
+  [WI-0041](work-items/WI-0041-autonomous-task-conversation-local-vertical-slice.md) on
+  `codex/wi-0041-autonomous-task-conversation` atomically replaces the ordinary local route with
+  policy-activated Plans, one asynchronous task conversation, six operator states, and recoverable
+  Delivery. Its deterministic full check passes; paid Provider and real GitHub use remain a later
+  bounded gate.
+- Completed
+  [WI-0042](work-items/WI-0042-autonomous-correction-and-observable-run-ledger.md) on the same
+  branch closes the first bounded real WI-0041 self-iteration findings: exact Verification and
+  Bundle-review feedback now continues within the existing repair budget, live connection health
+  is distinct from Agent activity, and the read-only audit view exposes a chronological task
+  ledger without entering Runtime context.
+- Completed
+  [WI-0043](work-items/WI-0043-live-run-time-anchors-and-browser-refresh.md) on the same branch
+  tightens the live read-model dependency on exact Run reads, keeps elapsed/last-activity timing
+  visible during quiet SSE windows through browser-local ticking, and records the follow-up in the
+  same Candidate as its focused regression coverage.
 
-## Accepted Product Direction
+## Current Implementation Focus
 
-- Managed Runs receive compact current control facts; referenced history stays out of default
-  context. ChangeFleet does not maintain registered-repository Harness.
-- Agent Profiles select explicit host-user or constrained Runtime permissions. Planning writes are
-  non-authoritative; execution accepts only its isolated WorkUnit workspace Git subject.
-- Initial context targets at most 70 percent usage and records `enforced | estimated | unknown`.
-- Tracker integrations remain edge projections, not ChangeSet authority.
-- A Project binds registered Repositories. Task creation selects a non-empty subset before planning;
-  single-Repository work is valid and scope expansion remains typed.
-- ChangeSet creation freezes visible Repositories, branches, base SHAs, and targets. Agents cannot
-  replace them and dirty checkout files are excluded.
-- Optional confirmed Repository Harness policies may freeze contained Git-ignored Codex resources
-  as immutable ChangeSet input; they are never reread live, written back, or delivered.
-- Exact approval of a planning message creates a Plan revision. Ordinary feedback handling stays
-  under it; feedback is assessed, and only contract invalidation returns to planning.
-- WorkUnits may run in parallel; delivery to one `repository_id + target_ref` is serialized, and
-  cross-repository compensation never promises universal atomic rollback.
-- GitHub delivery publishes exact Candidates to human-merged PRs and records bounded results.
-- A loopback console and experimental CLI use shared operations. The branch-local console can create
-  an existing-Project ChangeSet and conduct bounded planning conversation; debug audit stays
-  isolated and read-only.
-- The first production Provider uses the pinned Codex SDK, a narrow Runtime port, one fresh thread
-  per attempt, structured outcomes, persistent exact-base task worktrees, and WorkUnit-scoped writes.
-- Controller loss abandons incomplete attempts; blind session resume remains deferred.
-- Human closure and ordinary later task creation are separate; generic restart and fork are deferred.
-- Decisions 0020 and 0021 keep Provider environments and OS permissions Provider-owned. Worktrees
-  isolate development state; explicit AgentProfiles select host or constrained execution.
-- Execution may report a strict blocked result. Base-equal or empty implementation output is not a
-  CandidateCheckpoint and cannot enter validation or review.
-- Candidate verification freezes exact-checkpoint admission, requested checks, and separate Runtime
-  usage. Structural preflight is mandatory; project commands are optional. Actionable review becomes
-  Feedback and returns through execution and verification without adding lifecycle phases.
-- Decision 0026 defines task-configured Agentic supervision: the deterministic kernel offers exact
-  authorized actions, forced actions avoid a model call, and a read-only Supervisor Agent selects
-  only when bounded semantic alternatives remain.
-- Decision 0027 adds optional task-configured Bundle quality review. One exact read-only Review Run
-  may recommend passage, route bounded Feedback, or request a Gate; human Bundle acceptance remains
-  explicit.
-- Decision 0030 makes each ChangeSet own one persistent multi-Repository task workspace. Plans are
-  semantic Agent guidance; exact execution configuration and WorkUnit creation remain Core-owned.
-
-## Accepted Decisions
-
-- The [Decision Index](decisions/README.md) owns rationale. Decision 0030 owns persistent
-  TaskWorkspaces and semantic Plans; Decision 0031 accepts local ChangeSet intake and planning.
-
-## Repository Design Proposals
-
-- The [Proposal Index](proposals/INDEX.md) owns chronology; Decisions retain superseded, rejected,
-  and deferred boundaries.
-- Accepted Proposals 0026 through 0029 are recorded by Decisions 0028 through 0031 and implemented
-  by completed WorkItems through WI-0039.
+- Managed Runs receive compact current control facts instead of default history replay.
+- Planning remains non-authoritative; execution accepts Git changes only from the assigned WorkUnit
+  workspace subject.
+- ChangeSet creation freezes visible repositories, branches, base SHAs, and targets; optional
+  confirmed Repository Harness overlays stay immutable input only.
+- Verification and review bind exact Candidates, selected checks, and separate Runtime usage.
+- The branch-local operator route durably accepts commands, automatically binds ready Plans, stops
+  for human input, uses one safe conversation over separate internal Runs, and advances through
+  review and authorized Delivery without routine operation clicks. Clear review findings return to
+  execution automatically until their existing budget is exhausted.
+- The task page prioritizes current progress and safe live activity over the immutable Plan
+  reference. Stable Agent summaries enter the ordinary conversation, while per-Run and project
+  check results, timing, Runtime identity, and token observations remain audit-only.
+- Running-task projections now expose Run start and recent-activity anchors for browser-local
+  relative-time refresh without writing new business state or Agent context.
+- Default views expose only six operator states with deterministic reasons; exact lifecycle, Run,
+  Candidate, Bundle, delivery, and audit facts remain separate authority.
+- Authority chronology stays in the [Decision Index](decisions/README.md) and
+  [Proposal Index](proposals/INDEX.md) rather than this projection.
 
 ## Open Questions
 
@@ -92,14 +77,15 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 ## Known Limitations
 
 - Git URLs, remote workers, merge, deployment, service graph, and stacked ChangeSets are deferred.
-- Native-Windows single-Repository use passed; other hosts and paid multi-Repository work are unverified.
+- Native-Windows single-Repository use passed; other hosts and paid multi-Repository work are
+  unverified.
 - Codex SDK usage is aggregate-only; effective model and universal host read-denial remain unknown.
-- Bundle-level independent quality review currently supports one selected reviewer and bounded
-  repair. Multiple reviewers, Candidate comparison, normalized scoring, and automatic model routing
-  remain deferred. Local UI support for arbitrary Feedback and Gate resolution stays intentionally
-  minimal; transport operations already share the same application boundary.
-- Provider-native live feedback steering and durable session continuation remain optimizations;
-  current feedback is queued for another same-phase Run.
+- Bundle-level independent quality review supports one selected reviewer and bounded repair.
+  Multiple reviewers, Candidate comparison, normalized scoring, and automatic model routing remain
+  deferred.
+- Provider-native text streaming, live feedback steering, and durable Provider-session continuation
+  remain optimizations. The persisted task timeline contains safe completed messages and status
+  events; SSE streams sanitized activity, not raw reasoning or provider-thread control.
 - Simultaneous independent WorkUnit Provider dispatch remains unproven; the foreground scheduler
   still advances exact eligible units serially.
 - Runtime Kit, Codex App Server, another Provider, Linear, pricing, dashboards, and continuous
@@ -109,14 +95,16 @@ the contract; Decisions own rationale; WorkItems and Git own implementation evid
 
 ## Next Recommended Task
 
-Merge the exact WI-0039 Candidate, then run one bounded real self-iteration from local intake
-through Bundle review. Use that operator-path evidence to distinguish usability defects from the
-next product boundary before drafting another Proposal.
+Commit WI-0043 as the next exact baseline, then run one tighter-budget real self-iteration that
+intentionally exercises a clear Verification repair while observing the updated live timing panel.
+Preserve the failed WI-0041 ChangeSet as audit evidence instead of manually advancing it.
 
 ## Maintenance Contract
 
 Before reporting changes ready:
 
 - follow `docs/harness.md` loading and size rules;
-- keep accepted baseline, branch-local work, open gaps, and one next task distinct;
+- keep baseline, branch-local work, open gaps, and one next task distinct;
+- route rationale to the Decision Index and chronology to the Proposal Index instead of repeating
+  them here;
 - put detailed evidence in the active WorkItem and Git rather than this projection.

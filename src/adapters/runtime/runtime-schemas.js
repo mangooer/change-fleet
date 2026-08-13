@@ -58,6 +58,29 @@ const PLAN_SCHEMA = Object.freeze({
   additionalProperties: false,
 });
 
+const INTENT_DRAFT_SCHEMA = Object.freeze({
+  type: "object",
+  properties: {
+    objective: { type: "string" },
+    rationale: { anyOf: [{ type: "string" }, { type: "null" }] },
+    constraints: STRING_ARRAY_SCHEMA,
+    non_goals: STRING_ARRAY_SCHEMA,
+    acceptance_criteria: STRING_ARRAY_SCHEMA,
+    resolved_decisions: STRING_ARRAY_SCHEMA,
+    open_questions: STRING_ARRAY_SCHEMA,
+  },
+  required: [
+    "objective",
+    "rationale",
+    "constraints",
+    "non_goals",
+    "acceptance_criteria",
+    "resolved_decisions",
+    "open_questions",
+  ],
+  additionalProperties: false,
+});
+
 const REPOSITORY_SELECTION_REQUEST_SCHEMA = Object.freeze({
   type: "object",
   properties: {
@@ -98,10 +121,12 @@ export const PLANNING_OUTCOME_SCHEMA = Object.freeze({
         {
           type: "object",
           properties: {
+            disposition: { type: "string", enum: ["ready", "needs_input"] },
             text: { type: "string" },
+            intent_draft: INTENT_DRAFT_SCHEMA,
             plan: { anyOf: [PLAN_SCHEMA, { type: "null" }] },
           },
-          required: ["text", "plan"],
+          required: ["disposition", "text", "intent_draft", "plan"],
           additionalProperties: false,
         },
         { type: "null" },
@@ -449,12 +474,22 @@ export function assertStructuredOutcome(operation, outcome) {
   if (operation === "planning" && outcome.type === "conversation_message") {
     if (
       !outcome.message ||
+      !["ready", "needs_input"].includes(outcome.message.disposition) ||
       typeof outcome.message.text !== "string" ||
+      !outcome.message.intent_draft ||
       !("plan" in outcome.message) ||
       outcome.request !== null
     ) {
       throw new Error(
         "conversation_message requires one message and a null request",
+      );
+    }
+    if (
+      (outcome.message.disposition === "ready") !==
+      (outcome.message.plan !== null)
+    ) {
+      throw new Error(
+        "planning disposition must match whether the message contains a Plan",
       );
     }
     return outcome;
