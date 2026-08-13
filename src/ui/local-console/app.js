@@ -10,6 +10,13 @@ import {
   markLiveRecoveryComplete,
   reconnectDelayMs,
 } from "./live-connection.js";
+import {
+  agentTokenLabel,
+  compactMetrics,
+  compactUsageLabel,
+  formatMetricValue,
+  metricLabel,
+} from "./usage-presentation.js";
 
 const bootstrap = readBootstrap();
 
@@ -217,7 +224,7 @@ function renderDetail() {
         <div class="task-subline">
           <span class="pill ${pillClass(status.kind)}">${escapeHtml(status.label)}</span>
           <span>${escapeHtml(runtimeLabel(profile))}</span>
-          <span>${formatNumber(metrics.tokens)} tokens</span>
+          <span>${escapeHtml(compactUsageLabel(metrics))}</span>
           <span>${formatDuration(metrics.duration_ms)}</span>
           <span>${metrics.runs} 次运行</span>
           <span>${metrics.failures} 次失败/中断</span>
@@ -825,8 +832,9 @@ async function openAuditDialog() {
   elements.auditContent.innerHTML = `
     <div class="section-title"><div><p class="eyebrow">Audit</p><h2>任务审计</h2></div><button id="close-audit" class="icon-button" type="button">×</button></div>
     <div class="metric-grid">${Object.entries(compactMetrics(audit))
-      .map(([key, value]) => `<div><span>${escapeHtml(metricLabel(key))}</span><strong>${escapeHtml(formatNumber(value))}</strong></div>`)
+      .map(([key, value]) => `<div><span>${escapeHtml(metricLabel(key))}</span><strong>${escapeHtml(formatMetricValue(value))}</strong></div>`)
       .join("")}</div>
+    <p class="muted">Provider 金额未观测。Token 流量是各 Run 累计的模型输入与输出，不等于账单金额；非缓存输入由已观测输入减去其缓存子集得到。</p>
     <section class="audit-ledger"><div class="section-title"><div><p class="eyebrow">Workflow ledger</p><h3>任务链路</h3></div></div>${renderAuditLedger(audit.payload.workflow?.rows ?? [])}</section>
     <details><summary>确定性验证证据</summary>${renderValidationLedger(audit.payload.validation?.rows ?? [])}</details>
     <details><summary>精确运行数据</summary><pre>${escapeHtml(JSON.stringify(audit.payload.runs, null, 2))}</pre></details>
@@ -1187,19 +1195,6 @@ function formatConnectionTimestamp(value) {
   return `最近联机 ${formatRelativeTime(value)}`;
 }
 
-function compactMetrics(audit) {
-  const outcomes = audit?.payload?.outcomes ?? {};
-  const attempts = outcomes.runtime_attempts ?? {};
-  const feedback = outcomes.feedback_execution ?? {};
-  return {
-    tokens: audit?.payload?.usage?.observed_total_tokens ?? 0,
-    runs: audit?.payload?.runs?.referenced_count ?? 0,
-    failures: (attempts.failed ?? 0) + (attempts.interrupted ?? 0) + (attempts.cancelled ?? 0),
-    rework: Object.values(feedback).reduce((sum, value) => sum + value, 0),
-    duration_ms: audit?.payload?.timing?.provider_duration_sum?.observed_sum ?? 0,
-  };
-}
-
 function taskStatus(item) {
   const projected = {
     running: { kind: "running", label: "进行中" },
@@ -1274,14 +1269,6 @@ function validationModeLabel(value) {
   );
 }
 
-function agentTokenLabel(usage, isValidation) {
-  if (isValidation) return "无 Agent Token";
-  if (usage?.total_tokens === null || usage?.total_tokens === undefined) {
-    return "Token 未观测";
-  }
-  return `${formatNumber(usage.total_tokens)} tokens`;
-}
-
 function activityLabel(event) {
   if (!event) return "正在准备";
   if (event.item_type === "command_execution") return event.exit_code === null ? "正在执行命令" : `命令结束 (${event.exit_code})`;
@@ -1293,10 +1280,6 @@ function activityLabel(event) {
 
 function deliveryLabel(value) {
   return ({ ready: "可交付", running: "等待合并", blocked: "交付受阻", complete: "已合并" })[value] ?? value;
-}
-
-function metricLabel(value) {
-  return ({ tokens: "Token 总计", runs: "运行次数", failures: "失败/中断", rework: "返工次数", duration_ms: "Provider 时长 (ms)" })[value] ?? value;
 }
 
 function formatRelativeTime(value) {

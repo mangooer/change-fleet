@@ -6,6 +6,7 @@ const ASSETS = Object.freeze(
     ["app.css", "app.css"],
     ["app.js", "app.js"],
     ["live-connection.js", "live-connection.js"],
+    ["usage-presentation.js", "usage-presentation.js"],
   ]),
 );
 

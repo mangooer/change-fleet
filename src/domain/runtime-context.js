@@ -3,7 +3,7 @@ import { invariant } from "./errors.js";
 
 // Runtime 只接收当前操作所需投影；完整历史留在控制存储中按引用读取。
 export const CONTROL_CONTRACT_VERSION = 6;
-export const CONTEXT_PROJECTION_VERSION = 14;
+export const CONTEXT_PROJECTION_VERSION = 15;
 const RUNTIME_EXCLUDED_DECISION_TYPES = new Set([
   "bundle_review",
   "changeset_closure",
@@ -154,11 +154,11 @@ function projectBlocker(blocker) {
 
 function projectWorkUnit(workUnit) {
   if (!workUnit) return null;
+  // 语义执行内容只保留在 current_plan；WorkUnit 投影仅携带仓库级控制身份，避免每轮重复同一 Plan 文本。
   return Object.fromEntries(
     [
       "work_unit_id",
       "repository_id",
-      "task",
       "target_ref",
       "base_sha",
       "repository_selection_revision",

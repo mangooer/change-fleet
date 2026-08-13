@@ -33,7 +33,7 @@ try {
   browser = await playwright.chromium.launch();
   const page = await browser.newPage();
   page.on("dialog", (dialog) => dialog.accept());
-  const reconnectScenario = await prepareLiveReconnect(page, fixture);
+  const reconnectScenario = await prepareLiveReconnect(page);
   const refreshAttempts = [];
   const taskMessages = [];
   page.on("request", (request) => {
@@ -108,11 +108,16 @@ try {
     "implemented api",
     "项目检查",
     "无 Agent Token",
-    "Token 未观测",
+    "Token 用量未观测",
+    "已观测 Token 流量（非金额）",
+    "Provider 金额未观测",
   ]) {
     if (!auditText.includes(expected)) {
       throw new Error(`Audit workflow ledger did not display ${expected}.`);
     }
+  }
+  if (auditText.includes("Token 总计")) {
+    throw new Error("Audit still presented aggregate token traffic as an unqualified total.");
   }
   await page.locator("#close-audit").click();
   if (taskMessages.length !== 1) {
@@ -365,7 +370,7 @@ async function createFixture(root) {
   };
 }
 
-async function prepareLiveReconnect(page, fixture) {
+async function prepareLiveReconnect(page) {
   let requestCount = 0;
   let allowReconnect;
   const reconnectBarrier = new Promise((resolve) => {
@@ -374,20 +379,26 @@ async function prepareLiveReconnect(page, fixture) {
   await page.route("**/api/local/v0/changesets/*/events", async (route) => {
     requestCount += 1;
     if (requestCount === 1) {
-      const projection = await fixture.queryService.readLiveTaskView("change");
-      await route.fulfill({
-        status: 200,
-        headers: { "content-type": "text/event-stream; charset=utf-8" },
-        body: `event: task\ndata: ${JSON.stringify(projection)}\n\n`,
-      });
+      // 显式制造一次初始连接失败；有限 SSE 响应的自然关闭时机在不同 Node/Chromium
+      // 调度下并不稳定，不能作为重连测试的隐含时钟。
+      await route.abort("connectionfailed");
       return;
     }
+    // 第二次请求停在网络边界，确保页面有确定的“正在自动重连”可观察窗口。
     if (requestCount === 2) await reconnectBarrier;
     await route.continue();
   });
   return {
     async verify() {
-      await page.waitForSelector("text=正在自动重连", { timeout: 15_000 });
+      try {
+        await page.waitForSelector("text=正在自动重连", { timeout: 15_000 });
+      } catch (error) {
+        const statusText = await page.locator("#status").innerText().catch(() => "unavailable");
+        throw new Error(
+          `Automatic reconnect was not visible; requests=${requestCount}; status=${statusText}`,
+          { cause: error },
+        );
+      }
       allowReconnect();
       await page.waitForSelector("text=实时连接正常", { timeout: 15_000 });
       await page.unroute("**/api/local/v0/changesets/*/events");

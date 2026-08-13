@@ -200,6 +200,45 @@ describe("Runtime context admission", () => {
     assert.equal(JSON.stringify(result).includes("run-cost-history"), false);
   });
 
+  test("projects one semantic execution plan without a duplicate WorkUnit task", () => {
+    // WorkUnit 持久状态仍可拥有 task，但 Runtime 投影只能保留一份语义 Plan。
+    const repeatedTask = "Implement the requested API behavior.";
+    const result = createContextProjection({
+      operation: "execution",
+      changeSet,
+      plan: {
+        revision: 1,
+        semantic_plan: {
+          summary: repeatedTask,
+          steps: ["Update the API implementation."],
+          validation: ["Run the repository-native API checks."],
+          risks: [],
+          assumptions: [],
+          revision_feedback_assessments: [],
+        },
+      },
+      workUnit: {
+        work_unit_id: "api-unit",
+        repository_id: "api",
+        task: repeatedTask,
+        target_ref: "main",
+        base_sha: "a".repeat(40),
+        plan_revision: 1,
+        phase: "execution",
+        disposition: "current",
+      },
+      repositorySelection: projection.repository_selection,
+      repositoryHarnessSelection: projection.repository_harness_selection,
+      repositories: projection.repositories,
+      capability: { mode: "read_write" },
+      requiredEvidence: ["candidate"],
+    });
+
+    assert.equal(result.current_plan.summary, repeatedTask);
+    assert.equal("task" in result.work_unit, false);
+    assert.equal(JSON.stringify(result).split(repeatedTask).length - 1, 1);
+  });
+
   test("records unknown evidence without inventing a denominator", () => {
     const evidence = assessInitialContext({
       controlContract,

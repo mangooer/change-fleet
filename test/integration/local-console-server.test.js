@@ -366,6 +366,8 @@ describe("local console server", () => {
     try {
       const html = await fetchText(server, "/");
       const bootstrap = extractBootstrap(html);
+      const usageModule = await fetchText(server, "/usage-presentation.js");
+      assert.match(usageModule, /export function compactMetrics/u);
       const sessionHeaders = {
         "X-ChangeFleet-Session": bootstrap.session_nonce,
         "X-ChangeFleet-CSRF": bootstrap.csrf_nonce,

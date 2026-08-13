@@ -364,6 +364,12 @@ describe("Codex SDK Runtime protocol", () => {
       /fully assessed feedback execution that needs no Git change is valid/u,
     );
     assert.match(prompts[0], /do not rewrite unrelated Plan work/u);
+    assert.match(prompts[0], /Implement the supplied current_plan/u);
+    // 同一语义摘要只能来自序列化后的 current_plan，执行指令不得再次插值复制。
+    assert.equal(
+      prompts[0].split("Handle the API compatibility feedback").length - 1,
+      1,
+    );
     assert.match(
       prompts[0],
       /Ensure this Candidate satisfies those project-owned requirements before reporting completion/u,
@@ -664,7 +670,16 @@ function feedbackExecutionInvocation(repositoryPath) {
     context_projection: {
       schema_version: 10,
       operation: "execution",
-      work_unit: { task: "Handle the API compatibility feedback" },
+      current_plan: {
+        revision: 1,
+        summary: "Handle the API compatibility feedback",
+        steps: ["Apply the compatible API correction."],
+        validation: ["Run the repository-native compatibility checks."],
+        risks: [],
+        assumptions: [],
+        revision_feedback_assessments: [],
+      },
+      work_unit: { work_unit_id: "api-unit", repository_id: "api" },
       repositories: [{ repository_id: "api", root_path: repositoryPath }],
       feedback: {
         feedback_id: "feedback-1",

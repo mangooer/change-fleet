@@ -19,6 +19,7 @@ const GET_ROUTES = Object.freeze([
   /^\/app\.css$/u,
   /^\/app\.js$/u,
   /^\/live-connection\.js$/u,
+  /^\/usage-presentation\.js$/u,
   /^\/api\/local\/v0\/intake\/options$/u,
   /^\/api\/local\/v0\/changesets$/u,
   /^\/api\/local\/v0\/changesets\/[A-Za-z0-9._-]+$/u,
@@ -118,6 +119,13 @@ export async function startLocalConsoleServer({
       }
       if (request.method === "GET" && requestUrl.pathname === "/live-connection.js") {
         const asset = await readConsoleAsset("live-connection.js");
+        invariant(asset !== null, "CHANGE_SET_NOT_FOUND", "Console script is missing");
+        sendText(response, 200, asset, "text/javascript; charset=utf-8");
+        return;
+      }
+      if (request.method === "GET" && requestUrl.pathname === "/usage-presentation.js") {
+        // 浏览器原生 ESM 的每个依赖都必须经过同一静态白名单，不能退化为任意文件读取。
+        const asset = await readConsoleAsset("usage-presentation.js");
         invariant(asset !== null, "CHANGE_SET_NOT_FOUND", "Console script is missing");
         sendText(response, 200, asset, "text/javascript; charset=utf-8");
         return;

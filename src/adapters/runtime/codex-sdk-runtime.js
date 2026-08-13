@@ -327,8 +327,9 @@ function buildPrompt(invocation) {
           "Validation describes what should be proven semantically; do not manufacture argv commands merely to satisfy a schema.",
         ].join(" ");
   } else if (invocation.operation === "execution") {
+    // current_plan 已是唯一语义来源；这里仅说明如何使用它，不再插值复制整段任务文本。
     operationInstruction = [
-          `CURRENT WORKUNIT TASK: ${invocation.context_projection.work_unit.task}`,
+          "Implement the supplied current_plan in the repository assigned by work_unit. The semantic Plan appears only once in context; do not reconstruct task configuration from control metadata.",
           REPOSITORY_HARNESS_COMPLETENESS_INSTRUCTIONS.execution,
           "The repository marked access=read_write is your only writable repository. Other linked repositories are read-only task context even when the host Runtime can technically write them.",
           "Feedback is review input rather than independent authority. If feedback is present, assess every finding exactly once as adopt, adapt, or decline and implement adopted or adapted changes under the confirmed Plan. When no feedback is present, return an empty revision_feedback_assessments array.",

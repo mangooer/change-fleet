@@ -17,6 +17,9 @@ accepted contract; decisions own rationale; WorkItems and Git own execution evid
   [WI-0038](work-items/WI-0038-active-supervision-time-and-effective-feedback-budget.md)
   corrects autonomous elapsed-time accounting and exposes effective Feedback capacity under the
   total execution-Run ceiling.
+- Merged [WI-0040](work-items/WI-0040-unified-task-control-local-vertical-slice.md) through
+  [WI-0043](work-items/WI-0043-live-run-time-anchors-and-browser-refresh.md) provide the current
+  task-first local console, autonomous repair, chronological audit ledger, and live Run timing.
 - Structural preflight is mandatory. Project semantic commands remain optional Plan selections, and
   commandless validation records real attempts without fake command metadata.
 - Agent Runtimes own semantic work. ChangeFleet owns cross-repository authorization, revisions,
@@ -24,28 +27,10 @@ accepted contract; decisions own rationale; WorkItems and Git own execution evid
 
 ## Branch-Local Work
 
-- Completed [WI-0040](work-items/WI-0040-unified-task-control-local-vertical-slice.md) implements
-  accepted Proposal 0030 and Decision 0032 on `codex/wi-0040-unified-task-control`; it replaces the
-  operation-oriented local route with one task-first controller flow. Its first bounded real local
-  self-iteration and Harness calibration have landed on that branch.
-- Accepted [0031](proposals/0031-autonomous-task-conversation-and-operator-inbox.md) is recorded by
-  Decision 0033. Completed
-  [WI-0041](work-items/WI-0041-autonomous-task-conversation-local-vertical-slice.md) on
-  `codex/wi-0041-autonomous-task-conversation` atomically replaces the ordinary local route with
-  policy-activated Plans, one asynchronous task conversation, six operator states, and recoverable
-  Delivery. Its deterministic full check passes; paid Provider and real GitHub use remain a later
-  bounded gate.
 - Completed
-  [WI-0042](work-items/WI-0042-autonomous-correction-and-observable-run-ledger.md) on the same
-  branch closes the first bounded real WI-0041 self-iteration findings: exact Verification and
-  Bundle-review feedback now continues within the existing repair budget, live connection health
-  is distinct from Agent activity, and the read-only audit view exposes a chronological task
-  ledger without entering Runtime context.
-- Completed
-  [WI-0043](work-items/WI-0043-live-run-time-anchors-and-browser-refresh.md) on the same branch
-  tightens the live read-model dependency on exact Run reads, keeps elapsed/last-activity timing
-  visible during quiet SSE windows through browser-local ticking, and records the follow-up in the
-  same Candidate as its focused regression coverage.
+  [WI-0044](work-items/WI-0044-runtime-cost-attribution-and-context-deduplication.md) on
+  `codex/wi-0044-runtime-cost-clarity` removes duplicated execution Plan text from Runtime context
+  and replaces the console's ambiguous token total with honest observed usage dimensions.
 
 ## Current Implementation Focus
 
@@ -62,6 +47,10 @@ accepted contract; decisions own rationale; WorkItems and Git own execution evid
 - The task page prioritizes current progress and safe live activity over the immutable Plan
   reference. Stable Agent summaries enter the ordinary conversation, while per-Run and project
   check results, timing, Runtime identity, and token observations remain audit-only.
+- Execution context now carries semantic work once in `current_plan`; projected WorkUnit control
+  identity no longer repeats the same compiled task text.
+- Ordinary usage display separates non-cached input and output. Exact audit labels aggregate token
+  traffic as non-monetary, preserves unknown coverage, and keeps Provider pricing out of context.
 - Running-task projections now expose Run start and recent-activity anchors for browser-local
   relative-time refresh without writing new business state or Agent context.
 - Default views expose only six operator states with deterministic reasons; exact lifecycle, Run,
@@ -95,9 +84,10 @@ accepted contract; decisions own rationale; WorkItems and Git own execution evid
 
 ## Next Recommended Task
 
-Commit WI-0043 as the next exact baseline, then run one tighter-budget real self-iteration that
-intentionally exercises a clear Verification repair while observing the updated live timing panel.
-Preserve the failed WI-0041 ChangeSet as audit evidence instead of manually advancing it.
+Merge WI-0044, then use one explicitly bounded real self-iteration to compare non-cached input,
+output, command activity, Provider duration, and repair count against the preserved WI-0041 audit.
+Only propose a new Runtime resource-budget boundary if the remaining measured loop cost justifies
+it; do not infer monetary cost from token traffic.
 
 ## Maintenance Contract
 
