@@ -39,6 +39,7 @@ projection.
 | [0031](0031-local-changeset-intake-and-conversational-planning.md) | Local ChangeSet intake and conversational planning | Accepted |
 | [0032](0032-unified-task-control-and-conversational-operator-flow.md) | Unified task control and conversational operator flow | Accepted |
 | [0033](0033-autonomous-task-conversation-and-operator-inbox.md) | Autonomous task conversation and six-state operator inbox | Accepted |
+| [0034](0034-freeze-operator-surface-and-validate-second-scenario.md) | Freeze console/audit/overlay feature work, decision moratorium, second-scenario validation | Accepted |
 
 Changing one of these boundaries requires a proposal. When a decision is superseded, preserve this
 record and point to the later accepted authority.
