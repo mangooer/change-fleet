@@ -78,6 +78,9 @@ scope, architecture, or high-risk work.
 Prefer one end-to-end vertical slice over broad scaffolding. Do not add speculative provider,
 TaskSource, database, UI, PR, deployment, compatibility, or framework-detection abstractions.
 
+Freeze (Decision 0034): no new console, audit, or Harness-overlay feature WorkItems; new Decisions
+only when a proposal revises an accepted boundary.
+
 Use stable logical ids in persisted state. Host paths and provider session ids are locators, not
 durable identity. Keep complete logs, diffs, transcripts, and large Agent output in linked
 artifacts, not aggregate state or startup documents.

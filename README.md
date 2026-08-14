@@ -45,6 +45,11 @@ policy can freeze bounded Git-ignored Codex instructions or Skills at ChangeSet 
 them only in ChangeFleet-owned workspaces, and remove them before Candidate publication. Non-Git
 Harness is never written back or delivered.
 
+Accepted [Proposal 0032](docs/proposals/0032-freeze-operator-surface-and-validate-second-scenario.md)
+(Decision 0034) freezes feature work on the console, audit presentation, and Harness overlay and
+adopts a decision moratorium; the next objective is one real ChangeSet against a non-self
+repository.
+
 ## Start Here
 
 For human orientation:

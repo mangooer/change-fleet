@@ -1,6 +1,6 @@
 # Current State
 
-Updated: 2026-08-13
+Updated: 2026-08-14
 
 This project's current implementation projection, active gaps, and next task. `SPEC.md` owns the
 accepted contract; decisions own rationale; WorkItems and Git own execution evidence.
@@ -31,6 +31,11 @@ accepted contract; decisions own rationale; WorkItems and Git own execution evid
   [WI-0044](work-items/WI-0044-runtime-cost-attribution-and-context-deduplication.md) on
   `codex/wi-0044-runtime-cost-clarity` removes duplicated execution Plan text from Runtime context
   and replaces the console's ambiguous token total with honest observed usage dimensions.
+- [Proposal 0032](proposals/0032-freeze-operator-surface-and-validate-second-scenario.md) is
+  `accepted` (Decision 0034): console, audit-presentation, and Harness-overlay feature work is
+  frozen and a decision moratorium applies.
+  [WI-0045](work-items/WI-0045-governance-freeze-amendment.md) records the Harness amendment;
+  [WI-0046](work-items/WI-0046-second-scenario-validation.md) awaits a human repository choice.
 
 ## Current Implementation Focus
 
@@ -55,6 +60,8 @@ accepted contract; decisions own rationale; WorkItems and Git own execution evid
   relative-time refresh without writing new business state or Agent context.
 - Default views expose only six operator states with deterministic reasons; exact lifecycle, Run,
   Candidate, Bundle, delivery, and audit facts remain separate authority.
+- Proposal 0032 freezes console, audit-presentation, and Harness-overlay feature work; new Decision
+  records require an actual boundary change.
 - Authority chronology stays in the [Decision Index](decisions/README.md) and
   [Proposal Index](proposals/INDEX.md) rather than this projection.
 
@@ -84,10 +91,9 @@ accepted contract; decisions own rationale; WorkItems and Git own execution evid
 
 ## Next Recommended Task
 
-Merge WI-0044, then use one explicitly bounded real self-iteration to compare non-cached input,
-output, command activity, Provider duration, and repair count against the preserved WI-0041 audit.
-Only propose a new Runtime resource-budget boundary if the remaining measured loop cost justifies
-it; do not infer monetary cost from token traffic.
+Merge WI-0044, then complete WI-0046: one bounded real ChangeSet against a human-chosen registered
+non-self repository, recording exact gaps as evidence for the next proposal. Do not open the
+deferred list or lift any Proposal 0032 freeze before that evidence exists.
 
 ## Maintenance Contract
 

@@ -325,6 +325,21 @@ than eager Harness context. Runtime Kit packaging, general workspace seeds, Code
 second Provider, Linear, pricing/effectiveness analysis, and continuous context enforcement remain
 deferred.
 
+## Freeze And Decision Discipline
+
+Decision 0034 freezes three operator surfaces and caps governance growth:
+
+- The landed local console, cost and audit presentation, and Repository Harness overlay receive
+  only defect fixes and kernel-driven projections. No new feature WorkItems for these surfaces until
+  an accepted proposal lifts the freeze. Exact-base repository-native Harness remains the only
+  default path.
+- A new Decision record is created only when a proposal revises or supersedes an accepted boundary.
+  Implementation-stage completion and clean additions inside existing boundaries record evidence in
+  Development WorkItems and current projections instead.
+- The next implementation objective is one real ChangeSet against a registered non-self repository
+  (Proposal 0032, WI-0046). Observed gaps become the next proposal's context; the deferred
+  architecture list stays closed until then.
+
 ## Maintenance Check
 
 Before reporting documentation changes ready:
