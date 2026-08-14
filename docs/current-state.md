@@ -2,109 +2,111 @@
 
 Updated: 2026-08-14
 
-This project's current implementation projection, active gaps, and next task. `SPEC.md` owns the
-accepted contract; decisions own rationale; WorkItems and Git own execution evidence.
+This document is the current implementation projection, not a progress log. `SPEC.md` owns the
+accepted product contract, Decisions own durable rationale, and Git plus linked artifacts own exact
+implementation history.
 
 ## Current Baseline
 
-- Completed WI-0022 through [WI-0036](work-items/WI-0036-candidate-bound-feedback-repair.md) leave
-  no compatibility path: verification and feedback bind exact Candidates, clean retry survives
-  restart, and Core does not parse target-project Harness formats.
-- Completed [WI-0037](work-items/WI-0037-persistent-task-workspaces-and-semantic-plans.md)
-  implements accepted Proposal 0028 and Decision 0030 as one persistent task workspace plus
-  semantic Plan contract replacement.
-- Completed
-  [WI-0038](work-items/WI-0038-active-supervision-time-and-effective-feedback-budget.md)
-  corrects autonomous elapsed-time accounting and exposes effective Feedback capacity under the
-  total execution-Run ceiling.
-- Merged [WI-0040](work-items/WI-0040-unified-task-control-local-vertical-slice.md) through
+- The deterministic kernel preserves authorized repository scope, exact base and Candidate Git
+  identities, Candidate-bound validation and feedback, restart recovery, and human decisions.
+- [WI-0037](work-items/WI-0037-persistent-task-workspaces-and-semantic-plans.md) established one
+  persistent logical TaskWorkspace per ChangeSet, with one or more repository workspaces and a
+  semantic Agent Plan.
+- [WI-0040](work-items/WI-0040-unified-task-control-local-vertical-slice.md) through
   [WI-0043](work-items/WI-0043-live-run-time-anchors-and-browser-refresh.md) provide the current
-  task-first local console, autonomous repair, chronological audit ledger, and live Run timing.
-- Structural preflight is mandatory. Project semantic commands remain optional Plan selections, and
-  commandless validation records real attempts without fake command metadata.
-- Agent Runtimes own semantic work. ChangeFleet owns cross-repository authorization, revisions,
-  exact Git and Bundle subjects, evidence, recovery, and human gates.
+  asynchronous task controller, conversational local console, autonomous repair path, chronological
+  audit ledger, and live Run timing.
+- [WI-0044](work-items/WI-0044-runtime-cost-attribution-and-context-deduplication.md) is landed. It
+  removes duplicated semantic Plan text from execution context and reports observed token traffic
+  without presenting it as monetary cost.
+- [Proposal 0032](proposals/0032-freeze-operator-surface-and-validate-second-scenario.md) is accepted
+  as Decision 0034. Console, audit-presentation, and Harness-overlay feature work remains frozen
+  until an accepted boundary proposal lifts that freeze.
+- [WI-0046](work-items/WI-0046-second-scenario-validation.md) is done. A real non-self ChangeSet
+  completed planning, execution, validation, Bundle review, and human acceptance against the
+  GitLab-backed `yszt` repository. It remained in review because no supported delivery binding
+  existed.
 
 ## Branch-Local Work
 
-- Completed
-  [WI-0044](work-items/WI-0044-runtime-cost-attribution-and-context-deduplication.md) on
-  `codex/wi-0044-runtime-cost-clarity` removes duplicated execution Plan text from Runtime context
-  and replaces the console's ambiguous token total with honest observed usage dimensions.
-- [Proposal 0032](proposals/0032-freeze-operator-surface-and-validate-second-scenario.md) is
-  `accepted` (Decision 0034): console, audit-presentation, and Harness-overlay feature work is
-  frozen and a decision moratorium applies.
-  [WI-0045](work-items/WI-0045-governance-freeze-amendment.md) recorded the Harness amendment;
-  [WI-0046](work-items/WI-0046-second-scenario-validation.md) is `done`: one real non-self ChangeSet
-  (`yszt-test-vote-multiplier-1000`) completed planning, execution, validation, and human Bundle
-  acceptance against the GitLab-backed `yszt` repository. Observed gaps — no terminal rule without a
-  delivery binding, empty module-level Harness discovery, vendor-dependent semantic checks, and
-  GitHub-only delivery — are recorded in WI-0046 as the next proposal's evidence.
+No implementation WorkItem or unlanded product change is active.
 
-## Current Implementation Focus
+## Current Product Shape
 
-- Managed Runs receive compact current control facts instead of default history replay.
-- Planning remains non-authoritative; execution accepts Git changes only from the assigned WorkUnit
-  workspace subject.
-- ChangeSet creation freezes visible repositories, branches, base SHAs, and targets; optional
-  confirmed Repository Harness overlays stay immutable input only.
-- Verification and review bind exact Candidates, selected checks, and separate Runtime usage.
-- The branch-local operator route durably accepts commands, automatically binds ready Plans, stops
-  for human input, uses one safe conversation over separate internal Runs, and advances through
-  review and authorized Delivery without routine operation clicks. Clear review findings return to
-  execution automatically until their existing budget is exhausted.
-- The task page prioritizes current progress and safe live activity over the immutable Plan
-  reference. Stable Agent summaries enter the ordinary conversation, while per-Run and project
-  check results, timing, Runtime identity, and token observations remain audit-only.
-- Execution context now carries semantic work once in `current_plan`; projected WorkUnit control
-  identity no longer repeats the same compiled task text.
-- Ordinary usage display separates non-cached input and output. Exact audit labels aggregate token
-  traffic as non-monetary, preserves unknown coverage, and keeps Provider pricing out of context.
-- Running-task projections now expose Run start and recent-activity anchors for browser-local
-  relative-time refresh without writing new business state or Agent context.
-- Default views expose only six operator states with deterministic reasons; exact lifecycle, Run,
-  Candidate, Bundle, delivery, and audit facts remain separate authority.
-- Proposal 0032 freezes console, audit-presentation, and Harness-overlay feature work; new Decision
-  records require an actual boundary change.
-- Authority chronology stays in the [Decision Index](decisions/README.md) and
-  [Proposal Index](proposals/INDEX.md) rather than this projection.
+- One ChangeSet represents one business change and owns one persistent TaskWorkspace.
+- A Project may contain one repository or multiple repositories. Each selected repository keeps its
+  own exact base, target, worktree, WorkUnit, Candidate, evidence, and delivery result.
+- Agent Runtimes own semantic analysis, planning, implementation, subagents, skills, and
+  task-specific check selection.
+- ChangeFleet owns repository authorization, exact Git subjects, durable Runs and evidence, budgets,
+  gates, recovery, Bundle identity, and delivery observation.
+- Planning is semantically read-only. Execution accepts Git changes only from assigned isolated
+  repository workspaces.
+- Structural Git preflight is mandatory. Repository-native semantic commands are optional Plan
+  selections; ChangeFleet does not invent a checker for repositories that lack one.
+- Verification and independent review bind exact Candidates and record separate Runtime usage.
+- The ordinary local flow accepts a task objective, automatically activates an eligible Plan,
+  advances authorized work in the background, and stops for human input or Bundle review.
+- Ordinary task views derive six operator states. Detailed usage, retries, checks, evidence, and
+  artifacts remain audit-only and are excluded from later Agent context by default.
+- GitHub is the only implemented delivery provider. ChangeFleet publishes exact accepted
+  Candidates through ready pull requests and observes human merge results.
 
-## Open Questions
+## Observed Gaps
 
-1. Whether shared repositories may initially belong to multiple Projects. This remains deferred
-   outside the accepted two-repository fixture.
+The second-scenario validation and subsequent operator use exposed these concrete gaps:
+
+- no terminal rule for an accepted task without a supported delivery binding;
+- GitHub-only delivery for a real GitLab-backed repository;
+- empty module-level repository-Harness discovery when no root instruction file exists;
+- dependence on vendor-specific semantic commands when a target repository has no deterministic
+  project check;
+- a fixed role and delivery pipeline that may be too rigid for a multi-Agent session console;
+- no human-authorized path that delegates an exact integration action to an Agent while Core retains
+  scope enforcement and result verification.
+
+The last two items are current design questions, not accepted implementation behavior.
 
 ## Known Limitations
 
-- Git URLs, remote workers, merge, deployment, service graph, and stacked ChangeSets are deferred.
-- Native-Windows single-Repository use passed; other hosts and paid multi-Repository work are
-  unverified.
-- Codex SDK usage is aggregate-only; effective model and universal host read-denial remain unknown.
-- Bundle-level independent quality review supports one selected reviewer and bounded repair.
-  Multiple reviewers, Candidate comparison, normalized scoring, and automatic model routing remain
-  deferred.
-- Provider-native text streaming, live feedback steering, and durable Provider-session continuation
-  remain optimizations. The persisted task timeline contains safe completed messages and status
-  events; SSE streams sanitized activity, not raw reasoning or provider-thread control.
-- Simultaneous independent WorkUnit Provider dispatch remains unproven; the foreground scheduler
-  still advances exact eligible units serially.
-- Runtime Kit, Codex App Server, another Provider, Linear, pricing, dashboards, and continuous
-  context enforcement are deferred.
-- Target repositories without their own deterministic Harness checks continue to rely on Agent
-  semantic review. ChangeFleet does not invent a checker or project convention for them.
+- Git URL materialization, remote workers, deployment, merge queues, automatic merge, service
+  graphs, stacked ChangeSets, and hosted multi-tenancy are not implemented.
+- The Codex SDK is the only real Runtime adapter. Provider-native streaming, durable Provider
+  session continuation, and a second Provider remain deferred.
+- Codex usage is aggregate-only; universal host read-denial and effective model pricing remain
+  unknown.
+- Independent Bundle review supports one selected reviewer and bounded repair. Multiple reviewers,
+  Candidate comparison, normalized scoring, and automatic model routing are not implemented.
+- Simultaneous Provider dispatch across independent WorkUnits remains unproven; the foreground
+  scheduler still advances eligible units serially.
+- Native-Windows single-repository use and one real GitLab-backed scenario have been exercised;
+  other hosts and paid multi-repository execution remain unverified.
+- The unreleased local prototype accepts only its current exact filesystem storage schema.
+
+## Open Questions
+
+1. Whether ChangeFleet should replace its fixed role pipeline with first-class persistent Agent
+   Sessions and optional Candidate lanes while keeping Runtime-native subagents internal.
+2. Whether a human decision should grant an exact, bounded integration capability that an Agent may
+   execute, rather than requiring an external human merge as a universal rule.
+3. Whether one registered Repository may initially belong to multiple Projects.
 
 ## Next Recommended Task
 
-Merge WI-0044, then complete WI-0046: one bounded real ChangeSet against a human-chosen registered
-non-self repository, recording exact gaps as evidence for the next proposal. Do not open the
-deferred list or lift any Proposal 0032 freeze before that evidence exists.
+Discuss one product-boundary Proposal using WI-0046 and current operator evidence before starting
+more feature implementation. It should decide the session/workspace model, Agent action grants,
+integration responsibility, and which exact Git/evidence invariants remain in Core. It must also
+state whether and how Decision 0034's feature freeze is lifted.
+
+Do not implement another console or Delivery patch before that boundary is accepted.
 
 ## Maintenance Contract
 
 Before reporting changes ready:
 
-- follow `docs/harness.md` loading and size rules;
+- follow `docs/harness.md` for loading and maintenance rules;
+- follow `docs/validation.md` for check selection and evidence;
 - keep baseline, branch-local work, open gaps, and one next task distinct;
-- route rationale to the Decision Index and chronology to the Proposal Index instead of repeating
-  them here;
-- put detailed evidence in the active WorkItem and Git rather than this projection.
+- route rationale to Decisions and chronology to Proposals instead of duplicating them here;
+- keep detailed command output and execution evidence in WorkItems, Git, or linked artifacts.

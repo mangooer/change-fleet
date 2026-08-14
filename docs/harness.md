@@ -2,113 +2,54 @@
 
 Status: Active repository-maintenance policy
 
-This document defines the small Harness used to develop ChangeFleet itself. It also explains where
-product-level Harness design is discussed without turning every design discussion into startup
-context.
+This document defines the small Harness used by Agents that develop ChangeFleet. Its purpose is to
+make current authority easy to find without loading the complete specification, design history,
+execution logs, or unrelated project context into every task.
 
-The repository Harness has one goal: give an Agent enough current authority to work safely, while
-keeping accepted contracts, historical rationale, and execution evidence available on demand.
+Product behavior belongs in `SPEC.md`. Current implementation facts belong in
+`docs/current-state.md`. This document owns only repository-Harness loading and maintenance rules.
 
-## Two Different Meanings Of Harness
+## Scope And Boundaries
 
-Do not conflate:
+Keep these three systems separate:
 
-1. **This repository's development Harness.** The instructions and current project memory used by
-   Agents changing ChangeFleet.
-2. **A registered repository's native Harness.** Instructions, skills, architecture references,
-   build configuration, and verification guidance owned by a user's repository.
+| System | Objects | Authority |
+| --- | --- | --- |
+| ChangeFleet repository governance | Repository Design Proposal, Development WorkItem | `docs/`, Git, human confirmation |
+| ChangeFleet product Runtime | ChangeSet, Plan, WorkUnit, Run, CandidateBundle | ChangeFleet Control Store |
+| Registered repository governance | Its own instructions, specs, issues, skills, checks | The registered repository and its systems |
 
-ChangeFleet normally reads the second kind from an exact Git base. It may also reconstruct an
-explicitly confirmed immutable local overlay under Decision 0011. It never treats ambient checkout
-state as authority, writes non-Git Harness back, repairs it, or becomes its semantic owner.
+`docs/proposals/` and `docs/work-items/` govern development of this repository. They are not
+ChangeFleet Runtime output. Runtime records must not update repository Proposal or WorkItem state as
+an internal product side effect.
 
-## Three Separate Lifecycles
-
-These names are intentionally different:
-
-| Lifecycle | Objects | Purpose | Authority store |
-| --- | --- | --- | --- |
-| ChangeFleet repository governance | Repository Design Proposal, Development WorkItem | Evolve this repository | `docs/`, Git, and human confirmation |
-| ChangeFleet product Runtime | ChangeSet, ChangeIntentRevision, ChangePlanRevision, WorkUnit, Run, CandidateBundle | Coordinate a user change | ChangeFleet Control Store |
-| Registered repository governance | Repository-native specs, OpenSpec changes, issues, or other project artifacts | Govern the user's project | The registered repository or its own systems |
-
-Files under `docs/proposals/` and `docs/work-items/` are part of the first lifecycle. They are not
-ChangeFleet Runtime output and are never written into a registered repository by ChangeFleet.
-
-An Agent Runtime may return a conversation message with optional structured plan content, a
-`ScopeExpansionRequest`, or a `DecisionRequest`. Exact human approval promotes that message into a
-confirmed `ChangePlanRevision`; conversation is not Plan history. The product should not persist a
-generic `Proposal` entity. If ChangeFleet is eventually used to develop itself, a Runtime ChangeSet
-may reference a Repository Design Proposal as an input source, but their ids, status, and authority
-remain separate.
-
-## Intended Product
-
-ChangeFleet is a spec-first control plane for one coherent software change across one or more Git
-repositories. It is not a hosted shell around a coding Agent and not a generic multi-agent
-framework.
-
-Agent Runtimes perform semantic analysis, planning, implementation, subagent coordination, and
-task-specific check selection. ChangeFleet preserves the control facts that must remain reliable as
-Agent capabilities change:
-
-- confirmed intent and exact plan revision;
-- explicitly authorized repositories and scope changes;
-- repository-scoped workspace and Run identity;
-- exact base and candidate Git SHAs;
-- evidence linked to the exact subject it tested;
-- human gates, recovery, partial failure, delivery, and compensation state;
-- one immutable `CandidateBundle` for cross-repository review.
-
-A ChangeFleet Supervisor Agent is still an Agent Runtime, not control authority. It receives a
-compact current projection and an exact offered action set. The deterministic kernel owns whether
-an action is authorized and performs every mutation; obvious forced actions do not require another
-model call. Detailed Supervisor reasoning and cost remain linked audit evidence outside ordinary
-Runtime context.
-
-Owned worktrees isolate task development state; they are not host security sandboxes. The selected
-Runtime profile and operator own process permissions, while ChangeFleet accepts only exact assigned
-workspace Git subjects.
-
-The implementation should become smaller as Agent Runtimes improve. New Runtime intelligence is not
-itself a reason to add a Core abstraction.
+A registered repository's native Harness is optional semantic input. ChangeFleet reads it from an
+exact Git subject and never becomes its semantic owner, invents missing project conventions, or
+writes non-Git Harness state back. The accepted product boundary is owned by
+[Decision 0005](decisions/0005-runtime-context-harness-and-capabilities.md) and
+[Decision 0011](decisions/0011-exact-repository-harness-snapshots-and-local-overlays.md).
 
 ## Authority And Loading Map
 
-| Resource | Owns | Normal loading rule |
+| Resource | Owns | Loading rule |
 | --- | --- | --- |
-| `README.md` | Human orientation and navigation | Read for onboarding, not every task |
+| `README.md`, `README.zh-CN.md` | Human-facing product introduction and usage | Onboarding only |
 | `AGENTS.md` | Compact mandatory repository rules | Always applicable |
 | `WORKFLOW.md` | Thin Runtime-facing entry point | Only when the Runtime uses it |
 | `docs/current-state.md` | Current implementation projection, gaps, next task | Read at task start |
-| Active Development WorkItem | Current implementation objective, scope, acceptance, evidence | Read for implementation |
-| Active Repository Design Proposal | Current architecture or product-boundary change under discussion | Read for design work |
+| Active Development WorkItem | Confirmed implementation scope and concise evidence | Read for implementation |
+| Active Repository Design Proposal | Current boundary change under discussion | Read for design work |
 | `SPEC.md` | Accepted product contract | Read only relevant sections |
-| `docs/architecture.md` | Target component and ownership model | Read only relevant sections |
-| Decisions | Durable accepted rationale | Read decisions governing the changed boundary |
-| Repository Design Proposals | Chronological design history | Do not replay by default |
-| Development WorkItem evidence and Run artifacts | Commands, SHAs, observations, detailed history | Load only for execution, review, or recovery |
+| `docs/architecture.md` | Component and ownership model | Read only relevant sections |
+| Accepted Decisions | Durable rationale | Read only decisions governing the changed boundary |
+| Historical Proposals and WorkItems | Chronology and detailed evidence | Load only for research, review, or recovery |
+| Git and linked artifacts | Exact implementation history, logs, diffs, transcripts | Load only when the task needs them |
 
-`SPEC.md` is not a startup document. A task touching Candidate identity should read the Candidate
-and review sections; it should not automatically load repository configuration, rollback, and the
-entire initial-slice discussion.
+README files are not Agent startup context. They explain the product to humans and must not become a
+second specification or current-state projection.
 
-## External Reference Identity
-
-In current ChangeFleet work, an unqualified **Conductor** means the Melty Labs product documented
-at [conductor.build](https://www.conductor.build/docs). Verify time-sensitive behavior against its
-official online documentation or an official source explicitly linked there; record the exact URL
-and access date in any new proposal that relies on it.
-
-Do not inspect or cite `C:\myData\aiProject\conductor`, or another similarly named local directory,
-as authority for Conductor.build behavior unless the user explicitly identifies that exact checkout
-and Git subject as the requested evidence. Proposal 0001's local-checkout assessment is preserved
-as historical evidence about that exact subject only. It does not establish current Conductor.build
-workspace, review, PR, merge, Harness, or delivery behavior.
-
-External products are comparison evidence, not ChangeFleet authority. Separate an official fact
-from a ChangeFleet inference, and never import an external product's current behavior directly into
-`SPEC.md` without an accepted ChangeFleet decision.
+`SPEC.md` is not a startup document. For example, a task that changes Candidate identity reads the
+Candidate, review, and affected delivery sections rather than the complete product contract.
 
 ## Task Startup
 
@@ -116,236 +57,155 @@ For every task:
 
 1. apply `AGENTS.md`;
 2. read `docs/current-state.md`;
-3. identify and read the active Development WorkItem or Repository Design Proposal;
-4. inspect the current Git status and diff;
-5. load only the accepted contract and rationale needed for the boundary being changed.
-
-If no Development WorkItem exists, explanation, review, diagnosis, Repository Design Proposal work,
-and small explicitly requested repository maintenance may continue. Durable implementation must
-not start until an accepted Repository Design Proposal, when required, and a confirmed `todo`
-Development WorkItem authorize it.
-
-`WORKFLOW.md` should only restate this startup route for Runtime entry. Do not duplicate the
-loading map, validation policy, or broader maintenance rules there.
+3. identify and read the active WorkItem or Proposal when one exists;
+4. inspect Git status and the current diff;
+5. load only the contract, architecture, rationale, and evidence required by the changed boundary.
 
 Do not preload:
 
-- all Repository Design Proposals or closed Development WorkItems;
 - the complete `SPEC.md`;
-- complete Agent transcripts, command logs, or diffs;
-- every Skill reference;
-- documents from unrelated repositories.
+- every Proposal, Decision, or closed WorkItem;
+- full Agent transcripts, command logs, or historical diffs;
+- every available Skill or unrelated repository document.
 
-## Current Projection Instead Of Replay
+`WORKFLOW.md` may restate this startup route but must not duplicate the loading map, validation
+policy, or repository governance rules.
 
-Current truth must be reachable without reconstructing it from history:
+## Current Truth Without History Replay
+
+Current truth must be available directly:
 
 - `SPEC.md` contains the accepted product contract;
-- `docs/current-state.md` replaces its current projection in place;
-- accepted decisions contain durable rationale;
-- the active Development WorkItem is the current execution workpad;
-- proposals preserve chronological design changes;
-- Git and linked evidence preserve exact implementation history.
+- `docs/current-state.md` contains the replace-in-place implementation projection and next task;
+- accepted Decisions contain durable rationale;
+- one active WorkItem is the implementation workpad;
+- Proposals preserve design chronology;
+- Git and linked artifacts preserve exact execution history.
 
-When a proposal is revised, preserve the earlier body as history and create or append a clearly
-dated revision. When a later proposal replaces it, mark the earlier proposal superseded and make
-only the current proposal part of the loading route.
+Do not reconstruct current authority by replaying Proposal or WorkItem history. Do not append a
+progress diary to `docs/current-state.md`, copy rationale into `AGENTS.md`, or turn ordinary task
+discussion into permanent Harness.
 
-Do not append progress logs to `docs/current-state.md`. Do not copy proposal reasoning into
-`AGENTS.md`. Do not turn task discussion into permanent Harness unless it establishes a durable
-project fact.
+When a Proposal is replaced, preserve its historical body, mark it superseded, and route current
+loading to the replacement. When implementation completes on a branch, update its WorkItem and
+current-state projection in the same Candidate; human review and merge must not require a follow-up
+Harness-status commit.
 
 ## Size And Context Guardrails
 
-These byte limits are maintenance alarms, not claims about a provider tokenizer or the complete
-Runtime context:
+The eager-resource limits are maintenance alarms, not tokenizer guarantees:
 
-| Eager repository resource | Soft maximum |
+| Eager resource | Soft maximum |
 | --- | ---: |
 | `AGENTS.md` | 6 KiB |
 | `WORKFLOW.md` | 2 KiB |
 | `docs/current-state.md` | 8 KiB |
 
-If a file exceeds its limit, first remove duplication or route detail to an existing on-demand
-document. Do not create a new document solely to make a metric pass.
+If a file exceeds its limit, first remove duplication or move existing detail to its proper
+on-demand authority. Do not create another document merely to make a metric pass.
 
-For product-managed Runs, the accepted target is at most 70 percent initial context usage with at
-least 30 percent headroom. ChangeFleet may call this enforced only when the Runtime exposes the
-effective context window and every required request boundary. Otherwise it records an estimate or
-unknown state. Runtime compaction helps execution but is not durable control state.
+For product-managed Runs, the accepted target is no more than 70 percent initial context use, with
+at least 30 percent headroom. Call this enforced only when the Runtime exposes the effective context
+window and every required request boundary; otherwise record an estimate or unknown state.
 
-## Development WorkItem Routing
+Complete logs, diffs, transcripts, cost details, and large Agent output belong in linked artifacts,
+not aggregate state or later-Agent context. Compact summaries and stable references may be
+projected when needed.
 
-The Agent receiving a request performs the first classification:
+## Route The Request Before Creating Artifacts
 
-| Request class | Repository artifact |
+| Request | Repository artifact |
 | --- | --- |
-| Explanation, review, diagnosis, status, or research | None |
-| Product or architecture boundary discussion | Draft or update a Repository Design Proposal |
-| Small, explicit maintenance inside accepted boundaries | Usually none; preserve evidence in Git diff |
-| Durable implementation of accepted scope | Create or resume one Development WorkItem |
+| Explanation, review, diagnosis, status, research | None |
+| Product or architecture boundary change | Draft or update a Proposal |
+| Small explicit maintenance inside accepted boundaries | Usually none; Git diff is sufficient |
+| Durable implementation of accepted scope | Create or resume one WorkItem |
 
-A Development WorkItem is normally required when work implements an accepted proposal, must survive
-multiple sessions, spans material components, needs an explicit acceptance handoff, or is requested
-by the user as a separately tracked task.
+An Agent may draft an artifact, but it may not confirm its own inferred scope expansion or
+architecture decision. A WorkItem may move directly to `todo` only when an explicit user request or
+named standing policy unambiguously confirms its objective, repository authority, and acceptance
+boundary.
 
-The receiving Agent may create a `draft` WorkItem when classification shows durable implementation
-is needed. A draft is a proposed execution envelope, not permission to mutate.
+## Proposal And WorkItem Discipline
 
-It may create or advance directly to `todo` only when:
+The normal Proposal flow is short:
 
-- the user explicitly requested implementation and the objective, scope, and accepted authority are
-  unambiguous; or
-- an identifiable standing policy pre-authorizes that exact low-risk class.
+1. discuss options, tradeoffs, and the recommendation in conversation;
+2. after the user chooses a direction, write the concrete Proposal as `proposed` and explain it;
+3. the user accepts it or requests specific revisions.
 
-Record the confirming user request or policy reference. Ask for feedback before `todo` when scope,
-acceptance criteria, repository authority, product behavior, risk, or proposal dependency remains
-materially ambiguous. An Agent cannot confirm its own inferred scope expansion or architecture
-decision.
+Use `draft` only when a material unresolved choice must be preserved. A written Proposal does not
+justify an extra generic confirmation round, and an Agent never accepts its own Proposal.
 
-## Proposal Discussion And Acceptance
+One WorkItem represents one confirmed implementation slice, not one Agent turn or retry. Keep its
+objective, scope, acceptance criteria, status, and next step concise. Record only the exact command
+and exit code, subject identity, concise observation, artifact reference, unverified boundary, and
+decision or blocker. Detailed output stays in linked artifacts.
 
-The normal Proposal path has one human decision before the artifact and one after it:
+Do not create a new WorkItem because a Plan changed, an Agent retried, or a human supplied more
+information. Create one only for new confirmed implementation demand.
 
-1. discuss options, tradeoffs, and the recommended boundary in conversation;
-2. after the user chooses a direction, write or revise the Proposal directly to `proposed` and
-   explain its scope, important consequences, and deferrals in the same handoff;
-3. the user either accepts that version or requests concrete revisions.
+## Validation And Executable Surfaces
 
-Do not insert another generic discussion or confirmation round merely because the Proposal file
-has now been written. If the user requests revisions, update and explain the new version; only the
-changed or unresolved points need further discussion.
+`docs/validation.md` owns check selection, command requirements, and evidence fields. Documentation
+maintenance inspects affected links, authority pointers, translation parity, and eager-resource
+sizes. It does not run Node test suites unless the diff also changes executable behavior.
 
-Use `draft` only when exploration must be preserved before the design is concrete enough for an
-accept-or-revise decision, such as an intentionally paused discussion or a material unresolved
-choice. A draft is not a mandatory stage. The Agent may never accept its own Proposal.
+Keep these surfaces distinct:
 
-## Development WorkItem Discipline
+- product operations live under the `changefleet` executable;
+- maintained debug commands are bounded diagnostics without public compatibility promises;
+- `npm test`, `npm run check:harness`, and related commands belong to this repository's development
+  Harness, not the product CLI or a registered repository requirement;
+- temporary scripts contain no unique lifecycle or authorization logic and are removed when their
+  owning WorkItem completes unless a confirmed follow-up owns them.
 
-One Development WorkItem is the current workpad for one accepted slice. Keep its objective, scope,
-acceptance criteria, current status, and next step concise and replace the current projection as
-work advances.
+CLI, HTTP, UI, and tracker adapters call shared application operations. They must not independently
+implement authorization, state transitions, exact-subject selection, human decisions, or evidence
+rules.
 
-Detailed output belongs in linked artifacts. The Development WorkItem records only:
+Mocks and fakes may provide deterministic test fixtures. They must never appear as selectable
+production capabilities or production evidence. When a real implementation replaces a fake
+boundary, remove the fake from production selection and retain only fixtures that prove named test
+cases.
 
-- exact command and exit code;
-- exact subject identity;
-- concise observation;
-- artifact reference when needed;
-- unverified boundary;
-- decision or blocker.
+Cost, effectiveness, retry, and Provider telemetry is audit material. Keep it outside ordinary
+Agent context; a diagnostic request may load a minimal explicit subset when necessary.
 
-Do not manufacture a new Development WorkItem merely because an Agent retries or a plan changes. A
-new WorkItem represents new confirmed implementation demand, not a new conversation turn.
+## Human Documentation And Translation
 
-## Validation Routing
+`README.md` is the English default entry and `README.zh-CN.md` is its Simplified Chinese peer. Both
+must describe the same implemented features, limitations, quick-start path, commands, and document
+links. Update them in the same change. Commands, identifiers, JSON fields, and product status must
+remain exact across translations.
 
-`docs/validation.md` owns gate selection, command requirements, and evidence fields. This document
-adds only two Harness-specific rules:
+README content should answer:
 
-- documentation maintenance still inspects affected links, authority pointers, and eager resource
-  sizes; and
-- branch-local Harness projections update in the same Candidate as the implementation they
-  describe.
+1. what ChangeFleet is;
+2. what it currently does;
+3. how to run the current local prototype;
+4. what is not implemented or stable;
+5. where specification, current state, architecture, and development rules live.
 
-## Executable Surface Discipline
+Do not place Proposal history, WorkItem chronology, complete CLI internals, test evidence, or
+unaccepted roadmap promises in README files.
 
-Keep product operations, maintained diagnostics, development Harness commands, and temporary
-scripts distinct:
+## External Comparisons
 
-- product commands live under the one `changefleet` root and carry explicit `experimental` or
-  `stable` maturity;
-- debug commands are bounded maintained diagnostics without public compatibility;
-- `npm test`, `npm run check:harness`, `npm run check`, and related validation commands belong to
-  this repository's development Harness rather than the product CLI or a registered-repository
-  requirement;
-- temporary scripts live only under `scripts/` or test support, use `dev:` or `test:` aliases when
-  needed, and contain no unique lifecycle or authorization logic.
+External products are comparison evidence, not ChangeFleet authority. Verify time-sensitive claims
+against official sources and separate the observed fact from the ChangeFleet inference.
 
-Every temporary executable records an owner and removal condition in the active WorkItem. Delete it
-before completed-Candidate handoff unless a confirmed follow-up WorkItem owns the explicit remaining
-need.
-When one entry point replaces another, remove the old executable, parser, alias, documentation, and
-redundant tests in the same WorkItem after equivalent coverage passes.
-
-CLI, future API or App Server, future UI, and tracker adapters share typed application-operation
-semantics, not presentation implementations. Do not put state transitions, authorization,
-idempotency, exact-subject selection, human gates, or evidence rules in a CLI-only or UI-only layer.
-
-## Stage Boundaries, Fakes, And Audit Data
-
-Every implementation stage records a clear boundary, acceptance evidence, deferred work, and exit
-condition in its Development WorkItem or accepted proposal. When the acceptance evidence is met,
-move the stage to review or the next accepted stage. Do not keep optimizing a completed stage unless
-there is a concrete defect, measured shortfall, or newly accepted proposal.
-
-When implementation evidence meets the WorkItem criteria, mark it complete and update affected
-Harness projections in the same Candidate. Human review and merge decide whether to adopt that
-Candidate; they do not trigger a follow-up Harness-status commit. Branch-local completion must
-remain visibly distinct from the canonical landed baseline.
-
-Mocks and fakes may prove deterministic behavior of an accepted port, but they are test fixtures,
-not product capabilities. When a real implementation replaces a fake boundary, remove it from
-production selection promptly; retain it only when it exercises a named test case that the real
-implementation cannot make deterministic. Never present fake token use, cost, quality, or Provider
-results as production evidence.
-
-Cost, effectiveness, retry, and Provider telemetry is audit/debug material. It is durable evidence
-or an external artifact, not default Agent context. Ordinary Control Contracts and current Run
-Context Projections must exclude it; a human-authorized diagnostic operation may request a minimal
-explicit subset when necessary.
-
-## Accepted Product Harness Direction
-
-The accepted boundary is recorded by
-[`Decision 0005`](decisions/0005-runtime-context-harness-and-capabilities.md) and
-[`Decision 0011`](decisions/0011-exact-repository-harness-snapshots-and-local-overlays.md), with
-Proposals [0003](proposals/0003-harness-ownership-and-runtime-context.md) and
-[0009](proposals/0009-exact-repository-harness-snapshots-and-local-overlays.md) preserving
-chronological reasoning:
-
-- a compact ChangeFleet Control Contract;
-- a generated current Run Context Projection instead of full history replay;
-- repository-native Harness as optional semantic input, exact-base by default;
-- an optional confirmed local Harness policy frozen as immutable ChangeSet evidence;
-- no ChangeFleet-owned mandatory Skill, non-Git Harness writeback, or parallel Harness delivery
-  lifecycle;
-- an optional operation-scoped Runtime Skill layer in the model, with no accepted kit packaging;
-- Agent Profiles for provider, model, permission, and Skill selection;
-- read-only planning access and repository-workspace-scoped execution access;
-- ChangeFleet-owned confirmed plan revision and confirmation history;
-- tracker integrations such as Linear as intake and projection surfaces, not lifecycle authority.
-
-The deterministic first slice proved the Control Contract, projections, scoped capabilities, and
-initial budget evidence using a scripted test Runtime. Decisions 0009 and 0010 accept raw
-out-of-context Runtime evidence and one first Codex SDK Provider. Decision 0011's frozen ignored
-Codex Harness is landed. Decision 0016 keeps the accepted local console and its audit presentation
-outside Runtime context. Snapshot bodies and detailed inventories remain linked evidence rather
-than eager Harness context. Runtime Kit packaging, general workspace seeds, Codex App Server, a
-second Provider, Linear, pricing/effectiveness analysis, and continuous context enforcement remain
-deferred.
-
-## Freeze And Decision Discipline
-
-Decision 0034 freezes three operator surfaces and caps governance growth:
-
-- The landed local console, cost and audit presentation, and Repository Harness overlay receive
-  only defect fixes and kernel-driven projections. No new feature WorkItems for these surfaces until
-  an accepted proposal lifts the freeze. Exact-base repository-native Harness remains the only
-  default path.
-- A new Decision record is created only when a proposal revises or supersedes an accepted boundary.
-  Implementation-stage completion and clean additions inside existing boundaries record evidence in
-  Development WorkItems and current projections instead.
-- The next implementation objective is one real ChangeSet against a registered non-self repository
-  (Proposal 0032, WI-0046). Observed gaps become the next proposal's context; the deferred
-  architecture list stays closed until then.
+In this repository, unqualified **Conductor** means the product documented at
+[conductor.build](https://www.conductor.build/docs). A similarly named local checkout is not
+authority unless the user explicitly identifies that exact checkout and Git subject.
 
 ## Maintenance Check
 
-Before reporting documentation changes ready:
+Before reporting Harness or README maintenance ready:
 
-1. follow `docs/validation.md` for required commands;
+1. follow `docs/validation.md`;
 2. inspect every changed link and authority pointer;
-3. verify `docs/current-state.md` still describes current, not proposed-as-implemented, facts;
-4. inspect eager-resource byte sizes;
-5. report what remains proposed or unverified.
+3. compare the English and Simplified Chinese README structure and commands;
+4. verify `docs/current-state.md` contains current facts rather than history or proposed behavior;
+5. inspect eager-resource byte sizes;
+6. report any proposed, external, or unverified boundary explicitly.
