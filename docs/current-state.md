@@ -34,8 +34,12 @@ accepted contract; decisions own rationale; WorkItems and Git own execution evid
 - [Proposal 0032](proposals/0032-freeze-operator-surface-and-validate-second-scenario.md) is
   `accepted` (Decision 0034): console, audit-presentation, and Harness-overlay feature work is
   frozen and a decision moratorium applies.
-  [WI-0045](work-items/WI-0045-governance-freeze-amendment.md) records the Harness amendment;
-  [WI-0046](work-items/WI-0046-second-scenario-validation.md) awaits a human repository choice.
+  [WI-0045](work-items/WI-0045-governance-freeze-amendment.md) recorded the Harness amendment;
+  [WI-0046](work-items/WI-0046-second-scenario-validation.md) is `done`: one real non-self ChangeSet
+  (`yszt-test-vote-multiplier-1000`) completed planning, execution, validation, and human Bundle
+  acceptance against the GitLab-backed `yszt` repository. Observed gaps — no terminal rule without a
+  delivery binding, empty module-level Harness discovery, vendor-dependent semantic checks, and
+  GitHub-only delivery — are recorded in WI-0046 as the next proposal's evidence.
 
 ## Current Implementation Focus
 
