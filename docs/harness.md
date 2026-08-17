@@ -33,7 +33,7 @@ writes non-Git Harness state back. The accepted product boundary is owned by
 
 | Resource | Owns | Loading rule |
 | --- | --- | --- |
-| `README.md`, `README.zh-CN.md` | Human-facing product introduction and usage | Onboarding only |
+| `README.md`, `README.en.md` | Human-facing product introduction and usage | Onboarding only |
 | `AGENTS.md` | Compact mandatory repository rules | Always applicable |
 | `WORKFLOW.md` | Thin Runtime-facing entry point | Only when the Runtime uses it |
 | `docs/current-state.md` | Current implementation projection, gaps, next task | Read at task start |
@@ -174,7 +174,7 @@ Agent context; a diagnostic request may load a minimal explicit subset when nece
 
 ## Human Documentation And Translation
 
-`README.md` is the English default entry and `README.zh-CN.md` is its Simplified Chinese peer. Both
+`README.md` is the Simplified Chinese default entry and `README.en.md` is its English peer. Both
 must describe the same implemented features, limitations, quick-start path, commands, and document
 links. Update them in the same change. Commands, identifiers, JSON fields, and product status must
 remain exact across translations.
