@@ -187,8 +187,10 @@ README content should answer:
 4. what is not implemented or stable;
 5. where specification, current state, architecture, and development rules live.
 
-Do not place Proposal history, WorkItem chronology, complete CLI internals, test evidence, or
-unaccepted roadmap promises in README files.
+Do not place Proposal history, WorkItem chronology, complete CLI internals, or test evidence in
+README files. A short, clearly labeled Vision may state intended product direction, but it must not
+present unimplemented or unaccepted behavior as a current feature or stable contract. Keep detailed
+roadmaps and design commitments in Proposals and accepted authority.
 
 ## External Comparisons
 

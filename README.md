@@ -13,6 +13,36 @@ decisions, review, recovery, and delivery state.
 > **Project status:** ChangeFleet is an unreleased local prototype. Its CLI, HTTP surface, storage
 > schema, and operator workflow are not stable public contracts.
 
+## Vision
+
+**Run a fleet of coding agents, not a pile of terminals.**
+
+ChangeFleet aims to become a provider-neutral control plane where one clear objective can mobilize
+the right Agents, models, repositories, and quality gates—then keep the work moving until it is
+ready to integrate. Simple tasks should finish without supervision; complex tasks should interrupt
+a human only when judgment, authority, or risk truly requires it.
+
+- **Bring your own Agents and models.** Choose Codex, Claude Code, or future Runtimes independently
+  for planning, implementation, review, and specialist work instead of locking a task to one vendor.
+- **Parallel work by design.** Run many independent tasks in isolated workspaces, or let several
+  Agents collaborate on one change without colliding with unrelated work.
+- **Competing Candidate lanes.** Give the same task to different Agents or models, preserve each
+  exact result, and select the strongest Candidate instead of trusting the first answer.
+- **Evidence-based comparison.** Compare quality, checks, elapsed time, token and cost coverage,
+  retries, repair cycles, and human intervention across Agents, models, and context strategies.
+- **Autonomy with bounded authority.** Let Agents plan, implement, verify, review, repair, and—when
+  explicitly authorized—integrate changes, while deterministic controls protect repository scope,
+  permissions, budgets, and exact Git subjects.
+- **One outcome across many repositories.** Coordinate frontend, backend, services, migrations, and
+  documentation as one coherent change without losing per-repository identity or recovery paths.
+- **Smarter model routing over time.** Use historical evidence to choose the cheapest adequate
+  model for routine work and stronger models or additional reviewers where risk justifies them.
+- **Replaceable intelligence, durable accountability.** Change the Agent or model without losing
+  task history, exact artifacts, decisions, cost lineage, or the evidence behind an outcome.
+
+This is the product direction, not a claim that every capability is implemented today. The
+following sections describe the current prototype.
+
 ## Features
 
 - **One task, one persistent workspace.** A ChangeSet may link one or more repository workspaces
