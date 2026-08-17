@@ -1,6 +1,6 @@
 # Repository Design Proposal Index
 
-Updated: 2026-08-12
+Updated: 2026-08-17
 
 These proposals govern development of the ChangeFleet repository itself. They are repository
 Harness artifacts, not ChangeFleet Runtime outputs and not artifacts written into registered user
@@ -43,6 +43,7 @@ preserve chronological reasoning and are not current truth merely because they e
 | [0030](0030-unified-task-control-and-conversational-operator-flow.md) | Unified task control and conversational operator flow | `accepted` | Recorded by Decision 0032; replaces premature Intent authority and operation-oriented task advancement while retaining the exact kernel | [WI-0040](../work-items/WI-0040-unified-task-control-local-vertical-slice.md), `done` |
 | [0031](0031-autonomous-task-conversation-and-operator-inbox.md) | Autonomous task conversation and operator inbox | `accepted` | Recorded by Decision 0033; revises Proposal 0030 with policy-activated Plans, one timeline over separate Agent sessions, an asynchronous Controller, six operator states, and recoverable Delivery | [WI-0041](../work-items/WI-0041-autonomous-task-conversation-local-vertical-slice.md), `done` |
 | [0032](0032-freeze-operator-surface-and-validate-second-scenario.md) | Freeze console, audit, and overlay feature work; decision moratorium; second-scenario validation | `accepted` | Recorded by Decision 0034; freezes roadmap investment around Decisions 0016/0031/0033, 0009/0012, and 0011; changes no kernel boundary | [WI-0045](../work-items/WI-0045-governance-freeze-amendment.md), `done`; [WI-0046](../work-items/WI-0046-second-scenario-validation.md), `done` |
+| [0033](0033-task-scoped-agent-sessions-and-exact-integration-action-grants.md) | Task-scoped Agent Sessions, exact human ActionGrants, verifiable integration, and explicit completion without managed integration | `accepted` | Recorded by Decision 0035; revises Decisions 0015/0025/0030/0033 and makes one narrow kernel-projection exception to Decision 0034 | [WI-0047](../work-items/WI-0047-task-scoped-agent-sessions-and-exact-integration-grants.md), `done` |
 
 ## Status Rules
 

@@ -65,6 +65,12 @@ export async function executeServeCommand(
         taskController.publishDelivery(request),
       "changeset.delivery.refresh": (request) =>
         taskController.refreshDelivery(request),
+      "changeset.integration.grant": (request) =>
+        taskController.grantIntegrationAction(request),
+      "changeset.integration.execute": (request) =>
+        taskController.executeIntegrationAction(request),
+      "changeset.integration.complete_without_managed": (request) =>
+        taskController.completeWithoutManagedIntegration(request),
     },
   });
   const server = await startLocalConsoleServer({

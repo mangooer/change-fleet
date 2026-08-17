@@ -11,7 +11,7 @@ import { readJsonFile, writeJsonFileAtomic } from "./atomic-json-file.js";
 import { DirectoryLock } from "./directory-lock.js";
 
 // 当前私有存储只接受一个精确版本；未发布的旧格式不会在生产启动时被隐式改写。
-export const CONTROL_SCHEMA_VERSION = 14;
+export const CONTROL_SCHEMA_VERSION = 15;
 
 export class ControlStore {
   constructor(controlRoot, { clock = () => new Date() } = {}) {
@@ -212,6 +212,10 @@ const CHANGE_SET_ARRAY_FIELDS = Object.freeze([
   "candidates",
   "bundles",
   "delivery_requests",
+  "integration_action_offers",
+  "action_grants",
+  "integration_results",
+  "integration_dispositions",
   "decisions",
   "feedback_records",
   "gates",

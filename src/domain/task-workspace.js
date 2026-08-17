@@ -3,6 +3,10 @@ import { invariant } from "./errors.js";
 import { normalizePlanBundleReview } from "./bundle-review.js";
 import { normalizePlanSupervision } from "./supervision.js";
 import { normalizeVerificationPolicy } from "./verification.js";
+import {
+  assertAgentSessions,
+  createAgentSessionRecords,
+} from "./agent-session.js";
 
 export function createTaskWorkspaceRecord({
   changeSetId,
@@ -10,6 +14,7 @@ export function createTaskWorkspaceRecord({
   repositorySelection,
   repositoryHarnessSelection,
   repositoryWorkspaces,
+  agentSessionAssignments = null,
   createdAt,
 }) {
   // 一个 ChangeSet 只创建一个逻辑任务工作区；其中每个仓库仍保持独立 Git 身份。
@@ -48,7 +53,7 @@ export function createTaskWorkspaceRecord({
     .sort((left, right) =>
       left.repository_id.localeCompare(right.repository_id),
     );
-  return {
+  const record = {
     schema_version: 1,
     task_workspace_id: taskWorkspaceId,
     change_set_id: changeSetId,
@@ -56,11 +61,24 @@ export function createTaskWorkspaceRecord({
     repository_harness_selection_revision:
       repositoryHarnessSelection.revision,
     agent_profile: structuredClone(agentProfile),
+    agent_sessions: createAgentSessionRecords({
+      taskWorkspaceId,
+      assignments:
+        agentSessionAssignments ?? [
+          {
+            agentProfile,
+            allowedRunPurposes: ["planning", "execution", "integration"],
+          },
+        ],
+      createdAt,
+    }),
     repositories,
     retired_repository_workspaces: [],
     resources_released_at: null,
     created_at: createdAt,
   };
+  assertAgentSessions(record);
+  return record;
 }
 
 export function advanceTaskWorkspaceGeneration({
@@ -201,5 +219,6 @@ export function requireTaskWorkspace(state) {
     "TASK_WORKSPACE_NOT_READY",
     "ChangeSet does not own one prepared TaskWorkspace",
   );
+  assertAgentSessions(workspace);
   return workspace;
 }

@@ -538,6 +538,7 @@ function projectListEntry(state, taskControl) {
       delivery_count: delivery.delivery_count,
       counts: delivery.counts,
     },
+    integration: projectIntegration(state),
   };
 }
 
@@ -684,6 +685,7 @@ function projectExactChangeSet(
             }),
           },
     delivery,
+    integration: projectIntegration(state),
   };
 }
 
@@ -725,6 +727,13 @@ function projectTaskWorkspace(workspace) {
     task_workspace_id: workspace.task_workspace_id,
     resources_released_at: workspace.resources_released_at,
     agent_profile: projectAgentProfile(workspace.agent_profile),
+    agent_sessions: (workspace.agent_sessions ?? []).map((session) => ({
+      agent_session_id: session.agent_session_id,
+      agent_profile: projectAgentProfile(session.agent_profile),
+      allowed_run_purposes: [...session.allowed_run_purposes],
+      status: session.status,
+      run_count: session.run_references.length,
+    })),
     verification_expectation: structuredClone(
       workspace.verification_expectation,
     ),
@@ -742,8 +751,12 @@ function projectTaskWorkspace(workspace) {
 
 function deriveOperatorProjection(state, delivery, taskControl) {
   if (state.phase === "terminal") {
+    const integrationDisposition = (state.integration_dispositions ?? []).at(-1);
     return state.terminal_outcome === "done"
-      ? { status: "complete", reason: "delivery_merged" }
+      ? {
+          status: "complete",
+          reason: integrationDisposition?.reason ?? "delivery_merged",
+        }
       : { status: "cancelled", reason: terminalCancellationReason(state) };
   }
 
@@ -807,6 +820,13 @@ function deriveOperatorProjection(state, delivery, taskControl) {
   if (delivery.activity === "blocked") {
     return { status: "needs_feedback", reason: "delivery_blocked" };
   }
+  const currentGrant = (state.action_grants ?? []).at(-1);
+  if (currentGrant?.status === "running") {
+    return { status: "running", reason: "integration_action_running" };
+  }
+  if (currentGrant?.status === "failed") {
+    return { status: "needs_feedback", reason: "integration_action_failed" };
+  }
   const bundle = state.bundles.at(-1);
   const accepted = (state.decisions ?? []).some(
     (decision) =>
@@ -816,8 +836,29 @@ function deriveOperatorProjection(state, delivery, taskControl) {
       decision.decision === "accept",
   );
   return accepted
-    ? { status: "needs_feedback", reason: "delivery_publish_required" }
+    ? { status: "needs_feedback", reason: "integration_decision_required" }
     : { status: "needs_review", reason: "candidate_bundle_ready" };
+}
+
+function projectIntegration(state) {
+  return {
+    agent_sessions: (state.task_workspace?.agent_sessions ?? []).map(
+      (session) => ({
+        agent_session_id: session.agent_session_id,
+        agent_profile_id: session.agent_profile.profile_id,
+        agent_profile_revision: session.agent_profile.revision,
+        allowed_run_purposes: [...session.allowed_run_purposes],
+        status: session.status,
+        run_count: session.run_references.length,
+      }),
+    ),
+    action_offers: structuredClone(state.integration_action_offers ?? []),
+    action_grants: structuredClone(state.action_grants ?? []),
+    results: structuredClone(state.integration_results ?? []),
+    disposition: structuredClone(
+      (state.integration_dispositions ?? []).at(-1) ?? null,
+    ),
+  };
 }
 
 function projectTaskControl(taskControl) {

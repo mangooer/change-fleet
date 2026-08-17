@@ -166,6 +166,35 @@ export class AutonomousTaskController {
     return this.enqueueControlCommand(request, "refresh_delivery", request);
   }
 
+  async grantIntegrationAction(request) {
+    const grant = await this.service.grantIntegrationAction(request);
+    const queued = await this.enqueueControlCommand(
+      {
+        change_set_id: request.change_set_id,
+        idempotency_key: `integrate-${request.idempotency_key}`,
+      },
+      "integrate",
+      {
+        idempotency_key: `execute-${request.idempotency_key}`,
+        change_set_id: request.change_set_id,
+        action_grant_id: grant.action_grant_id,
+      },
+    );
+    return { ...grant, integration_command: queued.command };
+  }
+
+  async executeIntegrationAction(request) {
+    return this.enqueueControlCommand(request, "integrate", request);
+  }
+
+  async completeWithoutManagedIntegration(request) {
+    return this.enqueueControlCommand(
+      request,
+      "complete_without_integration",
+      request,
+    );
+  }
+
   async cancelChangeSet(request) {
     await this.taskControlStore.ensureTask(
       request.change_set_id,
@@ -315,6 +344,10 @@ export class AutonomousTaskController {
               idempotency_key: `${command.payload.idempotency_key}-a${attempt}`,
             }),
         );
+      case "integrate":
+        return this.service.executeIntegrationAction(command.payload);
+      case "complete_without_integration":
+        return this.service.completeWithoutManagedIntegration(command.payload);
       case "cancel":
         return this.closeWhenQuiescent(command.payload);
       default:
@@ -573,6 +606,9 @@ function safeErrorMessage(error) {
 function stageForCommand(kind) {
   if (kind === "initial_plan") return "planning";
   if (kind === "publish" || kind === "refresh_delivery") return "delivery";
+  if (kind === "integrate" || kind === "complete_without_integration") {
+    return "integration";
+  }
   if (kind === "cancel") return "task";
   return "task";
 }

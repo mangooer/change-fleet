@@ -30,6 +30,11 @@ const EXPECTED_OPERATIONS = [
   "changeset.delivery.publish",
   "changeset.delivery.read",
   "changeset.delivery.refresh",
+  "changeset.integration.offer",
+  "changeset.integration.grant",
+  "changeset.integration.execute",
+  "changeset.integration.complete_without_managed",
+  "changeset.integration.read",
   "changeset.read",
 ];
 
@@ -111,6 +116,11 @@ function createServiceDouble(calls) {
     "publishDelivery",
     "readDelivery",
     "refreshDelivery",
+    "offerIntegrationAction",
+    "grantIntegrationAction",
+    "executeIntegrationAction",
+    "completeWithoutManagedIntegration",
+    "readIntegration",
   ];
   for (const method of methods) {
     service[method] = async (request) => {

@@ -32,6 +32,10 @@ import {
   stopSupervisionClock,
 } from "../domain/supervision.js";
 import { runTerminalStatusForError } from "./run-coordinator.js";
+import {
+  appendAgentSessionRun,
+  requireAgentSession,
+} from "../domain/agent-session.js";
 
 // SupervisionOrchestrator 拥有自主监督的命令面与调度循环；执行、验证和 Bundle 编排仍由
 // ChangeFleetService 通过注入回调提供，聚合权威不离开 ChangeFleetService。
@@ -423,6 +427,11 @@ export class SupervisionOrchestrator {
       ),
     });
     const createdAt = this.now();
+    const agentSession = requireAgentSession(
+      state.task_workspace,
+      this.supervisionAgentProfile,
+      "supervision",
+    );
     await this.runStore.create(
       createAgentRunRecord({
         runId,
@@ -444,6 +453,9 @@ export class SupervisionOrchestrator {
           digest: sha256(contextProjection),
         },
         createdAt,
+        extra: {
+          agent_session_id: agentSession.agent_session_id,
+        },
       }),
     );
     await this.controlStore.transactChangeSet(state.change_set_id, (current) => {
@@ -452,8 +464,7 @@ export class SupervisionOrchestrator {
         "STALE_SUPERVISION_ACTION",
         "Plan changed before Supervisor dispatch",
       );
-      current.run_references.push(
-        createRunReference({
+      const reference = createRunReference({
           runId,
           operation: "supervision",
           trigger: attempt === 1 ? "initial" : "retry",
@@ -463,7 +474,15 @@ export class SupervisionOrchestrator {
           offered_action_ids: actionSet.actions.map(
             (action) => action.action_id,
           ),
-        }),
+          agent_session_id: agentSession.agent_session_id,
+        });
+      current.run_references.push(
+        reference,
+      );
+      appendAgentSessionRun(
+        current.task_workspace,
+        agentSession.agent_session_id,
+        reference,
       );
       current.updated_at = this.now();
     });

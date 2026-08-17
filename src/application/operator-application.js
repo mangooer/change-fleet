@@ -28,6 +28,12 @@ const OPERATION_METHODS = Object.freeze({
   "changeset.delivery.publish": "publishDelivery",
   "changeset.delivery.read": "readDelivery",
   "changeset.delivery.refresh": "refreshDelivery",
+  "changeset.integration.offer": "offerIntegrationAction",
+  "changeset.integration.grant": "grantIntegrationAction",
+  "changeset.integration.execute": "executeIntegrationAction",
+  "changeset.integration.complete_without_managed":
+    "completeWithoutManagedIntegration",
+  "changeset.integration.read": "readIntegration",
   "changeset.read": "readChangeSet",
 });
 

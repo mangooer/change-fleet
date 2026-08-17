@@ -20,6 +20,10 @@ import {
   normalizeBundleReviewOutcome,
 } from "../domain/bundle-review.js";
 import { runTerminalStatusForError } from "./run-coordinator.js";
+import {
+  appendAgentSessionRun,
+  requireAgentSession,
+} from "../domain/agent-session.js";
 
 // BundleReviewOrchestrator 拥有 Bundle 组装、独立质量复核、复核预算循环与失败 Gate；
 // 聚合权威与顶层状态机仍由 ChangeFleetService 保留。
@@ -318,6 +322,11 @@ export class BundleReviewOrchestrator {
       signal: null,
     };
     const createdAt = this.now();
+    const agentSession = requireAgentSession(
+      state.task_workspace,
+      this.reviewAgentProfile,
+      "review",
+    );
     await this.runStore.create(
       createAgentRunRecord({
         runId,
@@ -358,6 +367,7 @@ export class BundleReviewOrchestrator {
             bundle_revision: bundle.revision,
             bundle_hash: bundle.bundle_hash,
           },
+          agent_session_id: agentSession.agent_session_id,
         },
       }),
     );
@@ -371,8 +381,7 @@ export class BundleReviewOrchestrator {
         "STALE_BUNDLE_REVIEW",
         "Bundle review subject changed before Runtime dispatch",
       );
-      current.run_references.push(
-        createRunReference({
+      const reference = createRunReference({
           runId,
           operation: "review",
           trigger: attempt === 1 ? "initial" : "retry",
@@ -382,7 +391,15 @@ export class BundleReviewOrchestrator {
           bundle_revision: bundle.revision,
           bundle_hash: bundle.bundle_hash,
           attempt,
-        }),
+          agent_session_id: agentSession.agent_session_id,
+        });
+      current.run_references.push(
+        reference,
+      );
+      appendAgentSessionRun(
+        current.task_workspace,
+        agentSession.agent_session_id,
+        reference,
       );
       current.updated_at = this.now();
     });

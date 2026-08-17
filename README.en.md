@@ -79,6 +79,10 @@ following sections describe the current prototype.
   guidance from the exact base; it does not invent or write back a project Harness.
 - **GitHub delivery.** The current delivery adapter publishes an accepted exact Candidate through a
   ready pull request and observes the human merge result.
+- **Exact integration grants.** After Bundle acceptance, an operator may grant one fully displayed,
+  non-force Git publication or target fast-forward. ChangeFleet admits the result only after an
+  independent remote-ref observation, or the operator may finish explicitly without managed
+  integration.
 - **Localized operator diagnostics.** The local UI and typed diagnostics support English and
   Simplified Chinese.
 
@@ -92,7 +96,8 @@ task objective
   -> validate exact repository Candidates
   -> optionally run independent review and repair
   -> review one exact cross-repository CandidateBundle
-  -> publish and observe configured delivery
+  -> publish configured PR delivery or grant one exact Git action
+  -> independently observe the result, or finish without claiming managed integration
 ```
 
 The current operator inbox derives six simple states from exact control facts:
@@ -190,8 +195,10 @@ node ./bin/changefleet.js serve --config changefleet.json --port 4311
 Open `http://127.0.0.1:4311`, create a task for the registered Project, and follow its conversation
 and status from the task inbox.
 
-Without a confirmed GitHub delivery binding, a task can complete execution, validation, and Bundle
-review but will remain at the review boundary instead of being delivered.
+Without a confirmed GitHub delivery binding, an accepted Bundle may use one exact non-force Git
+publication or fast-forward grant, or finish explicitly without claiming that ChangeFleet delivered
+or integrated it. A real remote write still requires a separate operator grant over the fully
+displayed remote, ref, and Candidate.
 
 ## Useful Commands
 
@@ -215,7 +222,9 @@ is the ordinary task flow.
 
 ## Current Limitations
 
-- GitHub is the only implemented delivery provider, and a human performs the PR merge.
+- GitHub is the only implemented PR delivery provider, and a human performs the PR merge. A
+  provider-neutral, per-action exact Git publication and fast-forward route also exists, but there
+  is no generic external-write grant.
 - Remote workers, deployment, merge queues, automatic merge, and hosted multi-tenancy are not
   implemented.
 - The Codex Runtime is the only real Provider adapter currently implemented.

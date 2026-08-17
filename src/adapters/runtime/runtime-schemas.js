@@ -449,6 +449,45 @@ export const BUNDLE_REVIEW_OUTCOME_SCHEMA = Object.freeze({
   additionalProperties: false,
 });
 
+export const INTEGRATION_OUTCOME_SCHEMA = Object.freeze({
+  type: "object",
+  properties: {
+    type: {
+      type: "string",
+      enum: ["integration_action_completed", "integration_action_blocked"],
+    },
+    action_grant_id: { type: "string" },
+    input_digest: { type: "string" },
+    summary: { type: "string" },
+    reported_destination_sha: {
+      anyOf: [{ type: "string" }, { type: "null" }],
+    },
+    blocker: {
+      anyOf: [
+        {
+          type: "object",
+          properties: {
+            code: { type: "string" },
+            message: { type: "string" },
+          },
+          required: ["code", "message"],
+          additionalProperties: false,
+        },
+        { type: "null" },
+      ],
+    },
+  },
+  required: [
+    "type",
+    "action_grant_id",
+    "input_digest",
+    "summary",
+    "reported_destination_sha",
+    "blocker",
+  ],
+  additionalProperties: false,
+});
+
 export function schemaForOperation(operation) {
   // 未知操作必须在调用 Provider 前失败，不能退回无结构文本。
   if (operation === "planning") return PLANNING_OUTCOME_SCHEMA;
@@ -458,6 +497,7 @@ export function schemaForOperation(operation) {
   if (operation === "verification") return VERIFICATION_OUTCOME_SCHEMA;
   if (operation === "supervision") return SUPERVISION_OUTCOME_SCHEMA;
   if (operation === "review") return BUNDLE_REVIEW_OUTCOME_SCHEMA;
+  if (operation === "integration") return INTEGRATION_OUTCOME_SCHEMA;
   throw new Error(`Unsupported Runtime operation ${operation}`);
 }
 
@@ -529,6 +569,30 @@ export function assertStructuredOutcome(operation, outcome) {
       (outcome.human_decision &&
         typeof outcome.human_decision === "object" &&
         !Array.isArray(outcome.human_decision)))
+  ) {
+    return outcome;
+  }
+  if (
+    operation === "integration" &&
+    outcome.type === "integration_action_completed" &&
+    typeof outcome.action_grant_id === "string" &&
+    typeof outcome.input_digest === "string" &&
+    typeof outcome.summary === "string" &&
+    typeof outcome.reported_destination_sha === "string" &&
+    outcome.blocker === null
+  ) {
+    return outcome;
+  }
+  if (
+    operation === "integration" &&
+    outcome.type === "integration_action_blocked" &&
+    typeof outcome.action_grant_id === "string" &&
+    typeof outcome.input_digest === "string" &&
+    typeof outcome.summary === "string" &&
+    outcome.reported_destination_sha === null &&
+    outcome.blocker &&
+    typeof outcome.blocker.code === "string" &&
+    typeof outcome.blocker.message === "string"
   ) {
     return outcome;
   }

@@ -1140,7 +1140,7 @@ function validateRunAuditSource(run) {
   invariant(
     typeof run.change_set_id === "string" &&
       (run.work_unit_id === null || typeof run.work_unit_id === "string") &&
-      ["planning", "execution", "verification", "supervision", "review"].includes(
+      ["planning", "execution", "verification", "supervision", "review", "integration"].includes(
         run.operation,
       ) &&
       Number.isSafeInteger(run.attempt) &&

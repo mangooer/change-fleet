@@ -27,6 +27,13 @@ const LIFECYCLE_ROUTES = Object.freeze([
   route(["changeset", "bundle", "decide"], "changeset.bundle.decide"),
   route(["changeset", "delivery", "publish"], "changeset.delivery.publish"),
   route(["changeset", "delivery", "refresh"], "changeset.delivery.refresh"),
+  route(["changeset", "integration", "offer"], "changeset.integration.offer"),
+  route(["changeset", "integration", "grant"], "changeset.integration.grant"),
+  route(["changeset", "integration", "execute"], "changeset.integration.execute"),
+  route(
+    ["changeset", "integration", "complete-without-managed"],
+    "changeset.integration.complete_without_managed",
+  ),
   route(["changeset", "create"], "changeset.create"),
   route(["changeset", "close"], "changeset.close"),
   route(["changeset", "feedback", "submit"], "changeset.feedback.submit"),
@@ -49,6 +56,13 @@ export function parseCommandLine(arguments_) {
     arguments_[1] === "audit"
   ) {
     return parseAuditCommand(arguments_.slice(2));
+  }
+  if (
+    arguments_[0] === "changeset" &&
+    arguments_[1] === "integration" &&
+    arguments_[2] === "show"
+  ) {
+    return parseIntegrationRead(arguments_.slice(3));
   }
   if (
     arguments_[0] === "changeset" &&
@@ -79,6 +93,22 @@ export function parseCommandLine(arguments_) {
     }
   }
   throw invalidCli("unsupported_command");
+}
+
+function parseIntegrationRead(arguments_) {
+  const [changeSetId, ...optionArguments] = arguments_;
+  validateSubjectId("change_set_id", changeSetId, invalidCli);
+  const options = parseOptions(
+    optionArguments,
+    new Set(["--config"]),
+    invalidCli,
+  );
+  return {
+    kind: "lifecycle",
+    operation: "changeset.integration.read",
+    config_path: requireOption(options, "--config", invalidCli),
+    request: { change_set_id: changeSetId },
+  };
 }
 
 function parseSupervisionRead(arguments_) {

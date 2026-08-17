@@ -10,6 +10,7 @@ import {
 import {
   assertStructuredOutcome,
   EXECUTION_OUTCOME_SCHEMA,
+  INTEGRATION_OUTCOME_SCHEMA,
   PLANNING_OUTCOME_SCHEMA,
   SUPERVISION_OUTCOME_SCHEMA,
   VERIFICATION_OUTCOME_SCHEMA,
@@ -144,6 +145,7 @@ describe("Runtime identity and evidence", () => {
     assert.equal(EXECUTION_OUTCOME_SCHEMA.additionalProperties, false);
     assert.equal(VERIFICATION_OUTCOME_SCHEMA.additionalProperties, false);
     assert.equal(SUPERVISION_OUTCOME_SCHEMA.additionalProperties, false);
+    assert.equal(INTEGRATION_OUTCOME_SCHEMA.additionalProperties, false);
     const planSchema =
       PLANNING_OUTCOME_SCHEMA.properties.message.anyOf[0].properties.plan.anyOf[0];
     assert.deepEqual(planSchema.required, [
@@ -161,6 +163,7 @@ describe("Runtime identity and evidence", () => {
     assertStrictObjectSchemas(EXECUTION_OUTCOME_SCHEMA);
     assertStrictObjectSchemas(VERIFICATION_OUTCOME_SCHEMA);
     assertStrictObjectSchemas(SUPERVISION_OUTCOME_SCHEMA);
+    assertStrictObjectSchemas(INTEGRATION_OUTCOME_SCHEMA);
     const planOutcome = {
       type: "conversation_message",
       message: {
@@ -273,6 +276,24 @@ describe("Runtime identity and evidence", () => {
         type: "implementation_completed",
         summary: "done",
         changed_paths: [],
+      }),
+    );
+    const integrationOutcome = {
+      type: "integration_action_completed",
+      action_grant_id: "grant-1",
+      input_digest: "d".repeat(64),
+      summary: "Pushed the one granted refspec without force.",
+      reported_destination_sha: "a".repeat(40),
+      blocker: null,
+    };
+    assert.equal(
+      assertStructuredOutcome("integration", integrationOutcome),
+      integrationOutcome,
+    );
+    assert.throws(() =>
+      assertStructuredOutcome("integration", {
+        ...integrationOutcome,
+        reported_destination_sha: null,
       }),
     );
   });

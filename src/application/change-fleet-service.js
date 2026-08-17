@@ -49,6 +49,7 @@ import { EvidenceStore } from "../adapters/filesystem/evidence-store.js";
 import { HarnessSnapshotStore } from "../adapters/filesystem/harness-snapshot-store.js";
 import { RunStore } from "../adapters/filesystem/run-store.js";
 import { DeliveryGitAdapter } from "../adapters/git/delivery-git-adapter.js";
+import { IntegrationGitAdapter } from "../adapters/git/integration-git-adapter.js";
 import { RepositoryWorker } from "../adapters/git/repository-worker.js";
 import { GhPullRequestAdapter } from "../adapters/github/gh-pull-request-adapter.js";
 import { measureInitialContext } from "../adapters/runtime/runtime-port.js";
@@ -67,6 +68,7 @@ import { RunRecoveryService } from "./run-recovery-service.js";
 import { RepositoryValidator } from "./repository-validator.js";
 import { BundleAssembler } from "./bundle-assembler.js";
 import { TaskWorkspaceManager } from "./task-workspace-manager.js";
+import { IntegrationService } from "./integration-service.js";
 import {
   createAgentRunRecord,
   createRunReference,
@@ -91,6 +93,10 @@ import {
   createTaskWorkspaceControlSummary,
   requireTaskWorkspace,
 } from "../domain/task-workspace.js";
+import {
+  appendAgentSessionRun,
+  requireAgentSession,
+} from "../domain/agent-session.js";
 
 const MAX_CONTEXT_HARNESS_RESOURCES = 32;
 // 应用服务是确定性编排入口：语义工作交给 Runtime，权限、状态和证据在此裁决。
@@ -106,10 +112,13 @@ export class ChangeFleetService {
     supervisionAgentProfile = null,
     reviewRuntime = runtime,
     reviewAgentProfile = null,
+    integrationRuntime = runtime,
+    integrationAgentProfile = agentProfile,
     clock = () => new Date(),
     idFactory = (prefix) => `${prefix}-${randomUUID()}`,
     deliveryGitAdapter = new DeliveryGitAdapter(),
     githubPullRequestAdapter = new GhPullRequestAdapter(),
+    integrationGitAdapter = new IntegrationGitAdapter(),
   }) {
     this.controlRoot = path.resolve(controlRoot);
     this.workspaceRoot = path.resolve(workspaceRoot);
@@ -128,6 +137,10 @@ export class ChangeFleetService {
     this.reviewRuntime = reviewRuntime;
     this.reviewAgentProfile = normalizeAgentProfile(
       reviewAgentProfile ?? readOnlyReviewProfile(agentProfile),
+    );
+    this.integrationRuntime = integrationRuntime;
+    this.integrationAgentProfile = normalizeAgentProfile(
+      integrationAgentProfile,
     );
     this.clock = clock;
     this.idFactory = idFactory;
@@ -187,6 +200,18 @@ export class ChangeFleetService {
       now: () => this.now(),
     });
     this.feedbackService = new FeedbackService({ idFactory, clock });
+    this.integrationService = new IntegrationService({
+      controlStore: this.controlStore,
+      runStore: this.runStore,
+      evidenceStore: this.evidenceStore,
+      runCoordinator: this.runCoordinator,
+      taskWorkspaceManager: this.taskWorkspaceManager,
+      integrationGitAdapter,
+      runtime: this.integrationRuntime,
+      agentProfile: this.integrationAgentProfile,
+      idFactory,
+      now: () => this.now(),
+    });
     this.verificationOrchestrator = new VerificationOrchestrator({
       controlStore: this.controlStore,
       runStore: this.runStore,
@@ -559,6 +584,28 @@ export class ChangeFleetService {
       repositorySelection,
       repositoryHarnessSelection,
       agentProfile: taskAgentProfile,
+      agentSessionAssignments: [
+        {
+          agentProfile: taskAgentProfile,
+          allowedRunPurposes: ["planning", "execution"],
+        },
+        {
+          agentProfile: this.verificationAgentProfile,
+          allowedRunPurposes: ["verification"],
+        },
+        {
+          agentProfile: this.supervisionAgentProfile,
+          allowedRunPurposes: ["supervision"],
+        },
+        {
+          agentProfile: this.reviewAgentProfile,
+          allowedRunPurposes: ["review"],
+        },
+        {
+          agentProfile: this.integrationAgentProfile,
+          allowedRunPurposes: ["integration"],
+        },
+      ],
       createdAt: now,
     });
     const result = {
@@ -607,6 +654,10 @@ export class ChangeFleetService {
       candidates: [],
       bundles: [],
       delivery_requests: [],
+      integration_action_offers: [],
+      action_grants: [],
+      integration_results: [],
+      integration_dispositions: [],
       decisions: [],
       feedback_records: [],
       current_feedback_id: null,
@@ -1556,6 +1607,11 @@ export class ChangeFleetService {
     await this.reconcileInterruptedRuns(change_set_id, { project });
     initialState = await this.controlStore.readChangeSet(change_set_id);
     assertChangeSetMutable(initialState);
+    const agentSession = requireAgentSession(
+      requireTaskWorkspace(initialState),
+      agentProfile,
+      "planning",
+    );
 
     const repositorySelection = currentRepositorySelection(initialState);
     const repositoryHarnessSelection =
@@ -1774,6 +1830,7 @@ export class ChangeFleetService {
           createdAt: this.now(),
           extra: {
             task_workspace_id: taskWorkspace.task_workspace_id,
+            agent_session_id: agentSession.agent_session_id,
           },
         }),
       );
@@ -1799,8 +1856,7 @@ export class ChangeFleetService {
           "STALE_REPOSITORY_HARNESS_SELECTION_REVISION",
           "Repository Harness selection changed before planning dispatch",
         );
-        state.run_references.push(
-          createRunReference({
+        const reference = createRunReference({
             runId,
             operation: "planning",
             trigger:
@@ -1811,7 +1867,13 @@ export class ChangeFleetService {
             repository_harness_selection_revision:
               repositoryHarnessSelection.revision,
             attempt: planningAttempt,
-          }),
+            agent_session_id: agentSession.agent_session_id,
+          });
+        state.run_references.push(reference);
+        appendAgentSessionRun(
+          state.task_workspace,
+          agentSession.agent_session_id,
+          reference,
         );
         state.updated_at = this.now();
       });
@@ -2807,6 +2869,29 @@ export class ChangeFleetService {
     return this.githubDeliveryService.refreshDelivery(request);
   }
 
+  offerIntegrationAction(request) {
+    return this.integrationService.offerAction(request);
+  }
+
+  grantIntegrationAction(request) {
+    return this.integrationService.grantAction(request);
+  }
+
+  async executeIntegrationAction(request) {
+    await this.reconcileInterruptedRuns(request.change_set_id);
+    return this.integrationService.executeAction(request);
+  }
+
+  completeWithoutManagedIntegration(request) {
+    return this.integrationService.completeWithoutManagedIntegration(request);
+  }
+
+  async readIntegration({ change_set_id }) {
+    return this.integrationService.project(
+      await this.controlStore.readChangeSet(change_set_id),
+    );
+  }
+
   readChangeSet(changeSetId) {
     return this.controlStore.readChangeSet(changeSetId);
   }
@@ -3105,6 +3190,11 @@ export class ChangeFleetService {
       ),
     );
     const runId = this.idFactory("run");
+    const agentSession = requireAgentSession(
+      taskWorkspace,
+      plan.agent_profile,
+      "execution",
+    );
     const run = createAgentRunRecord({
       runId,
       changeSetId,
@@ -3128,6 +3218,7 @@ export class ChangeFleetService {
       createdAt: this.now(),
       extra: {
         feedback_source_id: feedbackRecord?.feedback_id ?? null,
+        agent_session_id: agentSession.agent_session_id,
       },
     });
     await this.runStore.create(run);
@@ -3154,17 +3245,25 @@ export class ChangeFleetService {
           trigger: isFeedbackExecution ? "feedback" : "initial",
           feedback_source_id: feedbackRecord?.feedback_id ?? null,
           attempt,
+          agent_session_id: agentSession.agent_session_id,
         }),
       );
-      current.run_references.push(
-        createRunReference({
+      const aggregateReference = createRunReference({
           runId,
           operation: "execution",
           trigger: isFeedbackExecution ? "feedback" : "initial",
           plan_revision: plan.revision,
           work_unit_id: workUnitId,
           feedback_source_id: feedbackRecord?.feedback_id ?? null,
-        }),
+          agent_session_id: agentSession.agent_session_id,
+        });
+      current.run_references.push(
+        aggregateReference,
+      );
+      appendAgentSessionRun(
+        current.task_workspace,
+        agentSession.agent_session_id,
+        aggregateReference,
       );
       if (isFeedbackExecution) {
         resolveValidationBlockers(current, {

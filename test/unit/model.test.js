@@ -69,7 +69,18 @@ function taskState() {
     bundle_review_policy: null,
     task_workspace: createTaskWorkspaceRecord({
       changeSetId: "change-1",
-      agentProfile: { profile_id: "profile", revision: 1, provider: "test", runtime: "scripted", model: "fixture", reasoning: "medium", permissions: "operation_scoped" },
+      agentProfile: {
+        profile_id: "profile",
+        revision: 1,
+        provider: "test",
+        runtime: "scripted",
+        model: "fixture",
+        reasoning: "medium",
+        permissions: "operation_scoped",
+        network_access: false,
+        skills: [],
+        credential_profile_id: null,
+      },
       repositorySelection,
       repositoryHarnessSelection: harnessSelection,
       repositoryWorkspaces: repositorySelection.repositories.map((repository) => ({

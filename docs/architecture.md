@@ -38,6 +38,7 @@ Change Control
   Core-compiled WorkUnit scheduler
   CandidateBundle and validation matrix
   GitHub delivery requests, reconciliation, and aggregate completion
+  task-scoped AgentSessions, exact ActionGrants, integration results, and dispositions
 
 Repository Execution
   RepositoryLocator resolution
@@ -104,6 +105,8 @@ Owns current aggregate state and references to immutable evidence:
 - scope decisions;
 - active or superseded CandidateBundle revision;
 - bounded current GitHub delivery requests and latest evidence references;
+- task-scoped AgentSession lineage, exact integration offers and ActionGrants, independently
+  observed integration results, and completion dispositions;
 - human decisions;
 - Plan-bound supervision authorization and exact Supervisor-decision references;
 - exact Bundle review admission, current assessment, and Review Run references;
@@ -253,6 +256,10 @@ Skill settings. It:
 The adapter does not authorize repositories, accept plans or Bundles, install repository Harness,
 or maintain a universal model and Skill catalog.
 
+AgentSession is the task-scoped routing identity above this adapter. Provider thread or session ids
+are optional locators on that logical record, never aggregate identity or recovery authority. A
+fresh Provider session reconstructs current context from exact ChangeFleet state.
+
 ### RuntimeAuditQueryService
 
 Derives private, versioned `RunAuditProjection` and `ChangeSetAuditProjection` views from immutable
@@ -297,7 +304,8 @@ explicit JSON route allowlist. It is not a daemon, Codex App Server, remote API,
 bus, or second authority graph.
 
 The adapter calls shared application operations for ChangeSet creation, planning turns, exact Plan
-activation, Bundle decisions, and GitHub publish/refresh. Bounded queries provide the recent list,
+activation, Bundle decisions, GitHub publish/refresh, exact integration offers and grants, and
+explicit completion without managed integration. Bounded queries provide the recent list,
 exact current view, and safe existing-Project intake options. HTTP requests cannot select a control
 root, raw operation, host path, AgentProfile, credential, executable, or unrestricted catalog
 object. The adapter does not invoke the CLI parser or expose raw Store, Runtime, Git, workspace, or
@@ -468,6 +476,28 @@ state keeps only the latest reference and count. PR head divergence, target stal
 closed-unmerged state, provider failure, and exact merge result remain distinct. One human merges
 in GitHub; automatic merge and deployment require later accepted proposals.
 
+### IntegrationCoordinator
+
+Owns the post-acceptance exact ActionGrant route without adding another aggregate phase. Core first
+compiles an offer from the current accepted Bundle, exact Candidate, configured integration
+AgentSession, remote, destination ref, latest observed remote SHA, non-force refspec, attempt and
+expiry limits, preflight, result observer, accepted schema, and recovery boundary. A human grant
+copies that full subject immutably; the Runtime cannot broaden or accept it.
+
+`IntegrationGitAdapter` is deliberately read-only: it proves local commit presence and fast-forward
+ancestry, reads the exact remote ref before dispatch, and independently observes the postcondition.
+The configured Agent Runtime performs the one granted push. `TaskWorkspaceManager` snapshots every
+linked RepositoryWorkspace around the Run so a remote-ref action cannot silently mutate assigned
+or non-assigned task Git subjects. Result admission requires the observed destination to equal the
+exact Candidate SHA.
+
+Controller-loss recovery leaves the original Run interrupted and rechecks the remote before a
+retry. Exact already-satisfied state is recorded as an observed result without rewriting that Run.
+Multi-Repository partial success remains durable; terminal managed completion requires exact
+integration or GitHub merge evidence for every Candidate. A separate human disposition may end an
+accepted task with reason `accepted_without_managed_integration` while preserving all unintegrated
+subjects and making no delivery claim.
+
 ## Context And Capability Model
 
 ```text
@@ -561,6 +591,9 @@ Bundle assembly:
 
 Delivery:
   serialized by repository_id + target_ref
+
+Granted integration:
+  serialized by repository_id + exact destination_ref
 ```
 
 Two parallel Candidates from the same base remain valid review subjects. If their common target
@@ -585,9 +618,10 @@ subject. Failed selected-command attempts remain immutable evidence. An operatio
 different bounded timeout while preserving the same selected semantic check and exact subject.
 Obsolete private pre-checkpoint records are not imported or rewritten by the current baseline.
 
-One generic reconciler handles all persisted running Runs. It records an unprovable invocation as
-`interrupted`, retains the owning ChangeSet and WorkUnit phase, then applies the bounded workspace
-adapter for planning cleanup, writable execution preflight, or disposable verification cleanup.
+One generic reconciler handles all persisted running Runs, including integration. It records an
+unprovable invocation as `interrupted`, retains the owning ChangeSet and WorkUnit phase, then
+applies the bounded workspace adapter for planning cleanup, writable execution preflight, or
+disposable verification cleanup.
 A new same-phase Run starts only after exact authority is re-established. Completed invocation,
 checkpoint, and passing validation evidence is reused rather than repeated.
 

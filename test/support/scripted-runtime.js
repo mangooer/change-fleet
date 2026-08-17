@@ -40,6 +40,8 @@ export class ScriptedRuntime {
     feedbackExecutionOutcome = null,
     feedbackFileContent = null,
     executionDelayMs = 0,
+    integrationOutcome = null,
+    integrationExecutor = null,
   }) {
     this.plan = plan;
     this.planningOutcomes = planningOutcomes;
@@ -59,10 +61,13 @@ export class ScriptedRuntime {
     this.feedbackExecutionOutcome = feedbackExecutionOutcome;
     this.feedbackFileContent = feedbackFileContent;
     this.executionDelayMs = executionDelayMs;
+    this.integrationOutcome = integrationOutcome;
+    this.integrationExecutor = integrationExecutor;
     this.verificationInvocationCount = 0;
     this.planningInvocationCount = 0;
     this.supervisionInvocationCount = 0;
     this.reviewInvocationCount = 0;
+    this.integrationInvocationCount = 0;
     this.interrupted = false;
     this.invocations = [];
   }
@@ -193,6 +198,26 @@ export class ScriptedRuntime {
             summary: "The deterministic fixture found no Bundle-level blocking issue.",
             findings: [],
             human_decision: null,
+          },
+        ),
+        provider_evidence: testProviderEvidence(),
+      };
+    }
+    if (invocation.operation === "integration") {
+      this.integrationInvocationCount += 1;
+      if (this.integrationExecutor) {
+        await this.integrationExecutor(invocation);
+      }
+      const grant = invocation.context_projection.integration;
+      return {
+        outcome: structuredClone(
+          this.integrationOutcome ?? {
+            type: "integration_action_completed",
+            action_grant_id: grant.action_grant_id,
+            input_digest: grant.input_digest,
+            summary: "The deterministic fixture performed the exact granted Git action.",
+            reported_destination_sha: grant.candidate_sha,
+            blocker: null,
           },
         ),
         provider_evidence: testProviderEvidence(),

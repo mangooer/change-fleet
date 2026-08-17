@@ -34,6 +34,10 @@ import {
   verificationReviewAllowsCandidate,
 } from "../domain/verification.js";
 import { runTerminalStatusForError } from "./run-coordinator.js";
+import {
+  appendAgentSessionRun,
+  requireAgentSession,
+} from "../domain/agent-session.js";
 
 // VerificationOrchestrator 拥有验证执行机制：请求检查、仓库检查和合并检查的尝试执行与
 // 证据落盘。Runtime 派发流（admission 与独立复核）仍由 ChangeFleetService 驱动，待后续
@@ -855,6 +859,11 @@ export class VerificationOrchestrator {
       exactBaseResources: exactCandidateHarness,
       overlayResources: frozenOverlayHarness,
     });
+    const agentSession = requireAgentSession(
+      state.task_workspace,
+      this.verificationAgentProfile,
+      "verification",
+    );
     const run = createAgentRunRecord({
       runId,
       changeSetId,
@@ -880,6 +889,7 @@ export class VerificationOrchestrator {
       extra: {
         feedback_source_id: focus?.feedbackRecord.feedback_id ?? null,
         verification_workspace: workspace,
+        agent_session_id: agentSession.agent_session_id,
       },
     });
     try {
@@ -904,10 +914,10 @@ export class VerificationOrchestrator {
             attempt,
             review_scope: reviewScope,
             source_review_id: focus?.sourceReview?.review_id ?? null,
+            agent_session_id: agentSession.agent_session_id,
           }),
         );
-        current.run_references.push(
-          createRunReference({
+        const aggregateReference = createRunReference({
             runId,
             operation: "verification",
             trigger: focus === null ? "initial" : "feedback",
@@ -917,7 +927,15 @@ export class VerificationOrchestrator {
             review_scope: reviewScope,
             source_review_id: focus?.sourceReview?.review_id ?? null,
             attempt,
-          }),
+            agent_session_id: agentSession.agent_session_id,
+          });
+        current.run_references.push(
+          aggregateReference,
+        );
+        appendAgentSessionRun(
+          current.task_workspace,
+          agentSession.agent_session_id,
+          aggregateReference,
         );
         setChangeSetPhase(current, "running");
         current.updated_at = this.now();

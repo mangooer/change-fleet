@@ -61,6 +61,9 @@ export class RunRecoveryService {
     if (operations.has("supervision")) {
       await this.reconcileSupervision(changeSetId);
     }
+    if (operations.has("integration")) {
+      await this.reconcileIntegration(changeSetId);
+    }
   }
 
   async reconcilePlanning(changeSetId, project) {
@@ -336,6 +339,69 @@ export class RunRecoveryService {
     });
   }
 
+  async reconcileIntegration(changeSetId) {
+    await this.reconcileReferences({
+      changeSetId,
+      label: "Integration",
+      prepare: (state) => ({
+        references: state.run_references
+          .filter(
+            (reference) =>
+              reference.operation === "integration" &&
+              reference.status === "running",
+          )
+          .map((reference) => ({
+            run_id: reference.run_id,
+            work_unit_id: null,
+            action_grant_id: reference.action_grant_id,
+          })),
+        cleanup: null,
+      }),
+      applyResults: (current, results) => {
+        for (const result of results) {
+          setReferenceStatus(
+            current.run_references,
+            result.run_id,
+            result.status,
+          );
+          const reference = current.run_references.find(
+            (candidate) => candidate.run_id === result.run_id,
+          );
+          const session = current.task_workspace.agent_sessions.find(
+            (candidate) =>
+              candidate.agent_session_id === reference?.agent_session_id,
+          );
+          setReferenceStatus(
+            session?.run_references ?? [],
+            result.run_id,
+            result.status,
+          );
+          const grant = current.action_grants.find(
+            (candidate) =>
+              candidate.action_grant_id === reference?.action_grant_id,
+          );
+          if (grant) {
+            grant.status =
+              result.status === "interrupted" &&
+              grant.attempt_count < grant.maximum_attempts &&
+              Date.parse(grant.expires_at) > Date.parse(this.now())
+                ? "granted"
+                : "failed";
+            grant.last_error = {
+              code:
+                result.status === "interrupted"
+                  ? "INTEGRATION_RUN_INTERRUPTED_AFTER_RESTART"
+                  : result.error_code,
+              run_id: result.run_id,
+              at: this.now(),
+            };
+          }
+        }
+        setChangeSetPhase(current, "review");
+      },
+    });
+  }
+
   async reconcileReferences({
     changeSetId,
     project = null,
@@ -369,6 +435,7 @@ export class RunRecoveryService {
       results.push({
         ...recoveryResult(run.run_id, cleanupError),
         work_unit_id: reference.work_unit_id ?? null,
+        action_grant_id: reference.action_grant_id ?? null,
       });
     }
     await this.controlStore.transactChangeSet(changeSetId, (current) => {

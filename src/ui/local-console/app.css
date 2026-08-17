@@ -160,7 +160,8 @@ summary { cursor: pointer; color: var(--muted); }
 .candidate-summary { display: grid; gap: 0.4rem; margin: 0.8rem 0; }
 .candidate-summary > div { display: flex; justify-content: space-between; padding: 0.5rem 0.6rem; border-radius: 8px; background: #f4f6f8; }
 .delivery-row { justify-content: space-between; padding: 0.5rem 0; border-bottom: 1px solid var(--line); }
-.delivery-surface .actions, .review-surface .actions { margin-top: 0.9rem; }
+.delivery-surface .actions, .review-surface .actions, .integration-surface .actions { margin-top: 0.9rem; }
+.integration-offer { padding: 0.8rem; border: 1px solid var(--line); border-radius: 0.7rem; background: var(--panel); }
 
 .modal { width: min(680px, calc(100vw - 2rem)); max-height: calc(100vh - 2rem); overflow: auto; padding: 0; border: 0; border-radius: 16px; box-shadow: 0 24px 80px rgba(21, 31, 40, 0.25); }
 .modal::backdrop { background: rgba(22, 31, 40, 0.48); backdrop-filter: blur(3px); }

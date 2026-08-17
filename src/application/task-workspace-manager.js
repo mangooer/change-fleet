@@ -26,6 +26,7 @@ export class TaskWorkspaceManager {
     repositorySelection,
     repositoryHarnessSelection,
     agentProfile,
+    agentSessionAssignments = null,
     createdAt,
   }) {
     // 先完整准备所有仓库，再返回可持久化记录；部分失败会回收已经创建的 worktree。
@@ -97,6 +98,7 @@ export class TaskWorkspaceManager {
     return createTaskWorkspaceRecord({
       changeSetId,
       agentProfile,
+      agentSessionAssignments,
       repositorySelection,
       repositoryHarnessSelection,
       repositoryWorkspaces: prepared,
@@ -145,6 +147,12 @@ export class TaskWorkspaceManager {
     await this.controlStore.transactChangeSet(changeSetId, (current) => {
       const currentWorkspace = requireTaskWorkspace(current);
       currentWorkspace.resources_released_at ??= releasedAt;
+      for (const session of currentWorkspace.agent_sessions) {
+        if (session.status === "active") {
+          session.status = "closed";
+          session.closed_at = releasedAt;
+        }
+      }
       current.updated_at = this.now();
     });
     return releasedAt;
@@ -190,6 +198,17 @@ export class TaskWorkspaceManager {
       errorCode,
       errorMessage,
       { before: beforeSnapshots, after: afterSnapshots },
+    );
+  }
+
+  async captureSnapshots({ project, repositoryWorkspaces }) {
+    return Promise.all(
+      repositoryWorkspaces.map((candidate) =>
+        this.repositoryWorker.inspectTaskRepositoryWorkspace({
+          repository: requireRepository(project, candidate.repository_id),
+          workspace: candidate.workspace,
+        }),
+      ),
     );
   }
 }

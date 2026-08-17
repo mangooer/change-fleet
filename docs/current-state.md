@@ -1,6 +1,6 @@
 # Current State
 
-Updated: 2026-08-14
+Updated: 2026-08-17
 
 This document is the current implementation projection, not a progress log. `SPEC.md` owns the
 accepted product contract, Decisions own durable rationale, and Git plus linked artifacts own exact
@@ -27,14 +27,24 @@ implementation history.
   completed planning, execution, validation, Bundle review, and human acceptance against the
   GitLab-backed `yszt` repository. It remained in review because no supported delivery binding
   existed.
+- [Proposal 0033](proposals/0033-task-scoped-agent-sessions-and-exact-integration-action-grants.md)
+  is accepted as
+  [Decision 0035](decisions/0035-task-scoped-agent-sessions-and-exact-integration-action-grants.md),
+  and [WI-0047](work-items/WI-0047-task-scoped-agent-sessions-and-exact-integration-grants.md) is
+  landed. It adds task-scoped logical AgentSessions, exact human ActionGrants, Runtime-executed
+  integration Runs, independent remote-ref observation, restart-safe observe-then-retry recovery,
+  and explicit accepted completion without managed integration. Node.js 24 validation passed 119
+  unit tests, 126 integration tests, eight acceptance tests, and the Chromium console path.
 
 ## Branch-Local Work
 
-No implementation WorkItem or unlanded product change is active.
+None.
 
 ## Current Product Shape
 
 - One ChangeSet represents one business change and owns one persistent TaskWorkspace.
+- One TaskWorkspace owns logical AgentSessions that bind exact AgentProfile revisions, allowed Run
+  purposes, and Run lineage without creating another task lifecycle.
 - A Project may contain one repository or multiple repositories. Each selected repository keeps its
   own exact base, target, worktree, WorkUnit, Candidate, evidence, and delivery result.
 - Agent Runtimes own semantic analysis, planning, implementation, subagents, skills, and
@@ -46,34 +56,35 @@ No implementation WorkItem or unlanded product change is active.
 - Structural Git preflight is mandatory. Repository-native semantic commands are optional Plan
   selections; ChangeFleet does not invent a checker for repositories that lack one.
 - Verification and independent review bind exact Candidates and record separate Runtime usage.
+- Integration is a typed Run purpose that exists only after exact Bundle acceptance and a separate
+  human ActionGrant. Initial actions are limited to non-force exact Candidate publication and exact
+  base-to-Candidate target fast-forward; Core independently observes the resulting remote ref.
 - The ordinary local flow accepts a task objective, automatically activates an eligible Plan,
   advances authorized work in the background, and stops for human input or Bundle review.
 - Ordinary task views derive six operator states. Detailed usage, retries, checks, evidence, and
   artifacts remain audit-only and are excluded from later Agent context by default.
 - GitHub is the only implemented delivery provider. ChangeFleet publishes exact accepted
   Candidates through ready pull requests and observes human merge results.
+- An accepted Bundle may instead finish with exact reason
+  `accepted_without_managed_integration`; this preserves unintegrated Candidate subjects and makes
+  no delivery, merge, or integration claim.
 
 ## Observed Gaps
 
-The second-scenario validation and subsequent operator use exposed these concrete gaps:
+The second-scenario validation and subsequent implementation leave these concrete gaps:
 
-- no terminal rule for an accepted task without a supported delivery binding;
-- GitHub-only delivery for a real GitLab-backed repository;
+- GitHub remains the only managed PR delivery provider; the exact ActionGrant Git path has only
+  local bare-remote evidence, not a separately authorized real GitLab or GitHub write;
 - empty module-level repository-Harness discovery when no root instruction file exists;
 - dependence on vendor-specific semantic commands when a target repository has no deterministic
-  project check;
-- a fixed role and delivery pipeline that may be too rigid for a multi-Agent session console;
-- no human-authorized path that delegates an exact integration action to an Agent while Core retains
-  scope enforcement and result verification.
-
-The last two items are current design questions, not accepted implementation behavior.
+  project check.
 
 ## Known Limitations
 
 - Git URL materialization, remote workers, deployment, merge queues, automatic merge, service
   graphs, stacked ChangeSets, and hosted multi-tenancy are not implemented.
 - The Codex SDK is the only real Runtime adapter. Provider-native streaming, durable Provider
-  session continuation, and a second Provider remain deferred.
+  session continuation, a second Provider, and real-remote ActionGrant execution remain deferred.
 - Codex usage is aggregate-only; universal host read-denial and effective model pricing remain
   unknown.
 - Independent Bundle review supports one selected reviewer and bounded repair. Multiple reviewers,
@@ -86,20 +97,15 @@ The last two items are current design questions, not accepted implementation beh
 
 ## Open Questions
 
-1. Whether ChangeFleet should replace its fixed role pipeline with first-class persistent Agent
-   Sessions and optional Candidate lanes while keeping Runtime-native subagents internal.
-2. Whether a human decision should grant an exact, bounded integration capability that an Agent may
-   execute, rather than requiring an external human merge as a universal rule.
-3. Whether one registered Repository may initially belong to multiple Projects.
+1. Whether one registered Repository may initially belong to multiple Projects.
 
 ## Next Recommended Task
 
-Discuss one product-boundary Proposal using WI-0046 and current operator evidence before starting
-more feature implementation. It should decide the session/workspace model, Agent action grants,
-integration responsibility, and which exact Git/evidence invariants remain in Core. It must also
-state whether and how Decision 0034's feature freeze is lifted.
-
-Do not implement another console or Delivery patch before that boundary is accepted.
+If the user grants a separate exact external-write gate, validate one non-force
+`publish_exact_candidate` ActionGrant against a named real non-target remote ref and record cleanup
+authority explicitly. Otherwise, the remaining open product decision is whether one registered
+Repository may initially belong to multiple Projects. Decision 0034's general console,
+audit-presentation, and Harness-overlay freezes remain in force.
 
 ## Maintenance Contract
 

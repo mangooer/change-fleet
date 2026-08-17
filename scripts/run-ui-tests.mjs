@@ -133,6 +133,56 @@ try {
   await page.waitForSelector('a[href^="https://github.com/fixture/api/pull/"]');
   await page.waitForSelector('a[href^="https://github.com/fixture/web/pull/"]');
 
+  await page.waitForSelector(".integration-surface");
+  const expectedPublicationRef =
+    "refs/heads/changefleet/integration/change/api";
+  if (
+    (await page.locator("#integration-destination-ref").inputValue()) !==
+    expectedPublicationRef
+  ) {
+    throw new Error("Integration form did not project the bounded publication ref.");
+  }
+  await page
+    .getByRole("button", { name: "生成精确授权请求" })
+    .click();
+  await page
+    .getByRole("button", { name: "授权并执行此精确动作" })
+    .click();
+  try {
+    await page.waitForFunction(
+      () =>
+        document.querySelector(".integration-surface .delivery-row")?.textContent?.includes("api"),
+      undefined,
+      { timeout: 60_000 },
+    );
+  } catch (error) {
+    const integration = await fixture.service.readIntegration({
+      change_set_id: "change",
+    });
+    const task = await fixture.queryService.readLiveTaskView("change");
+    const taskControl = await fixture.taskControlStore.readTask("change");
+    const changeSet = await fixture.service.readChangeSet("change");
+    const integrationRunId = changeSet.run_references.find(
+      (reference) => reference.operation === "integration",
+    )?.run_id;
+    const integrationRun = integrationRunId
+      ? await fixture.service.runStore.read(integrationRunId)
+      : null;
+    throw new Error(
+      `Browser integration result was not projected: ${JSON.stringify({ integration, task, task_control: taskControl, integration_run: integrationRun, integration_execution: fixture.integrationExecution })}`,
+      { cause: error },
+    );
+  }
+  const integrationState = await fixture.service.readIntegration({
+    change_set_id: "change",
+  });
+  if (
+    integrationState.results.length !== 1 ||
+    integrationState.results[0].action_kind !== "publish_exact_candidate"
+  ) {
+    throw new Error("Browser integration grant did not produce one exact observed result.");
+  }
+
   const publishView = await fixture.service.readDelivery({
     change_set_id: "change",
   });
@@ -237,6 +287,7 @@ try {
 }
 
 async function createFixture(root) {
+  const integrationExecution = [];
   const repositories = {
     api: await createRepository(root, "api"),
     web: await createRepository(root, "web"),
@@ -258,6 +309,21 @@ async function createFixture(root) {
       },
       null,
     ],
+    integrationExecutor: async (invocation) => {
+      const action = invocation.context_projection.integration;
+      integrationExecution.push({ stage: "started", action: structuredClone(action) });
+      try {
+        await git(invocation.workspace.workspace_path, [
+          "push",
+          action.push_remote,
+          `${action.candidate_sha}:${action.destination_ref}`,
+        ]);
+        integrationExecution.push({ stage: "pushed" });
+      } catch (error) {
+        integrationExecution.push({ stage: "failed", message: String(error?.message ?? error) });
+        throw error;
+      }
+    },
   });
   const github = new ScriptedGithubPullRequestAdapter({
     resolveRefs: async ({ githubRepository, headBranch, targetRef }) => {
@@ -347,6 +413,12 @@ async function createFixture(root) {
         taskController.publishDelivery(request),
       "changeset.delivery.refresh": (request) =>
         taskController.refreshDelivery(request),
+      "changeset.integration.grant": (request) =>
+        taskController.grantIntegrationAction(request),
+      "changeset.integration.execute": (request) =>
+        taskController.executeIntegrationAction(request),
+      "changeset.integration.complete_without_managed": (request) =>
+        taskController.completeWithoutManagedIntegration(request),
     },
   });
   return {
@@ -354,6 +426,8 @@ async function createFixture(root) {
     github,
     service,
     queryService,
+    taskControlStore,
+    integrationExecution,
     async startServer() {
       const localServer = await startLocalConsoleServer({
         queryService,

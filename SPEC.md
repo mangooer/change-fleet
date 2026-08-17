@@ -159,6 +159,7 @@ repository authority:
 | Planning | Inspect the linked TaskWorkspace repositories read-only; any write is rejected |
 | WorkUnit execution | Read linked repositories; publish only the assigned writable RepositoryWorkspace Git subject |
 | Bundle review | Read-only access to exact CandidateBundle subjects and evidence |
+| Integration | Execute only one current human ActionGrant; task workspaces stay unchanged and Core independently observes the remote result |
 | Control decision | Typed ChangeFleet command; no raw control-store or arbitrary filesystem access |
 
 Runtime-native subagents cannot expand accepted repository scope or authorize control transitions.
@@ -308,6 +309,7 @@ through the confirmed Intent and resulting delivery. It owns:
 - RepositorySelectionRevisions;
 - RepositoryHarnessSelectionRevisions;
 - one stable logical TaskWorkspace and its RepositoryWorkspace generations;
+- task-scoped logical AgentSessions with exact AgentProfile purpose assignments and Run lineage;
 - confirmed ChangePlan revisions;
 - Core-derived Repository WorkUnits;
 - execution attempts;
@@ -320,7 +322,8 @@ through the confirmed Intent and resulting delivery. It owns:
 - validation evidence;
 - scope decisions;
 - bounded autonomous-supervision authorization and exact decision-envelope references;
-- human review and delivery decisions.
+- human review and delivery decisions;
+- exact integration offers, ActionGrants, observed results, and terminal dispositions.
 
 Its persisted business phase is limited to:
 
@@ -352,6 +355,12 @@ Physical worktrees remain available through Bundle review and delivery. Terminal
 explicit abandonment releases current and retired physical RepositoryWorkspace generations while
 retaining TaskWorkspace identity, Git subjects, evidence, cost, and delivery facts.
 
+Each TaskWorkspace also owns one or more logical AgentSessions. An AgentSession binds a stable
+logical id, one exact revisioned AgentProfile, allowed Run purposes, status, optional replaceable
+Provider-session locators, and bounded Run references. It owns no separate Plan, lifecycle,
+workspace, Candidate, Bundle, budget, or authority. Several purposes may share one session when
+they use the same exact Profile; Runtime-native subagents remain internal to their parent Run.
+
 ### WorkUnit
 
 A WorkUnit is one repository-scoped unit of execution. It records:
@@ -370,7 +379,8 @@ WorkUnits unless they correspond to independently controlled repository executio
 
 ### Run, Feedback, Gate, And Blocker
 
-Every Agent invocation is one `planning | execution | verification | supervision | review` Run with
+Every Agent invocation is one `planning | execution | verification | supervision | review |
+integration` Run with
 status `queued | running | completed | failed | interrupted | cancelled`. A new attempt records
 `initial | feedback | retry | recovery` trigger and optional continuation lineage. Terminal Run
 facts are immutable and do not imply success of the owning phase.
@@ -383,6 +393,11 @@ mutation. A forced next action requires no Supervisor model call.
 `review` is ChangeSet-scoped, semantically read-only, and bound to one exact CandidateBundle
 revision. Its assessment is evidence for final human review or bounded Feedback routing; it is not
 Bundle acceptance or mutation authority.
+
+`integration` is ChangeSet-scoped and exists only after exact Bundle acceptance plus a separate
+current human ActionGrant. It adds no ChangeSet or WorkUnit phase. The Runtime may perform only the
+grant's one non-force refspec; Core revalidates every subject, compares task workspace Git subjects
+before and after the Run, and admits success only after an independent remote-ref observation.
 
 Feedback is immutable bounded input from a human, planning, validation, verification, supervision,
 review, or delivery source. The handling Agent assesses each finding as `adopt | adapt | decline`;
@@ -537,6 +552,36 @@ One Candidate maps to one PR, while one Bundle may map to several PRs. Partial m
 as fact. `done` requires a matching observed merge result for every selected exact Candidate;
 closed-unmerged, target-stale, Candidate-diverged, and failed destinations remain explicit.
 
+### AgentSession, ActionGrant, And Exact Git Integration
+
+After exact Bundle acceptance, Core may offer one closed integration action for one Candidate and
+destination. A human ActionGrant immutably binds the ChangeSet and TaskWorkspace, Bundle revision
+and hash, Repository and Candidate base/head SHAs, target and destination refs, latest observed
+destination SHA, action kind and canonical input digest, AgentSession and AgentProfile revision,
+permission mode, maximum attempts, expiry, preflight, observer, accepted result schema, recovery
+boundary, actor, and time. An Agent cannot create, broaden, renew, or accept this authority.
+
+The implemented action catalog contains only:
+
+1. `publish_exact_candidate`: publish the exact Candidate SHA without force to one named non-target
+   `refs/heads/changefleet/...` ref; and
+2. `fast_forward_target`: move the exact target from the granted observed base SHA to that exact
+   Candidate SHA with one non-force push.
+
+Core verifies local commits and ancestry, serializes by Repository and destination ref, rejects
+target movement or destination divergence, and independently reads the exact remote ref after the
+Runtime returns. Agent prose is never integration evidence. Controller loss uses observe-then-retry
+recovery: an interrupted Run remains interrupted, while an already satisfied exact remote result
+may be admitted separately without rewriting that Run. Merge commits, squash, rebase, force push,
+arbitrary refs, deployment, and generic external-write grants are unsupported.
+
+The accepted Bundle may instead receive one exact human
+`complete_without_managed_integration` disposition. It records all unintegrated Candidate subjects
+and moves the ChangeSet to `terminal(done)` with reason
+`accepted_without_managed_integration`; it never claims publication, merge, delivery, or
+integration. Managed completion requires exact observed integration or GitHub merge evidence for
+every Bundle Candidate.
+
 ## 7. Intake And Planning
 
 ChangeFleet supports two input shapes:
@@ -624,9 +669,11 @@ Run:       queued -> running -> completed | failed | interrupted | cancelled
 ```
 
 Review feedback may return a WorkUnit to execution. A typed Plan invalidation may return the
-ChangeSet to planning. Accepted delivery remains attached to `review` until an external merge can
-produce `terminal(done)`. Human abandonment creates `terminal(abandoned)`. All other activity is
-derived rather than persisted as a compound state.
+ChangeSet to planning. Accepted delivery or granted integration remains attached to `review` until
+exact observation can produce `terminal(done)`. A separate human disposition may also finish an
+accepted Bundle without managed integration while preserving that exact reason. Human abandonment
+creates `terminal(abandoned)`. All other activity is derived rather than persisted as a compound
+state.
 
 ## 9. Parallel Work And Branches
 
@@ -953,7 +1000,7 @@ Generic `workspace_seed`, setup/run/archive behavior, Claude support, external H
 remote workspace materialization, non-Git Harness writeback, and a parallel Harness change review
 lifecycle are outside this stage.
 
-## 16. First GitHub Delivery Stage
+## 16. GitHub Delivery And Exact Granted Integration Stage
 
 After exact Bundle acceptance, policy may authorize the local Task Controller to create or resume
 one stable delivery request per Candidate. Diagnostic CLI callers may still request publication
@@ -974,6 +1021,12 @@ The experimental CLI and local UI expose GitHub binding, publish, read, and refr
 through shared typed application operations. Delivery observations and raw provider detail stay
 outside default Runtime context. HTTP adapters call the same semantics rather than execute the CLI
 parser.
+
+The same shared-operation boundary exposes Core-derived exact integration offers, immutable human
+grants, background integration Runs, independently observed results, and explicit completion
+without managed integration. The existing console shows the complete remote/ref/Candidate subject
+before grant and does not add another page or task lifecycle. Exact Git actions use the configured
+Runtime; ChangeFleet's Git adapter performs preflight and postflight observation, not the mutation.
 
 ChangeFleet does not merge the PR. GitLab, automatic merge, merge queues, source-branch cleanup,
 GitHub App, webhook, hosted polling, deployment, remote workers, and App Server remain outside

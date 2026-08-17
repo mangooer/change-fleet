@@ -43,6 +43,9 @@ const POST_ROUTES = Object.freeze([
   /^\/api\/local\/v0\/changesets\/[A-Za-z0-9._-]+\/gates\/[A-Za-z0-9._-]+\/resolve$/u,
   /^\/api\/local\/v0\/changesets\/[A-Za-z0-9._-]+\/delivery\/publish$/u,
   /^\/api\/local\/v0\/changesets\/[A-Za-z0-9._-]+\/delivery\/refresh$/u,
+  /^\/api\/local\/v0\/changesets\/[A-Za-z0-9._-]+\/integration\/offers$/u,
+  /^\/api\/local\/v0\/changesets\/[A-Za-z0-9._-]+\/integration\/grants$/u,
+  /^\/api\/local\/v0\/changesets\/[A-Za-z0-9._-]+\/integration\/complete-without-managed$/u,
   /^\/api\/local\/v0\/changesets\/[A-Za-z0-9._-]+\/supervision\/(?:start|pause|resume)$/u,
 ]);
 
@@ -372,7 +375,7 @@ async function handlePostApi({
     return;
   }
   const match = url.pathname.match(
-    /^\/api\/local\/v0\/changesets\/(?<changeSetId>[A-Za-z0-9._-]+)\/(?<tail>messages|planning-messages|plan-confirmation|controller\/run|cancel|bundle-decisions|feedback|execute|delivery\/publish|delivery\/refresh|supervision\/(?:start|pause|resume))$/u,
+    /^\/api\/local\/v0\/changesets\/(?<changeSetId>[A-Za-z0-9._-]+)\/(?<tail>messages|planning-messages|plan-confirmation|controller\/run|cancel|bundle-decisions|feedback|execute|delivery\/publish|delivery\/refresh|integration\/(?:offers|grants|complete-without-managed)|supervision\/(?:start|pause|resume))$/u,
   );
   invariant(match?.groups, "CHANGE_SET_NOT_FOUND", "Route not found");
   const changeSetId = match.groups.changeSetId;
@@ -485,6 +488,45 @@ async function handlePostApi({
     );
     return;
   }
+  if (match.groups.tail === "integration/offers") {
+    const body = normalizeIntegrationOfferBody(await readJsonBody(request));
+    sendJson(
+      response,
+      200,
+      await operatorApplication.execute("changeset.integration.offer", {
+        ...body,
+        change_set_id: changeSetId,
+      }),
+    );
+    return;
+  }
+  if (match.groups.tail === "integration/grants") {
+    const body = normalizeIntegrationGrantBody(await readJsonBody(request));
+    sendMutationResult(
+      response,
+      await operatorApplication.execute("changeset.integration.grant", {
+        ...body,
+        change_set_id: changeSetId,
+      }),
+    );
+    return;
+  }
+  if (match.groups.tail === "integration/complete-without-managed") {
+    const body = normalizeCompleteWithoutIntegrationBody(
+      await readJsonBody(request),
+    );
+    sendMutationResult(
+      response,
+      await operatorApplication.execute(
+        "changeset.integration.complete_without_managed",
+        {
+          ...body,
+          change_set_id: changeSetId,
+        },
+      ),
+    );
+    return;
+  }
   if (match.groups.tail === "delivery/publish") {
     const body = normalizePublishBody(await readJsonBody(request));
     sendMutationResult(
@@ -508,7 +550,15 @@ async function handlePostApi({
 
 function sendMutationResult(response, result) {
   // 后台命令只返回“已接受”，不能把尚未发生的 Agent 结果伪装成同步成功。
-  sendJson(response, result?.accepted === true || result?.delivery_command ? 202 : 200, result);
+  sendJson(
+    response,
+    result?.accepted === true ||
+      result?.delivery_command ||
+      result?.integration_command
+      ? 202
+      : 200,
+    result,
+  );
 }
 
 function normalizeCreateChangeSetBody(body) {
@@ -725,6 +775,88 @@ function normalizePublishBody(body) {
     actor: requireNonEmptyString(body.actor, "actor"),
     title: optionalNullableString(body.title, "title"),
     body: optionalNullableString(body.body, "body"),
+  };
+}
+
+function normalizeIntegrationOfferBody(body) {
+  requireExactFields(body, [
+    "idempotency_key",
+    "bundle_revision",
+    "bundle_hash",
+    "repository_id",
+    "action_kind",
+    "push_remote",
+    "destination_ref",
+  ]);
+  invariant(
+    ["publish_exact_candidate", "fast_forward_target"].includes(
+      body.action_kind,
+    ),
+    "INVALID_OPERATOR_REQUEST",
+    "Integration action kind is invalid",
+  );
+  return {
+    idempotency_key: requireNonEmptyString(
+      body.idempotency_key,
+      "idempotency_key",
+    ),
+    bundle_revision: requirePositiveInteger(
+      body.bundle_revision,
+      "bundle_revision",
+    ),
+    bundle_hash: requireNonEmptyString(body.bundle_hash, "bundle_hash"),
+    repository_id: requireNonEmptyString(
+      body.repository_id,
+      "repository_id",
+    ),
+    action_kind: body.action_kind,
+    push_remote: requireNonEmptyString(body.push_remote, "push_remote"),
+    destination_ref: requireNonEmptyString(
+      body.destination_ref,
+      "destination_ref",
+    ),
+  };
+}
+
+function normalizeIntegrationGrantBody(body) {
+  requireExactFields(body, [
+    "idempotency_key",
+    "action_offer_id",
+    "input_digest",
+    "actor",
+  ]);
+  return {
+    idempotency_key: requireNonEmptyString(
+      body.idempotency_key,
+      "idempotency_key",
+    ),
+    action_offer_id: requireNonEmptyString(
+      body.action_offer_id,
+      "action_offer_id",
+    ),
+    input_digest: requireNonEmptyString(body.input_digest, "input_digest"),
+    actor: requireNonEmptyString(body.actor, "actor"),
+  };
+}
+
+function normalizeCompleteWithoutIntegrationBody(body) {
+  requireExactFields(body, [
+    "idempotency_key",
+    "bundle_revision",
+    "bundle_hash",
+    "actor",
+  ]);
+  return {
+    idempotency_key: requireNonEmptyString(
+      body.idempotency_key,
+      "idempotency_key",
+    ),
+    bundle_revision: requirePositiveInteger(
+      body.bundle_revision,
+      "bundle_revision",
+    ),
+    bundle_hash: requireNonEmptyString(body.bundle_hash, "bundle_hash"),
+    actor: requireNonEmptyString(body.actor, "actor"),
   };
 }
 

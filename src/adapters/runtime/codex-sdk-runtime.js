@@ -217,7 +217,7 @@ function assertInvocationCapability(
 ) {
   invariant(
     invocation &&
-      ["planning", "execution", "verification", "supervision", "review"].includes(
+      ["planning", "execution", "verification", "supervision", "review", "integration"].includes(
         invocation.operation,
       ) &&
       invocation.capabilities &&
@@ -227,7 +227,7 @@ function assertInvocationCapability(
     "Codex Runtime requires an operation-scoped non-empty path capability",
   );
   invariant(
-    invocation.operation === "execution"
+    ["execution", "integration"].includes(invocation.operation)
       ? invocation.capabilities.mode === "read_write"
       : invocation.capabilities.mode === "read_only",
     "INVALID_RUNTIME_INVOCATION",
@@ -301,7 +301,7 @@ function threadPermissionOptions(profile, operation) {
     };
   }
   return {
-    sandboxMode: operation === "execution"
+    sandboxMode: ["execution", "integration"].includes(operation)
       ? "workspace-write"
       : "read-only",
     networkAccessEnabled: false,
@@ -342,6 +342,15 @@ function buildPrompt(invocation) {
           "Return implementation_completed with blocker null after the repository files are ready for controller-owned publication, including revision_feedback_assessments. A fully assessed feedback execution that needs no Git change is valid: return changed_paths as an empty array so ChangeFleet can reuse the exact checkpoint, and do not rewrite unrelated Plan work merely to manufacture a diff.",
           "If unavailable tools, permissions, missing information, or another blocker prevents inspection, editing, or verification, return implementation_blocked with a bounded blocker code and message; only a fully assessed feedback execution may return implementation_completed for an unchanged workspace.",
         ].join(" ");
+  } else if (invocation.operation === "integration") {
+    operationInstruction = [
+      "Perform only the exact human-granted Git action in context_projection.integration.",
+      "Do not edit repository files, create commits, change local branches, change the destination, add force flags, use another remote, or perform any provider, merge-request, merge, rebase, squash, deployment, cleanup, or credential-management action.",
+      "Use exactly one non-force git push of candidate_sha to destination_ref through push_remote. For fast_forward_target, the controller has independently observed the destination at candidate_base_sha. For publish_exact_candidate, the destination is a non-target ChangeFleet branch.",
+      "Do not treat your command output as authoritative; ChangeFleet will independently observe the exact remote ref after this Run.",
+      "Return integration_action_completed only after the exact command reports success. Copy action_grant_id and input_digest exactly and report candidate_sha as reported_destination_sha.",
+      "Return integration_action_blocked with reported_destination_sha=null and a bounded blocker when the exact action cannot be performed. Do not attempt an alternative.",
+    ].join(" ");
   } else if (invocation.operation === "verification") {
     const feedbackInstruction = invocation.context_projection.verification?.focus
       ? "Prior feedback and its execution delta are supplied as review context. Reassess those claims and inspect any relevant newly introduced risk without treating the prior review as truth."

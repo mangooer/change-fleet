@@ -260,6 +260,7 @@ function renderDetail() {
         </details>
         ${renderGatePanel(exact.gates)}
         ${renderBundlePanel(exact, bundle, quality, canAccept)}
+        ${renderIntegrationPanel(exact, bundle)}
         ${renderDeliveryPanel(exact, bundle)}
       </aside>
     </section>
@@ -510,6 +511,64 @@ function renderDeliveryPanel(exact, bundle) {
     </article>`;
 }
 
+function renderIntegrationPanel(exact, bundle) {
+  if (!bundle || bundle.human_decision?.decision !== "accept") return "";
+  const integration = exact.integration ?? {
+    action_offers: [],
+    action_grants: [],
+    results: [],
+    disposition: null,
+  };
+  const currentOffer = integration.action_offers
+    .filter((offer) => offer.status === "offered")
+    .at(-1);
+  const activeGrant = integration.action_grants
+    .filter((grant) => ["granted", "running"].includes(grant.status))
+    .at(-1);
+  const integrationCommand = exact.task_control?.current_command;
+  const integrationRunning =
+    ["integrate", "complete_without_integration"].includes(
+      integrationCommand?.kind,
+    ) && ["accepted", "running"].includes(integrationCommand?.status);
+  const candidates = bundle.candidates;
+  return `
+    <article class="surface integration-surface">
+      <div class="section-title"><div><p class="eyebrow">Integration</p><h3>精确 Git 集成</h3></div><span class="pill ${integration.disposition ? "complete" : activeGrant ? "running" : "warn"}">${integration.disposition ? "已决定" : activeGrant ? "正在执行" : "等待授权"}</span></div>
+      <p>ChangeFleet 只执行下方完整显示并由你授权的动作；成功仍需独立读取远端 ref。</p>
+      ${integration.results
+        .map(
+          (result) =>
+            `<div class="delivery-row"><strong>${escapeHtml(result.repository_id)}</strong><span>${escapeHtml(integrationActionLabel(result.action_kind))}</span><code>${escapeHtml(shortSha(result.observed_destination_sha))}</code></div>`,
+        )
+        .join("")}
+      ${
+        currentOffer
+          ? `<div class="integration-offer">
+              <p><strong>${escapeHtml(integrationActionLabel(currentOffer.action_kind))}</strong> · ${escapeHtml(currentOffer.repository_id)}</p>
+              <dl class="compact-facts"><div><dt>Remote</dt><dd>${escapeHtml(currentOffer.push_remote)}</dd></div><div><dt>目标 ref</dt><dd><code>${escapeHtml(currentOffer.destination_ref)}</code></dd></div><div><dt>Candidate</dt><dd><code>${escapeHtml(shortSha(currentOffer.candidate_sha))}</code></dd></div></dl>
+              <button id="grant-integration" type="button" data-offer-id="${escapeAttribute(currentOffer.action_offer_id)}" data-input-digest="${escapeAttribute(currentOffer.input_digest)}" ${integrationRunning ? "disabled" : ""}>授权并执行此精确动作</button>
+            </div>`
+          : activeGrant
+            ? `<p class="muted">已授权 ${escapeHtml(integrationActionLabel(activeGrant.action_kind))}，完成前不会变更为集成成功。</p>`
+            : exact.phase === "review"
+              ? `<form id="integration-offer-form" class="modal-form compact-form">
+                  <label class="field"><span>仓库</span><select id="integration-repository">${candidates.map((candidate) => `<option value="${escapeAttribute(candidate.repository_id)}" data-target-ref="${escapeAttribute(candidate.target_ref)}">${escapeHtml(candidate.repository_id)}</option>`).join("")}</select></label>
+                  <label class="field"><span>动作</span><select id="integration-action-kind"><option value="publish_exact_candidate">发布到非目标 ChangeFleet 分支</option><option value="fast_forward_target">非强制快进目标分支</option></select></label>
+                  <label class="field"><span>Git remote</span><input id="integration-push-remote" required value="origin"></label>
+                  <label class="field"><span>目标 ref</span><input id="integration-destination-ref" required></label>
+                  <button type="submit" ${integrationRunning ? "disabled" : ""}>生成精确授权请求</button>
+                </form>`
+              : ""
+      }
+      ${
+        exact.phase === "review"
+          ? `<div class="actions"><button id="complete-without-integration" class="secondary" type="button" ${integrationRunning ? "disabled" : ""}>接受但不由 ChangeFleet 集成</button></div>`
+          : ""
+      }
+      ${integration.disposition ? `<p class="muted">结束原因：${escapeHtml(integrationDispositionLabel(integration.disposition.reason))}</p>` : ""}
+    </article>`;
+}
+
 function bindDetailActions() {
   document.querySelector("#open-audit")?.addEventListener("click", () =>
     void openAuditDialog(),
@@ -546,6 +605,27 @@ function bindDetailActions() {
     event.preventDefault();
     void configureDeliveryBinding();
   });
+  document.querySelector("#integration-offer-form")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    void offerIntegrationAction();
+  });
+  document.querySelector("#integration-repository")?.addEventListener("change", () =>
+    syncIntegrationDestination(),
+  );
+  document.querySelector("#integration-action-kind")?.addEventListener("change", () =>
+    syncIntegrationDestination(),
+  );
+  const grantIntegration = document.querySelector("#grant-integration");
+  grantIntegration?.addEventListener("click", () =>
+    void grantIntegrationAction(
+      grantIntegration.dataset.offerId,
+      grantIntegration.dataset.inputDigest,
+    ),
+  );
+  document.querySelector("#complete-without-integration")?.addEventListener("click", () =>
+    void completeWithoutManagedIntegration(),
+  );
+  syncIntegrationDestination();
   for (const button of document.querySelectorAll(".resolve-gate")) {
     button.addEventListener("click", () =>
       void resolveGate(button.dataset.gateId, button.dataset.option),
@@ -807,6 +887,77 @@ async function configureDeliveryBinding() {
       },
     );
     attemptStore.delete(attemptKey);
+  });
+}
+
+function syncIntegrationDestination() {
+  const repository = document.querySelector("#integration-repository");
+  const actionKind = document.querySelector("#integration-action-kind")?.value;
+  const destination = document.querySelector("#integration-destination-ref");
+  if (!repository || !destination || !state.exact) return;
+  const targetRef = repository.selectedOptions[0]?.dataset.targetRef;
+  destination.value =
+    actionKind === "fast_forward_target"
+      ? targetRef
+      : `refs/heads/changefleet/integration/${state.exact.change_set_id}/${repository.value}`;
+}
+
+async function offerIntegrationAction() {
+  const bundle = state.exact?.bundle;
+  const repositoryId = document.querySelector("#integration-repository")?.value;
+  const actionKind = document.querySelector("#integration-action-kind")?.value;
+  const pushRemote = document.querySelector("#integration-push-remote")?.value.trim();
+  const destinationRef = document.querySelector("#integration-destination-ref")?.value.trim();
+  if (!bundle || !repositoryId || !actionKind || !pushRemote || !destinationRef) return;
+  const attemptKey = `integration-offer:${state.exact.change_set_id}:${bundle.bundle_hash}:${repositoryId}:${actionKind}:${pushRemote}:${destinationRef}`;
+  await runMutation("生成精确授权请求", async () => {
+    await apiPost(
+      `/api/local/v0/changesets/${encodeURIComponent(state.exact.change_set_id)}/integration/offers`,
+      {
+        idempotency_key: ensureAttempt(attemptKey),
+        bundle_revision: bundle.revision,
+        bundle_hash: bundle.bundle_hash,
+        repository_id: repositoryId,
+        action_kind: actionKind,
+        push_remote: pushRemote,
+        destination_ref: destinationRef,
+      },
+    );
+    attemptStore.delete(attemptKey);
+  });
+}
+
+async function grantIntegrationAction(actionOfferId, inputDigest) {
+  if (!state.exact || !actionOfferId || !inputDigest) return;
+  if (!globalThis.confirm("确认授权并执行页面中显示的精确 Git 动作吗？")) return;
+  const attemptKey = `integration-grant:${state.exact.change_set_id}:${actionOfferId}:${inputDigest}`;
+  await runMutation("授权精确 Git 动作", async () => {
+    await apiPost(
+      `/api/local/v0/changesets/${encodeURIComponent(state.exact.change_set_id)}/integration/grants`,
+      {
+        idempotency_key: ensureAttempt(attemptKey),
+        action_offer_id: actionOfferId,
+        input_digest: inputDigest,
+        actor: "human",
+      },
+    );
+  });
+}
+
+async function completeWithoutManagedIntegration() {
+  const bundle = state.exact?.bundle;
+  if (!bundle || !globalThis.confirm("确认结束任务，但不声明 ChangeFleet 已完成集成或交付吗？")) return;
+  const attemptKey = `integration-complete-without-managed:${state.exact.change_set_id}:${bundle.bundle_hash}`;
+  await runMutation("不托管集成并结束", async () => {
+    await apiPost(
+      `/api/local/v0/changesets/${encodeURIComponent(state.exact.change_set_id)}/integration/complete-without-managed`,
+      {
+        idempotency_key: ensureAttempt(attemptKey),
+        bundle_revision: bundle.revision,
+        bundle_hash: bundle.bundle_hash,
+        actor: "human",
+      },
+    );
   });
 }
 
@@ -1214,7 +1365,7 @@ function runtimeLabel(profile) {
 }
 
 function stageLabel(value) {
-  return ({ planning: "规划", running: "执行", execution: "执行", verification: "验证", review: "审查", supervision: "监督", terminal: "结束" })[value] ?? String(value ?? "任务");
+  return ({ planning: "规划", running: "执行", execution: "执行", verification: "验证", review: "审查", supervision: "监督", integration: "集成", terminal: "结束" })[value] ?? String(value ?? "任务");
 }
 
 function stageAgentLabel(value) {
@@ -1230,6 +1381,9 @@ function operatorReasonLabel(value) {
       candidate_bundle_ready: "候选结果已经形成，等待审查。",
       review_ready: "候选结果已经形成，等待审查。",
       pull_request_open: "Pull Request 已发布，正在等待人工合入。",
+      integration_action_running: "正在执行已授权的精确 Git 动作。",
+      integration_action_failed: "精确 Git 动作失败，可在授权有效期与尝试预算内重试。",
+      integration_decision_required: "候选已接受，请选择精确集成动作或明确结束而不托管集成。",
       planner_question: "Planner 需要补充信息后才能继续。",
       repair_budget_exhausted: "自动修正预算已用尽，需要人工决定。",
     }[value] ?? `当前原因：${String(value ?? "processing")}`
@@ -1280,6 +1434,28 @@ function activityLabel(event) {
 
 function deliveryLabel(value) {
   return ({ ready: "可交付", running: "等待合并", blocked: "交付受阻", complete: "已合并" })[value] ?? value;
+}
+
+function integrationActionLabel(value) {
+  return (
+    {
+      publish_exact_candidate: "发布精确 Candidate",
+      fast_forward_target: "快进目标分支",
+    }[value] ?? String(value ?? "集成动作")
+  );
+}
+
+function integrationDispositionLabel(value) {
+  return (
+    {
+      managed_integration_completed: "已独立确认托管集成完成",
+      accepted_without_managed_integration: "已接受，但未声明托管集成或交付完成",
+    }[value] ?? String(value ?? "已结束")
+  );
+}
+
+function shortSha(value) {
+  return typeof value === "string" ? value.slice(0, 12) : "—";
 }
 
 function formatRelativeTime(value) {

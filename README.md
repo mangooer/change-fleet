@@ -71,6 +71,8 @@ ChangeFleet 希望成为一个不绑定 Provider 的多 Agent 控制平面：用
 - **仓库自有 Harness。** ChangeFleet 从精确基线读取目标仓库自己的说明和验证规则，不会发明
   或回写项目 Harness。
 - **GitHub 交付。** 当前适配器把接受后的精确 Candidate 发布为 Ready PR，并观察人类合并结果。
+- **精确集成授权。** 接受 Bundle 后，操作者可以授权一次完整展示的非强制 Git 发布或目标快进；
+  ChangeFleet 独立观察远端 ref 后才承认结果，也可以明确选择“不由 ChangeFleet 集成”后结束任务。
 - **本地化诊断。** 本地界面和类型化错误支持英文与简体中文。
 
 ## 工作流程
@@ -83,7 +85,8 @@ ChangeFleet 希望成为一个不绑定 Provider 的多 Agent 控制平面：用
   -> 验证精确的仓库 Candidate
   -> 按需执行独立审查和修正
   -> 审查一个精确的跨仓库 CandidateBundle
-  -> 按配置发布并观察交付结果
+  -> 按配置发布 PR，或人工授权一个精确 Git 动作
+  -> 独立观察结果，或明确结束而不声明托管集成
 ```
 
 当前任务列表只展示六种简单状态：`running`、`needs_feedback`、`needs_review`、
@@ -179,8 +182,9 @@ node ./bin/changefleet.js serve --config changefleet.json --port 4311
 
 打开 `http://127.0.0.1:4311`，为已经注册的 Project 创建任务，然后从任务列表查看对话和状态。
 
-如果没有配置并确认 GitHub 交付绑定，任务仍可完成执行、验证和 Bundle 审查，但会停留在审查
-边界，不会进入交付。
+如果没有配置并确认 GitHub 交付绑定，接受 Bundle 后仍可选择一次精确的非强制 Git 发布或快进，
+也可以明确结束任务而不声明 ChangeFleet 已完成交付或集成。真实远端写入仍需要操作者针对页面中
+展示的完整 remote、ref 和 Candidate 单独授权。
 
 ## 常用命令
 
@@ -203,7 +207,8 @@ npm run check
 
 ## 当前限制
 
-- GitHub 是唯一已实现的交付 Provider，并且 PR 由人类完成合并。
+- GitHub 是唯一已实现的 PR 交付 Provider，并且 PR 由人类完成合并；另有 Provider 无关、人工
+  逐次授权的精确 Git 发布与快进路径，但没有通用外部写权限。
 - 远程 Worker、部署、Merge Queue、自动合并和托管多租户尚未实现。
 - Codex Runtime 是当前唯一真实 Provider 适配器。
 - 独立仓库 WorkUnit 的同时 Provider 派发尚未得到验证。
