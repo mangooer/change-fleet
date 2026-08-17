@@ -75,6 +75,16 @@ describe("exact integration action flow", () => {
       ),
       true,
     );
+    for (const session of terminal.task_workspace.agent_sessions) {
+      for (const sessionReference of session.run_references) {
+        assert.deepEqual(
+          sessionReference,
+          terminal.run_references.find(
+            (reference) => reference.run_id === sessionReference.run_id,
+          ),
+        );
+      }
+    }
     const reference = terminal.run_references.find(
       (item) => item.operation === "integration",
     );
@@ -96,6 +106,7 @@ describe("exact integration action flow", () => {
       action_kind: "publish_exact_candidate",
       push_remote: "origin",
       destination_ref: destinationRef,
+      maximum_attempts: 1,
     });
     const grant = await fixture.service.grantIntegrationAction({
       idempotency_key: "grant-publication",
@@ -104,6 +115,8 @@ describe("exact integration action flow", () => {
       input_digest: offer.input_digest,
       actor: "operator-1",
     });
+    assert.equal(offer.maximum_attempts, 1);
+    assert.equal(grant.maximum_attempts, 1);
     await fixture.service.executeIntegrationAction({
       idempotency_key: "execute-publication",
       change_set_id: "change",

@@ -6,6 +6,7 @@ import {
   assertAgentSessions,
   createAgentSessionRecords,
   requireAgentSession,
+  synchronizeAgentSessionRuns,
 } from "../../src/domain/agent-session.js";
 import { TEST_AGENT_PROFILE } from "../support/scripted-runtime.js";
 
@@ -79,6 +80,18 @@ describe("task-scoped AgentSession authority", () => {
       status: "running",
     });
     assert.equal(session.run_references.length, 1);
+    assert.equal(
+      synchronizeAgentSessionRuns(taskWorkspace, [
+        {
+          run_id: "run-1",
+          operation: "execution",
+          status: "completed",
+          agent_session_id: session.agent_session_id,
+        },
+      ]),
+      1,
+    );
+    assert.equal(session.run_references[0].status, "completed");
 
     assert.throws(
       () => requireAgentSession(taskWorkspace, TEST_AGENT_PROFILE, "review"),

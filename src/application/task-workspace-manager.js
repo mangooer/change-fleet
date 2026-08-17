@@ -1,6 +1,7 @@
 import { sha256, stableId } from "../domain/canonical-json.js";
 import { invariant, preserveSecondaryFailure } from "../domain/errors.js";
 import { HARNESS_SELECTION_MODES } from "../domain/repository-harness.js";
+import { synchronizeAgentSessionRuns } from "../domain/agent-session.js";
 import {
   createTaskWorkspaceRecord,
   requireTaskWorkspace,
@@ -134,6 +135,16 @@ export class TaskWorkspaceManager {
     ]);
     const taskWorkspace = requireTaskWorkspace(state);
     if (taskWorkspace.resources_released_at !== null) {
+      await this.controlStore.transactChangeSet(changeSetId, (current) => {
+        if (
+          synchronizeAgentSessionRuns(
+            requireTaskWorkspace(current),
+            current.run_references,
+          ) > 0
+        ) {
+          current.updated_at = this.now();
+        }
+      });
       return taskWorkspace.resources_released_at;
     }
     invariant(
@@ -147,6 +158,7 @@ export class TaskWorkspaceManager {
     await this.controlStore.transactChangeSet(changeSetId, (current) => {
       const currentWorkspace = requireTaskWorkspace(current);
       currentWorkspace.resources_released_at ??= releasedAt;
+      synchronizeAgentSessionRuns(currentWorkspace, current.run_references);
       for (const session of currentWorkspace.agent_sessions) {
         if (session.status === "active") {
           session.status = "closed";

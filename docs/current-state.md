@@ -35,6 +35,11 @@ implementation history.
   integration Runs, independent remote-ref observation, restart-safe observe-then-retry recovery,
   and explicit accepted completion without managed integration. Node.js 24 validation passed 119
   unit tests, 126 integration tests, eight acceptance tests, and the Chromium console path.
+- [WI-0048](work-items/WI-0048-real-remote-exact-candidate-publication-validation.md) is landed. A
+  one-attempt ActionGrant published exact Candidate `debf6c1e` to a named non-target ref on the real
+  GitLab-backed `yszt` Repository, independently observed the exact SHA, preserved unchanged
+  `develop`, and completed without claiming integration. The validation also bound attempt limits
+  into the immutable digest and synchronized closed AgentSession Run lineage.
 
 ## Branch-Local Work
 
@@ -73,8 +78,8 @@ None.
 
 The second-scenario validation and subsequent implementation leave these concrete gaps:
 
-- GitHub remains the only managed PR delivery provider; the exact ActionGrant Git path has only
-  local bare-remote evidence, not a separately authorized real GitLab or GitHub write;
+- GitHub remains the only managed PR delivery provider; exact non-target GitLab publication is now
+  proven, while real target fast-forward and cleanup remain separately gated and unverified;
 - empty module-level repository-Harness discovery when no root instruction file exists;
 - dependence on vendor-specific semantic commands when a target repository has no deterministic
   project check.
@@ -84,7 +89,7 @@ The second-scenario validation and subsequent implementation leave these concret
 - Git URL materialization, remote workers, deployment, merge queues, automatic merge, service
   graphs, stacked ChangeSets, and hosted multi-tenancy are not implemented.
 - The Codex SDK is the only real Runtime adapter. Provider-native streaming, durable Provider
-  session continuation, a second Provider, and real-remote ActionGrant execution remain deferred.
+  session continuation, a second Provider, and real target-fast-forward execution remain deferred.
 - Codex usage is aggregate-only; universal host read-denial and effective model pricing remain
   unknown.
 - Independent Bundle review supports one selected reviewer and bounded repair. Multiple reviewers,
@@ -101,11 +106,10 @@ The second-scenario validation and subsequent implementation leave these concret
 
 ## Next Recommended Task
 
-If the user grants a separate exact external-write gate, validate one non-force
-`publish_exact_candidate` ActionGrant against a named real non-target remote ref and record cleanup
-authority explicitly. Otherwise, the remaining open product decision is whether one registered
-Repository may initially belong to multiple Projects. Decision 0034's general console,
-audit-presentation, and Harness-overlay freezes remain in force.
+Discuss whether one registered Repository may initially belong to multiple Projects. Separately,
+the WI-0048 remote validation branch remains an explicit artifact until the user authorizes its
+deletion. Decision 0034's general console, audit-presentation, and Harness-overlay freezes remain
+in force.
 
 ## Maintenance Contract
 

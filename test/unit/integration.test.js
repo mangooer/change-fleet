@@ -70,7 +70,7 @@ function createOffer(overrides = {}) {
 
 describe("exact integration action authority", () => {
   test("freezes the full offered action and copies it unchanged into a human grant", () => {
-    const offer = createOffer();
+    const offer = createOffer({ maximumAttempts: 1 });
     const grant = createActionGrant({
       offer,
       actor: "operator-1",
@@ -82,6 +82,8 @@ describe("exact integration action authority", () => {
     assert.equal(grant.input_digest, offer.input_digest);
     assert.equal(grant.candidate_sha, candidate.candidate_sha);
     assert.equal(grant.observed_destination_sha, candidate.base_sha);
+    assert.equal(offer.maximum_attempts, 1);
+    assert.equal(grant.maximum_attempts, 1);
     assert.deepEqual(grant.action_contract, {
       mutation_scope: "one_exact_remote_branch_ref",
       force_allowed: false,
@@ -100,6 +102,19 @@ describe("exact integration action authority", () => {
       }).candidate,
       candidate,
     );
+  });
+
+  test("binds the exact attempt ceiling into the immutable offer digest", () => {
+    const singleAttempt = createOffer({ maximumAttempts: 1 });
+    const recoverable = createOffer({ maximumAttempts: 2 });
+
+    assert.notEqual(singleAttempt.input_digest, recoverable.input_digest);
+    assert.throws(() => createOffer({ maximumAttempts: 0 }), {
+      code: "INVALID_INTEGRATION_ATTEMPT_LIMIT",
+    });
+    assert.throws(() => createOffer({ maximumAttempts: 3 }), {
+      code: "INVALID_INTEGRATION_ATTEMPT_LIMIT",
+    });
   });
 
   test("rejects target movement, expiry, and publication to a target branch", () => {

@@ -104,6 +104,34 @@ export function appendAgentSessionRun(taskWorkspace, agentSessionId, reference) 
   session.run_references.push(structuredClone(reference));
 }
 
+export function synchronizeAgentSessionRuns(taskWorkspace, runReferences) {
+  invariant(
+    Array.isArray(runReferences),
+    "INVALID_AGENT_SESSION_RUNS",
+    "AgentSession Run synchronization requires authoritative Run references",
+  );
+  const authoritativeById = new Map(
+    runReferences.map((reference) => [reference.run_id, reference]),
+  );
+  let synchronized = 0;
+  for (const session of taskWorkspace?.agent_sessions ?? []) {
+    for (let index = 0; index < session.run_references.length; index += 1) {
+      const current = session.run_references[index];
+      const authoritative = authoritativeById.get(current.run_id);
+      invariant(
+        authoritative?.agent_session_id === session.agent_session_id,
+        "AGENT_SESSION_RUN_NOT_FOUND",
+        "AgentSession Run reference has no matching authoritative Run",
+      );
+      if (sha256(current) !== sha256(authoritative)) {
+        session.run_references[index] = structuredClone(authoritative);
+        synchronized += 1;
+      }
+    }
+  }
+  return synchronized;
+}
+
 export function assertAgentSessions(taskWorkspace) {
   invariant(
     Array.isArray(taskWorkspace?.agent_sessions) &&

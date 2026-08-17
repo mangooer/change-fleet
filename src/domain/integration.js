@@ -22,6 +22,7 @@ export function createIntegrationActionOffer({
   pushRemote,
   destinationRef,
   observedDestinationSha,
+  maximumAttempts = 2,
   offeredAt,
   expiresAt,
   idFactory,
@@ -30,6 +31,9 @@ export function createIntegrationActionOffer({
   const normalizedRemote = normalizePushRemote(pushRemote);
   const normalizedRef = normalizeBranchRef(destinationRef);
   const observedSha = normalizeOptionalCommit(observedDestinationSha);
+  const normalizedMaximumAttempts = normalizeIntegrationMaximumAttempts(
+    maximumAttempts,
+  );
   invariant(
     candidate.repository_id === agentSession.repository_id ||
       agentSession.repository_id === undefined,
@@ -98,6 +102,7 @@ export function createIntegrationActionOffer({
       mode: "observe_then_retry_same_grant",
       partial_success_is_durable_fact: true,
     },
+    maximum_attempts: normalizedMaximumAttempts,
   };
   return {
     schema_version: 1,
@@ -105,10 +110,18 @@ export function createIntegrationActionOffer({
     input_digest: sha256(subject),
     ...subject,
     status: "offered",
-    maximum_attempts: 2,
     offered_at: offeredAt,
     expires_at: expiresAt,
   };
+}
+
+export function normalizeIntegrationMaximumAttempts(value) {
+  invariant(
+    Number.isInteger(value) && value >= 1 && value <= 2,
+    "INVALID_INTEGRATION_ATTEMPT_LIMIT",
+    "Integration action maximum attempts must be an integer from 1 to 2",
+  );
+  return value;
 }
 
 export function createActionGrant({ offer, actor, grantedAt, idFactory }) {

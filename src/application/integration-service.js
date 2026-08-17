@@ -17,6 +17,7 @@ import {
   createIntegrationResult,
   normalizeBranchRef,
   normalizeIntegrationActionKind,
+  normalizeIntegrationMaximumAttempts,
   normalizePushRemote,
 } from "../domain/integration.js";
 import {
@@ -67,6 +68,7 @@ export class IntegrationService {
     action_kind,
     push_remote,
     destination_ref,
+    maximum_attempts = 2,
   }) {
     normalizeId("idempotency_key", idempotency_key);
     normalizeId("change_set_id", change_set_id);
@@ -74,6 +76,7 @@ export class IntegrationService {
     const actionKind = normalizeIntegrationActionKind(action_kind);
     const pushRemote = normalizePushRemote(push_remote);
     const destinationRef = normalizeBranchRef(destination_ref);
+    const maximumAttempts = normalizeIntegrationMaximumAttempts(maximum_attempts);
     const input = {
       change_set_id,
       bundle_revision,
@@ -82,6 +85,7 @@ export class IntegrationService {
       action_kind: actionKind,
       push_remote: pushRemote,
       destination_ref: destinationRef,
+      maximum_attempts: maximumAttempts,
     };
     const initial = await this.controlStore.readChangeSet(change_set_id);
     const existing = existingCommand(
@@ -123,6 +127,7 @@ export class IntegrationService {
       pushRemote,
       destinationRef,
       observedDestinationSha: preflight.observed_destination_sha,
+      maximumAttempts,
       offeredAt,
       expiresAt: new Date(
         Date.parse(offeredAt) + OFFER_LIFETIME_MS,
