@@ -44,8 +44,10 @@ implementation history.
   [Decision 0036](decisions/0036-single-project-repository-ownership.md): one Project owner per
   common Git store; shared membership and a global registry remain deferred.
 - [WI-0049](work-items/WI-0049-common-git-directory-project-ownership.md) is landed. Registration
-  rejects existing and in-request `common_git_dir` aliases while allowing independent clones with
-  one remote; selected Node.js 24 tests passed eight cases.
+  rejects existing and in-request `common_git_dir` aliases while allowing independent clones.
+- [WI-0050](work-items/WI-0050-real-target-fast-forward-validation.md) is landed. Its exact 1/1
+  ActionGrant fast-forwarded real GitLab `develop` from `55bdae47...` to Candidate `f2cf1820...`;
+  independent observation matched and every AgentSession closed.
 
 ## Branch-Local Work
 
@@ -85,8 +87,8 @@ None.
 
 The second-scenario validation and subsequent implementation leave these concrete gaps:
 
-- GitHub remains the only managed PR delivery provider; exact non-target GitLab publication is now
-  proven, while real target fast-forward and cleanup remain separately gated and unverified;
+- GitHub remains the only managed PR delivery provider; exact GitLab publication and target
+  fast-forward are proven, while cleanup remains separately gated and unverified;
 - empty module-level repository-Harness discovery when no root instruction file exists;
 - dependence on vendor-specific semantic commands when a target repository has no deterministic
   project check;
@@ -96,7 +98,7 @@ The second-scenario validation and subsequent implementation leave these concret
 - Git URL materialization, remote workers, deployment, merge queues, automatic merge, service
   graphs, stacked ChangeSets, and hosted multi-tenancy are not implemented.
 - The Codex SDK is the only real Runtime adapter. Provider-native streaming, durable Provider
-  session continuation, a second Provider, and real target-fast-forward execution remain deferred.
+  session continuation, and a second Provider remain deferred.
 - Codex usage is aggregate-only; universal host read-denial and effective model pricing remain
   unknown.
 - Independent Bundle review supports one selected reviewer and bounded repair. Multiple reviewers,
@@ -113,9 +115,8 @@ None.
 
 ## Next Recommended Task
 
-Decide whether to authorize one exact real target-fast-forward validation. The WI-0048 remote branch
-remains evidence until deletion is authorized; Decision 0034's console, audit, and Harness-overlay
-freezes remain.
+Decide whether to retain or separately authorize deletion of the WI-0048 remote evidence branch.
+Decision 0034's feature freezes remain.
 
 ## Maintenance Contract
 
