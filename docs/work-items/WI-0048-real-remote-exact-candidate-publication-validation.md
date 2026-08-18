@@ -85,12 +85,11 @@ remote result and finish truthfully without managed integration.
 - Current subject: Project `yszt-wi0048`, ChangeSet `yszt-publish-validation-wi0048`, base
   `55bdae47e7862ab2a71d434162c89aba09085420`, destination
   `refs/heads/changefleet/integration/yszt-publish-validation-wi0048/yszt`.
-- Last verified state: the single-attempt Grant published exact Candidate `debf6c1e` to the named
-  GitLab ref, independent observation matched, `develop` stayed fixed, and the ChangeSet reached
-  terminal(done) through `accepted_without_managed_integration`. The surfaced attempt binding and
-  terminal AgentSession lineage defects are corrected and fully validated.
-- Next step: retain the remote validation branch as evidence unless the user separately authorizes
-  deletion; product discussion may return to multi-Project Repository ownership.
+- Last verified state: the exact evidence ref remains at Candidate `debf6c1e`; WI-0050 later moved
+  `develop` independently to `f2cf1820`. The publication ChangeSet remains terminal(done) through
+  `accepted_without_managed_integration` with corrected attempt binding and Session lineage.
+- Next step: intentionally retain the remote validation branch as durable evidence; no cleanup is
+  planned.
 - Active blocker or decision: none.
 
 ## Implementation Evidence
@@ -131,6 +130,9 @@ remote result and finish truthfully without managed integration.
 - `debug audit changeset yszt-publish-validation-wi0048` — exit `0`; three completed real Runtime
   Runs reported 261,058 aggregate tokens and 119,974 ms total Provider duration; audit diagnostics
   were empty.
+- 2026-08-18 controller-external `git ls-remote` — exit `0`; the retained evidence ref still
+  matched `debf6c1e...` and the separately integrated `develop` matched `f2cf1820...`. The operator
+  chose retention because deletion provides no safety or cost benefit and would reduce auditability.
 - Unverified boundary: no real target fast-forward, merge request, merge, deployment, or cleanup
   ran. The exact non-target remote branch remains intentionally present and requires separate
   deletion authority.

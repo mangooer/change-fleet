@@ -38,8 +38,8 @@ implementation history.
 - [WI-0048](work-items/WI-0048-real-remote-exact-candidate-publication-validation.md) is landed. A
   one-attempt ActionGrant published exact Candidate `debf6c1e` to a named non-target ref on the real
   GitLab-backed `yszt` Repository, independently observed the exact SHA, preserved unchanged
-  `develop`, and completed without claiming integration. The validation also bound attempt limits
-  into the immutable digest and synchronized closed AgentSession Run lineage.
+  `develop`, and completed without claiming integration. Its exact remote evidence ref is
+  intentionally retained.
 - [Proposal 0034](proposals/0034-single-project-repository-ownership.md) is accepted as
   [Decision 0036](decisions/0036-single-project-repository-ownership.md): one Project owner per
   common Git store; shared membership and a global registry remain deferred.
@@ -88,7 +88,7 @@ None.
 The second-scenario validation and subsequent implementation leave these concrete gaps:
 
 - GitHub remains the only managed PR delivery provider; exact GitLab publication and target
-  fast-forward are proven, while cleanup remains separately gated and unverified;
+  fast-forward are proven;
 - empty module-level repository-Harness discovery when no root instruction file exists;
 - dependence on vendor-specific semantic commands when a target repository has no deterministic
   project check;
@@ -115,8 +115,8 @@ None.
 
 ## Next Recommended Task
 
-Decide whether to retain or separately authorize deletion of the WI-0048 remote evidence branch.
-Decision 0034's feature freezes remain.
+Use the proven path on the next real business ChangeSet; propose a new boundary only if concrete
+evidence exposes a blocker. Decision 0034's feature freezes remain.
 
 ## Maintenance Contract
 

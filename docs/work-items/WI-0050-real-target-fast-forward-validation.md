@@ -86,7 +86,8 @@ WI-0048 Candidate is continuity evidence, not the Candidate to be integrated by 
 - Last verified state: the exact 1/1 Grant fast-forwarded remote `develop` from `55bdae47...` to
   Candidate `f2cf1820...`; ChangeFleet and controller-external Git matched, the ChangeSet reached
   terminal(done), every AgentSession closed, and the local checkout remained unchanged.
-- Next step: retain the WI-0048 ref unless cleanup is separately authorized.
+- Next step: reuse the proven path for the next real business ChangeSet and retain the WI-0048 ref
+  as durable evidence.
 - Active blocker or decision: none.
 
 ## Implementation Evidence
