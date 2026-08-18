@@ -77,6 +77,8 @@ The composition root for one local ChangeFleet control environment. It resolves:
 It supports one Project across one or more Repositories rather than adopting the one-Project,
 one-Repository model documented by
 [Melty Labs Conductor](https://www.conductor.build/docs/concepts/workspaces-and-branches).
+Within one Portfolio, each resolved common Git store has one Project owner; shared Project
+membership requires a later Portfolio-level Repository registry.
 
 ### CatalogStore
 
@@ -94,6 +96,11 @@ Owns explicitly confirmed:
 Catalog policy is control-plane state. Repository-native Harness remains project-owned and is
 normally read from Git; an explicitly selected local overlay is frozen as ChangeSet evidence, not
 copied into catalog state.
+
+Catalog admission resolves each local locator to a top-level worktree and `common_git_dir`. The
+common Git directory is compared only to prevent duplicate local ownership; it remains a host
+locator, not durable Repository identity. Canonical remote is observation evidence and does not
+silently collapse distinct clones or URL aliases.
 
 ### ChangeSetStore
 
@@ -576,6 +583,8 @@ delivery_target_id = repository_id + target_ref
 ```
 
 Do not key a durable Project by an absolute path. Do not key a Candidate by a branch name.
+Use normalized `common_git_dir` only as local catalog-admission evidence so linked worktrees cannot
+create separate Project authorities over one Git store.
 
 ## Concurrency Model
 

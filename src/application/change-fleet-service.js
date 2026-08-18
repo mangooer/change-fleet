@@ -425,19 +425,21 @@ export class ChangeFleetService {
             "PROJECT_ALREADY_EXISTS",
             `Project ${project.project_id} already exists`,
           );
-          const registeredRoots = new Set(
+          const ownedCommonGitDirectories = new Set(
             Object.values(catalog.projects).flatMap((existingProject) =>
               existingProject.repositories.map((repository) =>
-                comparablePath(repository.resolved_git_root),
+                comparablePath(repository.common_git_dir),
               ),
             ),
           );
           for (const repository of repositories) {
+            const commonGitDirectory = comparablePath(repository.common_git_dir);
             invariant(
-              !registeredRoots.has(comparablePath(repository.resolved_git_root)),
+              !ownedCommonGitDirectories.has(commonGitDirectory),
               "AMBIGUOUS_SHARED_REPOSITORY",
-              `Repository ${repository.resolved_git_root} is already registered to another Project`,
+              `Common Git store ${repository.common_git_dir} is already registered to a Project`,
             );
+            ownedCommonGitDirectories.add(commonGitDirectory);
           }
           catalog.projects[project.project_id] = normalizedProject;
           return structuredClone(normalizedProject);

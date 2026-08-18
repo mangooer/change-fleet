@@ -211,9 +211,12 @@ A Project is a logical product, business system, or bounded code domain. It has:
 - a minimal verification policy defining the admission floor and bounded attempt-timeout defaults
   and maximum.
 
-A Project is not required to match one Git repository. Shared repositories may eventually
-participate in more than one Project, but the first slice may reject ambiguous registration until a
-clear authorization rule is accepted.
+A Project is not required to match one Git repository and may bind several. Within one Portfolio,
+each registered local Git store belongs to exactly one Project: the same resolved `common_git_dir`
+must not appear in another binding, including through a linked-worktree or nested-path alias.
+Paths, resolved roots, common Git-directory paths, and canonical remotes are locator evidence, not
+durable cross-host identity. Shared Project membership or transfer requires a later explicit
+Portfolio-level Repository registry and is not initially authorized.
 
 ### Repository
 
@@ -734,6 +737,10 @@ configured path
   -> default ref
   -> readiness and authorization evidence
 ```
+
+Registration compares the resolved common Git directory against every existing and concurrently
+submitted Repository binding. An already owned common Git store fails closed rather than creating a
+second Project authority. Canonical remote alone is not a uniqueness key for distinct clones.
 
 ChangeSet creation freezes commit SHAs and creates the linked isolated RepositoryWorkspaces before
 planning. Dirty files in the

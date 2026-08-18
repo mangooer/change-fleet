@@ -1,6 +1,6 @@
 # Current State
 
-Updated: 2026-08-17
+Updated: 2026-08-18
 
 This document is the current implementation projection, not a progress log. `SPEC.md` owns the
 accepted product contract, Decisions own durable rationale, and Git plus linked artifacts own exact
@@ -40,18 +40,24 @@ implementation history.
   GitLab-backed `yszt` Repository, independently observed the exact SHA, preserved unchanged
   `develop`, and completed without claiming integration. The validation also bound attempt limits
   into the immutable digest and synchronized closed AgentSession Run lineage.
+- [Proposal 0034](proposals/0034-single-project-repository-ownership.md) is accepted as
+  [Decision 0036](decisions/0036-single-project-repository-ownership.md): one Project owner per
+  common Git store; shared membership and a global registry remain deferred.
 
 ## Branch-Local Work
 
-None.
+[WI-0049](work-items/WI-0049-common-git-directory-project-ownership.md) is complete branch-locally.
+Registration now rejects existing and in-request `common_git_dir` aliases while allowing independent
+clones with one remote; selected Node.js 24 tests passed eight cases.
 
 ## Current Product Shape
 
 - One ChangeSet represents one business change and owns one persistent TaskWorkspace.
 - One TaskWorkspace owns logical AgentSessions that bind exact AgentProfile revisions, allowed Run
   purposes, and Run lineage without creating another task lifecycle.
-- A Project may contain one repository or multiple repositories. Each selected repository keeps its
-  own exact base, target, worktree, WorkUnit, Candidate, evidence, and delivery result.
+- A Project may contain one repository or multiple repositories, while each registered common Git
+  store belongs to exactly one Project. Each selected repository keeps its own exact base, target,
+  worktree, WorkUnit, Candidate, evidence, and delivery result.
 - Agent Runtimes own semantic analysis, planning, implementation, subagents, skills, and
   task-specific check selection.
 - ChangeFleet owns repository authorization, exact Git subjects, durable Runs and evidence, budgets,
@@ -82,7 +88,7 @@ The second-scenario validation and subsequent implementation leave these concret
   proven, while real target fast-forward and cleanup remain separately gated and unverified;
 - empty module-level repository-Harness discovery when no root instruction file exists;
 - dependence on vendor-specific semantic commands when a target repository has no deterministic
-  project check.
+  project check;
 
 ## Known Limitations
 
@@ -102,14 +108,12 @@ The second-scenario validation and subsequent implementation leave these concret
 
 ## Open Questions
 
-1. Whether one registered Repository may initially belong to multiple Projects.
+None.
 
 ## Next Recommended Task
 
-Discuss whether one registered Repository may initially belong to multiple Projects. Separately,
-the WI-0048 remote validation branch remains an explicit artifact until the user authorizes its
-deletion. Decision 0034's general console, audit-presentation, and Harness-overlay freezes remain
-in force.
+Review and land WI-0049. The WI-0048 remote branch remains evidence until deletion is authorized;
+Decision 0034's console, audit, and Harness-overlay freezes remain.
 
 ## Maintenance Contract
 
