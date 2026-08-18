@@ -43,12 +43,13 @@ implementation history.
 - [Proposal 0034](proposals/0034-single-project-repository-ownership.md) is accepted as
   [Decision 0036](decisions/0036-single-project-repository-ownership.md): one Project owner per
   common Git store; shared membership and a global registry remain deferred.
+- [WI-0049](work-items/WI-0049-common-git-directory-project-ownership.md) is landed. Registration
+  rejects existing and in-request `common_git_dir` aliases while allowing independent clones with
+  one remote; selected Node.js 24 tests passed eight cases.
 
 ## Branch-Local Work
 
-[WI-0049](work-items/WI-0049-common-git-directory-project-ownership.md) is complete branch-locally.
-Registration now rejects existing and in-request `common_git_dir` aliases while allowing independent
-clones with one remote; selected Node.js 24 tests passed eight cases.
+None.
 
 ## Current Product Shape
 
@@ -112,8 +113,9 @@ None.
 
 ## Next Recommended Task
 
-Review and land WI-0049. The WI-0048 remote branch remains evidence until deletion is authorized;
-Decision 0034's console, audit, and Harness-overlay freezes remain.
+Decide whether to authorize one exact real target-fast-forward validation. The WI-0048 remote branch
+remains evidence until deletion is authorized; Decision 0034's console, audit, and Harness-overlay
+freezes remain.
 
 ## Maintenance Contract
 

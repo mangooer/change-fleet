@@ -51,10 +51,10 @@ one Repository binding in a Portfolio, while independent clones remain distinct 
 
 ## Current Projection
 
-- Current subject: completed branch-local implementation on branch `main`.
+- Current subject: implementation landed on branch `main` in commit `fa2b9fd`.
 - Last verified state: registration compares normalized `common_git_dir` locators across existing
   and in-request bindings; selected Node.js 24 integration and acceptance tests pass.
-- Next step: review and land the complete Proposal 0034, Decision 0036, and WI-0049 candidate.
+- Next step: decide whether to authorize the next exact real-remote evidence task.
 - Active blocker or decision: none.
 
 ## Implementation Evidence
@@ -72,6 +72,8 @@ one Repository binding in a Portfolio, while independent clones remain distinct 
 - `C:\Users\tangyi\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe
   scripts/check-harness.mjs` and `git diff --check` — exit `0`; the Harness accepted three eager
   files and 49 WorkItems, and patch hygiene reported no error.
+- `git push origin main` — exit `0`; implementation commit `fa2b9fd` reached
+  `https://github.com/mangooer/change-fleet-agent-control.git` on `main`.
 - Unverified boundary: no migration or audit scans previously persisted catalogs; shared Project
   membership, ownership transfer, and cross-host Repository identity remain deferred.
 
